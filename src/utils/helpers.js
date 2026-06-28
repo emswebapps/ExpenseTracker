@@ -76,7 +76,13 @@ export function generateId() {
 }
 
 export function getBillsForMonth(allBills, mk) {
-  return allBills.filter((b) => b.isRecurring || b.month === mk);
+  return allBills.filter((b) => {
+    if (b.isRecurring) {
+      if (b.startMonth && mk < b.startMonth) return false;
+      return true;
+    }
+    return b.month === mk;
+  });
 }
 
 export function getIncomeForMonth(allIncome, mk) {

@@ -284,7 +284,7 @@ export default function Bills() {
       {showAdd && (
         <Modal title="Add Bill" onClose={() => setShowAdd(false)}>
           <BillForm
-            onSave={(data) => { addBill({ ...data, month: mk }); setShowAdd(false); }}
+            onSave={(data) => { addBill({ ...data, month: mk, startMonth: mk }); setShowAdd(false); }}
             onCancel={() => setShowAdd(false)}
             myName={myName}
             spouseName={spouseName}

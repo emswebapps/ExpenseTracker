@@ -812,7 +812,11 @@ export default function Purchases() {
     return p.date.startsWith(mk);
   });
 
-  const normalPerson = (p) => (p.person === 'me' ? 'aaron' : p.person);
+  const normalPerson = (p) => {
+    if (p.person === 'me') return 'aaron';
+    if (p.person === 'partner') return 'cameron';
+    return p.person;
+  };
 
   const filtered = personFilter === 'all'
     ? monthPurchases

@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { ShoppingBag, Pencil, Trash2, MoreVertical, ChevronLeft, ChevronRight, Plus, RefreshCw, ChevronDown, ChevronUp, ToggleLeft, ToggleRight, Calendar, Upload, X, AlertCircle, Download, Paperclip, CheckCircle2, Circle, Target, Folder, Handshake } from 'lucide-react';
 import { useApp } from '../context/AppContext';
@@ -275,6 +275,8 @@ function monthOffset(mk, offset) {
 
 function PurchaseRow({ purchase, onEdit, onDelete, onAttach, myName, spouseName }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [menuPos, setMenuPos] = useState({ top: 0, right: 0 });
+  const menuBtnRef = useRef(null);
   const isAaron = purchase.person === 'aaron' || purchase.person === 'me';
   const personLabel = isAaron ? (myName || 'Primary User') : (spouseName || 'Secondary User');
   const dateLabel = new Date(purchase.date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -305,13 +307,19 @@ function PurchaseRow({ purchase, onEdit, onDelete, onAttach, myName, spouseName 
         </button>
         <p style={{ fontSize: '1rem', fontWeight: '700', color: 'var(--text)' }}>{formatCurrency(purchase.amount)}</p>
         <div style={{ position: 'relative' }}>
-          <button onClick={() => setMenuOpen(!menuOpen)} style={{ padding: '0.25rem', color: 'var(--subtle)', background: 'none', border: 'none', cursor: 'pointer', borderRadius: '0.5rem' }}>
+          <button ref={menuBtnRef} onClick={() => {
+            if (!menuOpen && menuBtnRef.current) {
+              const rect = menuBtnRef.current.getBoundingClientRect();
+              setMenuPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+            }
+            setMenuOpen(!menuOpen);
+          }} style={{ padding: '0.25rem', color: 'var(--subtle)', background: 'none', border: 'none', cursor: 'pointer', borderRadius: '0.5rem' }}>
             <MoreVertical size={15} />
           </button>
           {menuOpen && (
             <>
               <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => setMenuOpen(false)} />
-              <div style={{ position: 'absolute', right: 0, zIndex: 50, backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '0.75rem', overflow: 'hidden', minWidth: '9rem', boxShadow: '0 8px 32px rgba(0,0,0,0.3)' }}>
+              <div style={{ position: 'fixed', top: menuPos.top, right: menuPos.right, zIndex: 50, backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '0.75rem', overflow: 'hidden', minWidth: '9rem', boxShadow: '0 8px 32px rgba(0,0,0,0.3)' }}>
                 <button onClick={() => { onEdit(purchase); setMenuOpen(false); }}
                   style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '0.625rem', padding: '0.875rem 1rem', fontSize: '0.875rem', color: 'var(--text)', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
                   <Pencil size={13} /> Edit
@@ -784,7 +792,7 @@ function ProjectsTab({ projects, addProject, updateProject, deleteProject }) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function Purchases() {
-  const { purchases, addPurchase, updatePurchase, deletePurchase, settings, setSettings, bills, addBill, income, recurringTemplates, addRecurringTemplate, updateRecurringTemplate, deleteRecurringTemplate, commitments, addCommitment, updateCommitment, deleteCommitment, toggleCommitment, agreements, addAgreement, updateAgreement, deleteAgreement, plannedExpenses, addPlannedExpense, updatePlannedExpense, deletePlannedExpense, savings, projects, addProject, updateProject, deleteProject } = useApp();
+  const { purchases, addPurchase, bulkAddPurchases, updatePurchase, deletePurchase, settings, setSettings, bills, addBill, income, recurringTemplates, addRecurringTemplate, updateRecurringTemplate, deleteRecurringTemplate, commitments, addCommitment, updateCommitment, deleteCommitment, toggleCommitment, agreements, addAgreement, updateAgreement, deleteAgreement, plannedExpenses, addPlannedExpense, updatePlannedExpense, deletePlannedExpense, savings, projects, addProject, updateProject, deleteProject } = useApp();
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const [planTab, setPlanTab] = useState('spending');
@@ -1187,7 +1195,7 @@ export default function Purchases() {
         <Modal title="Import Purchases" onClose={() => setShowImport(false)}>
           <ImportPurchasesModal
             onImport={(entries) => {
-              entries.forEach((e) => addPurchase(e));
+              bulkAddPurchases(entries);
               setShowImport(false);
             }}
             onCancel={() => setShowImport(false)}

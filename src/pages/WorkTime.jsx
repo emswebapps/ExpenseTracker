@@ -1079,7 +1079,13 @@ function HoursTab({ jobs, shifts, addShift, updateShift, deleteShift, bulkSaveSh
   const [editShift, setEditShift] = useState(null);
   const [calView, setCalView] = useState(true);
   const [periodOffset, setPeriodOffset] = useState(0);
-  const previousLocations = useMemo(() => [...new Set(shifts.map((s) => s.location).filter(Boolean))], [shifts]);
+  const previousLocations = useMemo(() => {
+    const seen = new Set();
+    return [...shifts]
+      .sort((a, b) => b.date.localeCompare(a.date))
+      .map((s) => s.location)
+      .filter((loc) => loc && !seen.has(loc) && seen.add(loc));
+  }, [shifts]);
 
   const recentShifts = useMemo(() =>
     [...shifts].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 30),

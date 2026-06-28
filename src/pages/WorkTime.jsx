@@ -328,7 +328,7 @@ const NOTIF_OFFSETS = [
   { label: '2 hours before', value: '120' },
 ];
 
-function ShiftForm({ initial = {}, jobs, onSave, onCancel }) {
+function ShiftForm({ initial = {}, jobs, onSave, onCancel, previousLocations = [] }) {
   const [form, setForm] = useState({
     date: today(),
     jobId: jobs[0]?.id || '',
@@ -412,8 +412,14 @@ function ShiftForm({ initial = {}, jobs, onSave, onCancel }) {
 
       <div>
         <Label>Location (optional)</Label>
+        {previousLocations.length > 0 && (
+          <datalist id="shift-locations">
+            {previousLocations.map((loc) => <option key={loc} value={loc} />)}
+          </datalist>
+        )}
         <Input placeholder="e.g. Main Station, HQ, Remote" value={form.location}
-          onChange={(e) => set('location', e.target.value)} />
+          onChange={(e) => set('location', e.target.value)}
+          list={previousLocations.length > 0 ? 'shift-locations' : undefined} />
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '0.875rem', padding: '0.75rem 1rem' }}>
@@ -1073,6 +1079,7 @@ function HoursTab({ jobs, shifts, addShift, updateShift, deleteShift, bulkSaveSh
   const [editShift, setEditShift] = useState(null);
   const [calView, setCalView] = useState(true);
   const [periodOffset, setPeriodOffset] = useState(0);
+  const previousLocations = useMemo(() => [...new Set(shifts.map((s) => s.location).filter(Boolean))], [shifts]);
 
   const recentShifts = useMemo(() =>
     [...shifts].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 30),
@@ -1332,7 +1339,7 @@ function HoursTab({ jobs, shifts, addShift, updateShift, deleteShift, bulkSaveSh
 
       {showShiftForm && (
         <Modal title="Log Shift" onClose={() => setShowShiftForm(false)}>
-          <ShiftForm initial={{ date: logDate }} jobs={jobs}
+          <ShiftForm initial={{ date: logDate }} jobs={jobs} previousLocations={previousLocations}
             onSave={(d) => { addShift(d); setShowShiftForm(false); }}
             onCancel={() => setShowShiftForm(false)} />
         </Modal>
@@ -1352,7 +1359,7 @@ function HoursTab({ jobs, shifts, addShift, updateShift, deleteShift, bulkSaveSh
       )}
       {editShift && (
         <Modal title="Edit Shift" onClose={() => setEditShift(null)}>
-          <ShiftForm initial={editShift} jobs={jobs}
+          <ShiftForm initial={editShift} jobs={jobs} previousLocations={previousLocations}
             onSave={(d) => { updateShift(editShift.id, d); setEditShift(null); }}
             onCancel={() => setEditShift(null)} />
         </Modal>
@@ -1836,6 +1843,7 @@ export function WorkTimeContent() {
           <ShiftForm
             initial={{ date: calShiftPreset.date, jobId: calShiftPreset.jobId }}
             jobs={jobs}
+            previousLocations={[...new Set(shifts.map((s) => s.location).filter(Boolean))]}
             onSave={(d) => { addShift(d); setCalShiftPreset(null); }}
             onCancel={() => setCalShiftPreset(null)}
           />

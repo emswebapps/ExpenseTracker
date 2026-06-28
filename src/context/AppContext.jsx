@@ -343,6 +343,11 @@ export function AppProvider({ children, uid }) {
 
   // ── Purchases ──
   const addPurchase = useCallback((p) => persistPurchases([{ ...p, id: p.id || generateId(), createdAt: new Date().toISOString() }, ...purchases]), [purchases, persistPurchases]);
+  const bulkAddPurchases = useCallback((items) => {
+    const now = new Date().toISOString();
+    const newItems = items.map((p) => ({ ...p, id: p.id || generateId(), createdAt: now }));
+    persistPurchases([...newItems, ...purchases]);
+  }, [purchases, persistPurchases]);
   const updatePurchase = useCallback((id, u) => persistPurchases(purchases.map((p) => p.id === id ? { ...p, ...u } : p)), [purchases, persistPurchases]);
   const deletePurchase = useCallback((id) => persistPurchases(purchases.filter((p) => p.id !== id)), [purchases, persistPurchases]);
 
@@ -890,7 +895,7 @@ export function AppProvider({ children, uid }) {
       debts, addDebt, updateDebt, deleteDebt, toggleDebtPaid,
       savings, addSaving, updateSaving, deleteSaving,
       commitments, addCommitment, updateCommitment, deleteCommitment, toggleCommitment,
-      purchases, addPurchase, updatePurchase, deletePurchase,
+      purchases, addPurchase, bulkAddPurchases, updatePurchase, deletePurchase,
       plannedExpenses, addPlannedExpense, updatePlannedExpense, deletePlannedExpense,
       jobs, addJob, updateJob, deleteJob,
       shifts, addShift, updateShift, deleteShift, bulkSaveShifts,

@@ -469,7 +469,7 @@ function ShiftForm({ initial = {}, jobs, onSave, onCancel, previousLocations = [
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', paddingTop: '0.5rem' }}>
         <button type="button" onClick={onCancel} className="app-btn-secondary">Cancel</button>
-        <button type="submit" className="app-btn-primary">Log Shift</button>
+        <button type="submit" className="app-btn-primary">{initial.id ? 'Save Changes' : 'Log Shift'}</button>
       </div>
     </form>
   );
@@ -540,7 +540,7 @@ function PayBreakdown({ result }) {
 
 // ── Shift Calendar View ───────────────────────────────────────────────────────
 
-function ShiftCalendarView({ jobs, shifts, onAddShift }) {
+function ShiftCalendarView({ jobs, shifts, onAddShift, onEditShift, onDeleteShift }) {
   const now = new Date();
   const [calYear, setCalYear] = useState(now.getFullYear());
   const [calMonth, setCalMonth] = useState(now.getMonth());
@@ -661,10 +661,18 @@ function ShiftCalendarView({ jobs, shifts, onAddShift }) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem', marginBottom: '0.625rem' }}>
               {selectedShifts.map((sh) => (
                 <div key={sh.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'var(--surface2)', borderRadius: '0.5rem', padding: '0.5rem 0.75rem' }}>
-                  <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text)' }}>{sh.jobName}</span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    {sh.otExempt && <span style={{ fontSize: '0.6rem', fontWeight: 700, color: 'var(--warn)', backgroundColor: 'rgba(245,158,11,0.15)', padding: '0.125rem 0.375rem', borderRadius: '0.375rem' }}>OT Exempt</span>}
-                    <span style={{ fontSize: '0.875rem', fontWeight: 700, color: 'var(--accent-text)' }}>{sh.hoursWorked}h</span>
+                  <div>
+                    <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text)' }}>{sh.jobName}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', marginTop: '0.125rem' }}>
+                      {sh.startTime && sh.endTime && <span style={{ fontSize: '0.75rem', color: 'var(--subtle)' }}>{sh.startTime}–{sh.endTime}</span>}
+                      {sh.location && <span style={{ fontSize: '0.75rem', color: 'var(--subtle)' }}>{sh.location}</span>}
+                      {sh.otExempt && <span style={{ fontSize: '0.6rem', fontWeight: 700, color: 'var(--warn)', backgroundColor: 'rgba(245,158,11,0.15)', padding: '0.125rem 0.375rem', borderRadius: '0.375rem' }}>OT Exempt</span>}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                    <span style={{ fontSize: '0.875rem', fontWeight: 700, color: 'var(--accent-text)', marginRight: '0.25rem' }}>{sh.hoursWorked}h</span>
+                    {onEditShift && <button onClick={() => onEditShift(sh)} style={{ padding: '0.25rem', color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer', borderRadius: '0.375rem' }}><Pencil size={13} /></button>}
+                    {onDeleteShift && <button onClick={() => onDeleteShift(sh.id)} style={{ padding: '0.25rem', color: 'var(--danger)', background: 'none', border: 'none', cursor: 'pointer', borderRadius: '0.375rem' }}><Trash2 size={13} /></button>}
                   </div>
                 </div>
               ))}
@@ -1136,6 +1144,8 @@ function HoursTab({ jobs, shifts, addShift, updateShift, deleteShift, bulkSaveSh
             jobs={jobs}
             shifts={shifts}
             onAddShift={(date) => { setLogDate(date); setShowShiftForm(true); }}
+            onEditShift={setEditShift}
+            onDeleteShift={deleteShift}
           />
           {/* Pay period earnings summary */}
           {(() => {

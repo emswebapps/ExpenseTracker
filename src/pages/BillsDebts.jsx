@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import {
   ExternalLink, MoreVertical, Pencil, Trash2,
   ChevronLeft, ChevronRight, Receipt, Info, X,
@@ -65,6 +65,8 @@ function StatusControl({ status, onSet }) {
 
 function BillCard({ bill, mk, onSetStatus, onEdit, onDelete, onAttach, myName, spouseName }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [menuPos, setMenuPos] = useState({ top: 0, right: 0 });
+  const menuBtnRef = useRef(null);
   const [showNote, setShowNote] = useState(false);
   const attachCount = (bill.attachments || []).length;
   const status = getBillStatus(bill, mk);
@@ -98,7 +100,13 @@ function BillCard({ bill, mk, onSetStatus, onEdit, onDelete, onAttach, myName, s
             <p style={{ fontSize: '1.25rem', fontWeight: 800, color: isPaid ? 'var(--positive-text)' : status === 'pending' ? 'var(--warn)' : 'var(--text)' }}>
               {formatCurrency(bill.amount)}
             </p>
-            <button onClick={() => setMenuOpen(!menuOpen)} style={{ color: 'var(--subtle)', background: 'none', border: 'none', cursor: 'pointer', padding: '0.125rem' }}>
+            <button ref={menuBtnRef} onClick={() => {
+              if (!menuOpen && menuBtnRef.current) {
+                const rect = menuBtnRef.current.getBoundingClientRect();
+                setMenuPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+              }
+              setMenuOpen(!menuOpen);
+            }} style={{ color: 'var(--subtle)', background: 'none', border: 'none', cursor: 'pointer', padding: '0.125rem' }}>
               <MoreVertical size={18} />
             </button>
           </div>
@@ -146,7 +154,7 @@ function BillCard({ bill, mk, onSetStatus, onEdit, onDelete, onAttach, myName, s
       {menuOpen && (
         <>
           <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => setMenuOpen(false)} />
-          <div style={{ position: 'absolute', right: '0.75rem', top: '3rem', zIndex: 50, backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '0.75rem', overflow: 'hidden', minWidth: '9rem', boxShadow: '0 8px 32px rgba(0,0,0,0.3)' }}>
+          <div style={{ position: 'fixed', top: menuPos.top, right: menuPos.right, zIndex: 50, backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '0.75rem', overflow: 'hidden', minWidth: '9rem', boxShadow: '0 8px 32px rgba(0,0,0,0.3)' }}>
             <button onClick={() => { onEdit(bill); setMenuOpen(false); }} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '0.625rem', padding: '0.875rem 1rem', fontSize: '0.875rem', color: 'var(--text)', background: 'none', border: 'none', cursor: 'pointer' }}>
               <Pencil size={14} /> Edit
             </button>
@@ -162,6 +170,8 @@ function BillCard({ bill, mk, onSetStatus, onEdit, onDelete, onAttach, myName, s
 
 function DebtCard({ debt, month, onTogglePaid, onEdit, onDelete, myName, spouseName }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [menuPos, setMenuPos] = useState({ top: 0, right: 0 });
+  const menuBtnRef = useRef(null);
   const isPaid = (debt.paidMonths || {})[month];
 
   return (
@@ -189,13 +199,19 @@ function DebtCard({ debt, month, onTogglePaid, onEdit, onDelete, myName, spouseN
             <p style={{ fontSize: '0.75rem', color: 'var(--subtle)' }}>min/mo</p>
           </div>
           <div style={{ position: 'relative' }}>
-            <button onClick={() => setMenuOpen(!menuOpen)} style={{ color: 'var(--subtle)', background: 'none', border: 'none', cursor: 'pointer', padding: '0.25rem' }}>
+            <button ref={menuBtnRef} onClick={() => {
+              if (!menuOpen && menuBtnRef.current) {
+                const rect = menuBtnRef.current.getBoundingClientRect();
+                setMenuPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+              }
+              setMenuOpen(!menuOpen);
+            }} style={{ color: 'var(--subtle)', background: 'none', border: 'none', cursor: 'pointer', padding: '0.25rem' }}>
               <MoreVertical size={18} />
             </button>
             {menuOpen && (
               <>
                 <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => setMenuOpen(false)} />
-                <div style={{ position: 'absolute', right: 0, zIndex: 50, backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '0.75rem', overflow: 'hidden', minWidth: '9rem', boxShadow: '0 8px 32px rgba(0,0,0,0.3)' }}>
+                <div style={{ position: 'fixed', top: menuPos.top, right: menuPos.right, zIndex: 50, backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '0.75rem', overflow: 'hidden', minWidth: '9rem', boxShadow: '0 8px 32px rgba(0,0,0,0.3)' }}>
                   <button onClick={() => { onEdit(debt); setMenuOpen(false); }} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '0.625rem', padding: '0.875rem 1rem', fontSize: '0.875rem', color: 'var(--text)', background: 'none', border: 'none', cursor: 'pointer' }}><Pencil size={14} /> Edit</button>
                   <button onClick={() => { onDelete(debt.id); setMenuOpen(false); }} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '0.625rem', padding: '0.875rem 1rem', fontSize: '0.875rem', color: 'var(--danger)', background: 'none', border: 'none', cursor: 'pointer' }}><Trash2 size={14} /> Delete</button>
                 </div>
@@ -1102,7 +1118,7 @@ export default function BillsDebts() {
 
       {showAddBill && (
         <Modal title="Add Bill" onClose={() => setShowAddBill(false)}>
-          <BillForm onSave={(data) => { addBill({ ...data, month: mk }); setShowAddBill(false); }} onCancel={() => setShowAddBill(false)} myName={myName} spouseName={spouseName} />
+          <BillForm onSave={(data) => { addBill({ ...data, month: mk, startMonth: mk }); setShowAddBill(false); }} onCancel={() => setShowAddBill(false)} myName={myName} spouseName={spouseName} />
         </Modal>
       )}
       {editBill && (

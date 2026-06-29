@@ -76,7 +76,13 @@ export function generateId() {
 }
 
 export function getBillsForMonth(allBills, mk) {
-  return allBills.filter((b) => b.isRecurring || b.month === mk);
+  return allBills.filter((b) => {
+    if (b.isRecurring) {
+      if (b.startMonth && mk < b.startMonth) return false;
+      return true;
+    }
+    return b.month === mk;
+  });
 }
 
 export function getIncomeForMonth(allIncome, mk) {
@@ -279,12 +285,11 @@ ${inc('bills') && bills.length ? section('Bills', table(
 )) : ''}
 
 ${inc('income') && income.length ? section('Income', table(
-  ['Name', 'Amount', 'Frequency', 'Person'],
+  ['Name', 'Amount', 'Frequency'],
   income.map((i) => [
-    i.name,
+    i.source || i.name || '—',
     `<span class="amount amount-pos">${fmt(i.amount)}</span>`,
     i.frequency || '—',
-    personName(i.person),
   ])
 )) : ''}
 

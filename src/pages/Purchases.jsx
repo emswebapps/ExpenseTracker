@@ -160,11 +160,16 @@ function parsePurchaseText(text) {
   return results;
 }
 
-function ImportPurchasesModal({ onImport, onCancel, myName, spouseName }) {
+function ImportPurchasesModal({ onImport, onCancel, myName, spouseName, existingPurchases = [] }) {
   const [person, setPerson] = useState('me');
   const [text, setText] = useState('');
   const [parsed, setParsed] = useState(null);
   const [error, setError] = useState('');
+  const [defaultCategory, setDefaultCategory] = useState('Other');
+
+  const isDuplicate = (e) => existingPurchases.some(
+    (p) => p.date === e.date && p.merchant === e.merchant && Math.abs(p.amount - e.amount) < 0.01
+  );
 
   const handleParse = () => {
     const entries = parsePurchaseText(text);
@@ -180,7 +185,7 @@ function ImportPurchasesModal({ onImport, onCancel, myName, spouseName }) {
 
   const handleImport = () => {
     if (!parsed?.length) return;
-    onImport(parsed.map((e) => ({ ...e, person, category: 'Other' })));
+    onImport(parsed.map((e) => ({ ...e, person, category: defaultCategory })));
   };
 
   const personLabels = [['me', myName || 'Me'], ['cameron', spouseName || 'Partner']];
@@ -237,19 +242,34 @@ function ImportPurchasesModal({ onImport, onCancel, myName, spouseName }) {
             <button onClick={() => setParsed(null)} style={{ fontSize: '0.8125rem', color: 'var(--accent-text)', background: 'none', border: 'none', cursor: 'pointer', fontWeight: '600' }}>← Edit text</button>
           </div>
 
+          {/* Category picker */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
+            <label className="app-label" style={{ margin: 0, flexShrink: 0 }}>Category</label>
+            <select value={defaultCategory} onChange={(e) => setDefaultCategory(e.target.value)}
+              className="app-input" style={{ flex: 1, margin: 0 }}>
+              {PURCHASE_CATEGORIES.map((c) => <option key={c}>{c}</option>)}
+            </select>
+          </div>
+
           <div style={{ backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '0.875rem', overflow: 'hidden', maxHeight: '16rem', overflowY: 'auto' }}>
-            {parsed.map((e, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.625rem 0.875rem', borderBottom: i < parsed.length - 1 ? '1px solid var(--border)' : 'none' }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{ fontSize: '0.875rem', fontWeight: '600', color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.merchant}</p>
-                  <p style={{ fontSize: '0.7rem', color: 'var(--subtle)' }}>{e.date}</p>
+            {parsed.map((e, i) => {
+              const dup = isDuplicate(e);
+              return (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.625rem 0.875rem', borderBottom: i < parsed.length - 1 ? '1px solid var(--border)' : 'none', backgroundColor: dup ? 'rgba(245,158,11,0.06)' : 'transparent' }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                      <p style={{ fontSize: '0.875rem', fontWeight: '600', color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.merchant}</p>
+                      {dup && <span style={{ fontSize: '0.6rem', fontWeight: '700', color: 'var(--warn)', backgroundColor: 'rgba(245,158,11,0.15)', padding: '0.1rem 0.35rem', borderRadius: '0.3rem', flexShrink: 0 }}>DUP</span>}
+                    </div>
+                    <p style={{ fontSize: '0.7rem', color: 'var(--subtle)' }}>{e.date}</p>
+                  </div>
+                  <p style={{ fontSize: '0.9375rem', fontWeight: '700', color: 'var(--text)', flexShrink: 0 }}>${e.amount.toFixed(2)}</p>
+                  <button onClick={() => removeEntry(i)} style={{ padding: '0.25rem', color: 'var(--subtle)', background: 'none', border: 'none', cursor: 'pointer', flexShrink: 0 }}>
+                    <X size={14} />
+                  </button>
                 </div>
-                <p style={{ fontSize: '0.9375rem', fontWeight: '700', color: 'var(--text)', flexShrink: 0 }}>${e.amount.toFixed(2)}</p>
-                <button onClick={() => removeEntry(i)} style={{ padding: '0.25rem', color: 'var(--subtle)', background: 'none', border: 'none', cursor: 'pointer', flexShrink: 0 }}>
-                  <X size={14} />
-                </button>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           {parsed.length === 0 ? (
@@ -1184,7 +1204,7 @@ export default function Purchases() {
         <Modal title="Add as Bill" onClose={() => setAddRecurringBill(null)}>
           <BillForm
             initial={{ name: addRecurringBill.name, amount: addRecurringBill.amount, isRecurring: true }}
-            onSave={(data) => { addBill(data); setAddRecurringBill(null); }}
+            onSave={(data) => { addBill({ ...data, month: mk, startMonth: mk }); setAddRecurringBill(null); }}
             onCancel={() => setAddRecurringBill(null)}
             myName={myName}
             spouseName={spouseName}
@@ -1199,6 +1219,7 @@ export default function Purchases() {
               setShowImport(false);
             }}
             onCancel={() => setShowImport(false)}
+            existingPurchases={purchases}
             myName={myName}
             spouseName={spouseName}
           />

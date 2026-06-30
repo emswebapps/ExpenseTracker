@@ -86,9 +86,8 @@ function IncomeCard({ item, onEdit, onDelete, onAttach, spouseEnabled, spouseNam
 }
 
 export default function Income() {
-  const { income, addIncome, updateIncome, deleteIncome, settings } = useApp();
+  const { income, addIncome, updateIncome, deleteIncome, settings, selectedMonth: mk, setSelectedMonth: setMk } = useApp();
   const { user } = useAuth();
-  const [mk, setMk] = useState(() => monthKey(new Date()));
   const [showAdd, setShowAdd] = useState(false);
   const [editItem, setEditItem] = useState(null);
   const [attachItemId, setAttachItemId] = useState(null);

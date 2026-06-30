@@ -874,8 +874,7 @@ function mkShift(mk, offset) {
 }
 
 function CashFlowContent() {
-  const { income, bills } = useApp();
-  const [mk, setMk] = useState(() => monthKey(new Date()));
+  const { income, bills, selectedMonth: mk, setSelectedMonth: setMk } = useApp();
 
   const payEvents = useMemo(() => {
     const [y, m] = mk.split('-').map(Number);

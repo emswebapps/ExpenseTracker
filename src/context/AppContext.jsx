@@ -51,6 +51,9 @@ export function AppProvider({ children, uid }) {
   const [vaultDocuments, setVaultDocumentsState] = useState(() => storage.getVaultDocuments());
   const [cloudLoaded, setCloudLoaded] = useState(false);
   const [testMode, setTestMode] = useState(false);
+  // Selected month shared across all pages so toggling the month on one page
+  // (e.g. Bills) carries over to every other page (Dashboard, Income, etc.)
+  const [selectedMonth, setSelectedMonth] = useState(() => currentMonthKey());
   const testModeRef = useRef(false);
   const testModeSnapshot = useRef(null);
 
@@ -888,6 +891,7 @@ export function AppProvider({ children, uid }) {
   return (
     <AppContext.Provider value={{
       cloudLoaded,
+      selectedMonth, setSelectedMonth,
       bills, addBill, updateBill, deleteBill, toggleBillPaid, setBillStatusDirect,
       income, addIncome, updateIncome, deleteIncome,
       budget, setBudgetForMonth,

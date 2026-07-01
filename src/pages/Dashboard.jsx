@@ -13,7 +13,7 @@ import { useApp } from '../context/AppContext';
 import {
   formatCurrency, monthKey, monthLabel, getBillsForMonth, getIncomeForMonth,
   getPayDatesForMonth, getNextPayDate, getBillStatus, isBillOverdueUnpaid,
-  isReminderOverdue, isReminderSoon, formatDate, getSpendingHistory, getCategoryTotals,
+  isReminderOverdue, isReminderSoon, formatDate, formatTime12, getSpendingHistory, getCategoryTotals,
 } from '../utils/helpers';
 import Modal from '../components/Modal';
 import SavingsForm from '../components/SavingsForm';
@@ -141,8 +141,8 @@ function CommitmentRow({ commitment, onToggle, onEdit, onDelete, myLabel, partne
 function PinnedNoteCard({ note, billName }) {
   const [expanded, setExpanded] = useState(false);
   const isLong = note.content.length > 120;
-  const overdue = isReminderOverdue(note.reminderDate);
-  const soon = !overdue && isReminderSoon(note.reminderDate);
+  const overdue = isReminderOverdue(note.reminderDate, note.reminderTime);
+  const soon = !overdue && isReminderSoon(note.reminderDate, note.reminderTime);
 
   const borderColor = overdue ? 'var(--danger)' : soon ? 'var(--warn)' : 'var(--border)';
   const bgColor = overdue ? 'rgba(239,68,68,0.05)' : soon ? 'rgba(245,158,11,0.05)' : 'var(--surface)';
@@ -151,7 +151,7 @@ function PinnedNoteCard({ note, billName }) {
     <div style={{ borderRadius: '0.75rem', border: `1px solid ${borderColor}`, padding: '0.875rem', backgroundColor: bgColor }}>
       {note.reminderDate && (
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.75rem', marginBottom: '0.5rem', color: overdue ? 'var(--danger)' : soon ? 'var(--warn)' : 'var(--subtle)' }}>
-          <Bell size={11} /> {overdue ? 'Overdue: ' : soon ? 'Due soon: ' : ''}{formatDate(note.reminderDate)}
+          <Bell size={11} /> {overdue ? 'Overdue: ' : soon ? 'Due soon: ' : ''}{formatDate(note.reminderDate)}{note.reminderTime ? ` at ${formatTime12(note.reminderTime)}` : ''}
         </div>
       )}
       {note.title && <p style={{ fontWeight: '700', fontSize: '0.875rem', color: 'var(--text)', marginBottom: '0.25rem' }}>{note.title}</p>}

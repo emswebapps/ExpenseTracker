@@ -151,16 +151,27 @@ export function formatDate(dateStr) {
   return new Date(dateStr + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-export function isReminderOverdue(reminderDate) {
-  if (!reminderDate) return false;
-  return new Date(reminderDate + 'T23:59:59') < new Date();
+export function formatTime12(timeStr) {
+  if (!timeStr) return '';
+  const [h, m] = timeStr.split(':').map(Number);
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${ampm}`;
 }
 
-export function isReminderSoon(reminderDate) {
-  if (!reminderDate) return false;
-  const d = new Date(reminderDate + 'T23:59:59');
-  const now = new Date();
-  const diff = (d - now) / (1000 * 60 * 60 * 24);
+export function reminderMs(reminderDate, reminderTime) {
+  if (!reminderDate) return null;
+  return new Date(`${reminderDate}T${reminderTime || '23:59'}:00`).getTime();
+}
+
+export function isReminderOverdue(reminderDate, reminderTime) {
+  const ms = reminderMs(reminderDate, reminderTime);
+  return ms != null && ms < Date.now();
+}
+
+export function isReminderSoon(reminderDate, reminderTime) {
+  const ms = reminderMs(reminderDate, reminderTime);
+  if (ms == null) return false;
+  const diff = (ms - Date.now()) / (1000 * 60 * 60 * 24);
   return diff >= 0 && diff <= 3;
 }
 

@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import { storage } from '../utils/storage';
 import { saveUserData, loadUserData, saveSharedView, saveFCMToken } from '../utils/firestoreSync';
-import { generateId, currentMonthKey, getBillStatus, nextBillStatus } from '../utils/helpers';
+import { generateId, currentMonthKey, getBillStatus, nextBillStatus, reminderMs } from '../utils/helpers';
 import { notificationPermission, requestNotificationPermission, sendNotification, getDueDateMs, registerFCMToken, onForegroundMessage, scheduleShiftNotification, cancelShiftNotification } from '../utils/notifications';
 
 const AppContext = createContext(null);
@@ -717,6 +717,32 @@ export function AppProvider({ children, uid }) {
     });
     return () => Object.values(timers).forEach(clearTimeout);
   }, [shoppingItems, shoppingLists, notifPrefs.todos]);
+
+  // ── Note reminder notifications ──
+  const noteNotifiedRef = useRef(new Set());
+  useEffect(() => {
+    if (notificationPermission() !== 'granted') return;
+    const timers = {};
+    const now = Date.now();
+    notes.filter((n) => n.reminderDate).forEach((note) => {
+      const dueMs = reminderMs(note.reminderDate, note.reminderTime);
+      if (!dueMs) return;
+      const key = `${note.id}:${dueMs}`;
+      if (noteNotifiedRef.current.has(key)) return;
+      const delay = dueMs - now;
+      const body = note.content?.length > 120 ? note.content.slice(0, 120) + '…' : note.content;
+      if (delay <= 0) {
+        noteNotifiedRef.current.add(key);
+        sendNotification(`Note reminder: ${note.title || 'Reminder'}`, { body, tag: `note-${note.id}` });
+      } else if (delay < 7 * 24 * 60 * 60 * 1000) {
+        timers[note.id] = setTimeout(() => {
+          noteNotifiedRef.current.add(key);
+          sendNotification(`Note reminder: ${note.title || 'Reminder'}`, { body, tag: `note-${note.id}` });
+        }, Math.min(delay, 2147483647));
+      }
+    });
+    return () => Object.values(timers).forEach(clearTimeout);
+  }, [notes]);
 
   // ── To-Do daily list reminders (morning + afternoon) ──
   const todoListTimersRef = useRef({ morning: null, afternoon: null });

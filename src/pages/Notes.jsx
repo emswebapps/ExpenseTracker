@@ -1,17 +1,26 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Pin, PinOff, Pencil, Trash2, MoreVertical, NotebookPen,
   X, Bell, Link, LayoutDashboard, AlertCircle, Plus,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import Modal from '../components/Modal';
-import { timeAgo, isReminderOverdue, isReminderSoon, formatDate } from '../utils/helpers';
+import { timeAgo, isReminderOverdue, isReminderSoon, formatDate, formatTime12 } from '../utils/helpers';
+import { notificationPermission, requestNotificationPermission } from '../utils/notifications';
 
 function NoteForm({ initial = {}, onSave, onCancel, bills = [] }) {
   const [title, setTitle] = useState(initial.title || '');
   const [content, setContent] = useState(initial.content || '');
   const [reminderDate, setReminderDate] = useState(initial.reminderDate || '');
+  const [reminderTime, setReminderTime] = useState(initial.reminderTime || '');
   const [linkedBillId, setLinkedBillId] = useState(initial.linkedBillId || '');
+  const [permWarning, setPermWarning] = useState(false);
+
+  useEffect(() => {
+    if (!reminderDate) return;
+    if (notificationPermission() === 'granted') { setPermWarning(false); return; }
+    requestNotificationPermission().then((perm) => setPermWarning(perm !== 'granted'));
+  }, [reminderDate]);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -20,6 +29,7 @@ function NoteForm({ initial = {}, onSave, onCancel, bills = [] }) {
       title: title.trim(),
       content: content.trim(),
       reminderDate: reminderDate || null,
+      reminderTime: reminderDate ? (reminderTime || null) : null,
       linkedBillId: linkedBillId || null,
     });
   };
@@ -50,14 +60,36 @@ function NoteForm({ initial = {}, onSave, onCancel, bills = [] }) {
       </div>
       <div>
         <label className="app-label" style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
-          <Bell size={13} /> Reminder date <span style={{ color: 'var(--subtle)' }}>(optional)</span>
+          <Bell size={13} /> Reminder <span style={{ color: 'var(--subtle)' }}>(optional)</span>
         </label>
-        <input
-          type="date"
-          className="app-input"
-          value={reminderDate}
-          onChange={(e) => setReminderDate(e.target.value)}
-        />
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <input
+            type="date"
+            className="app-input"
+            value={reminderDate}
+            onChange={(e) => setReminderDate(e.target.value)}
+            style={{ flex: 1 }}
+          />
+          {reminderDate && (
+            <input
+              type="time"
+              className="app-input"
+              value={reminderTime}
+              onChange={(e) => setReminderTime(e.target.value)}
+              style={{ flex: 1 }}
+            />
+          )}
+        </div>
+        {reminderDate && !permWarning && (
+          <p style={{ fontSize: '0.75rem', color: 'var(--subtle)', marginTop: '0.375rem' }}>
+            We'll push a notification {reminderTime ? `at ${formatTime12(reminderTime)}` : 'at the end of the day'} on {formatDate(reminderDate)}.
+          </p>
+        )}
+        {permWarning && (
+          <p style={{ fontSize: '0.75rem', color: 'var(--warn)', marginTop: '0.375rem' }}>
+            Notifications are blocked — enable them in your browser settings to get this reminder pushed.
+          </p>
+        )}
       </div>
       {bills.length > 0 && (
         <div>
@@ -90,8 +122,8 @@ function NoteCard({ note, onEdit, onDelete, onPin, onDashboardPin, linkedBillNam
   const isLong = note.content.length > 200;
   const displayContent = isLong && !expanded ? note.content.slice(0, 200) + '…' : note.content;
 
-  const overdue = isReminderOverdue(note.reminderDate);
-  const soon = !overdue && isReminderSoon(note.reminderDate);
+  const overdue = isReminderOverdue(note.reminderDate, note.reminderTime);
+  const soon = !overdue && isReminderSoon(note.reminderDate, note.reminderTime);
 
   const borderColor = note.pinnedToDashboard
     ? 'var(--accent)'
@@ -125,7 +157,7 @@ function NoteCard({ note, onEdit, onDelete, onPin, onDashboardPin, linkedBillNam
           border: `1px solid ${overdue ? 'var(--danger)' : soon ? 'var(--warn)' : 'var(--border)'}`,
         }}>
           {overdue ? <AlertCircle size={11} /> : <Bell size={11} />}
-          <span>{overdue ? 'Overdue: ' : soon ? 'Soon: ' : ''}{formatDate(note.reminderDate)}</span>
+          <span>{overdue ? 'Overdue: ' : soon ? 'Soon: ' : ''}{formatDate(note.reminderDate)}{note.reminderTime ? ` at ${formatTime12(note.reminderTime)}` : ''}</span>
         </div>
       )}
 

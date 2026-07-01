@@ -15,6 +15,18 @@ export function currentMonthKey() {
   return monthKey(new Date());
 }
 
+// ── First/last day (YYYY-MM-DD) of the month containing `date` ──
+export function getMonthBounds(date = new Date()) {
+  const pad = (n) => String(n).padStart(2, '0');
+  const y = date.getFullYear();
+  const m = date.getMonth();
+  const lastDay = new Date(y, m + 1, 0).getDate();
+  return {
+    start: `${y}-${pad(m + 1)}-01`,
+    end: `${y}-${pad(m + 1)}-${pad(lastDay)}`,
+  };
+}
+
 export function getDueDateLabel(dayOfMonth) {
   if (!dayOfMonth) return '';
   const today = new Date().getDate();
@@ -205,10 +217,27 @@ export function exportAllData({ bills, income, debts, savings, purchases }) {
   if (purchases.length) exportToCSV(purchases.map((p) => ({ date: p.date, merchant: p.merchant, amount: p.amount, category: p.category, person: p.person, notes: p.notes || '' })), `spending-${ts}.csv`);
 }
 
-export function exportAsHTML({ bills, income, debts, savings, purchases, commitments = [], plannedExpenses = [], agreements = [], projects = [], budgetCategories = [], budgetSpends = [], shoppingLists = [], shoppingItems = [], shifts = [], jobs = [], settings = {}, mk = null, include = null }) {
+export function exportAsHTML({ bills, income, debts, savings, purchases, commitments = [], plannedExpenses = [], agreements = [], projects = [], budgetCategories = [], budgetSpends = [], shoppingLists = [], shoppingItems = [], shifts = [], jobs = [], settings = {}, startDate = null, endDate = null, include = null }) {
   const ts = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
   const fmt = (n) => '$' + (n ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const inc = (key) => !include || include.includes(key);
+
+  const defaultBounds = getMonthBounds(new Date());
+  const rangeStart = startDate || defaultBounds.start;
+  const rangeEnd = endDate || defaultBounds.end;
+  const startMk = rangeStart.slice(0, 7);
+  const endMk = rangeEnd.slice(0, 7);
+  const inRange = (d) => !!d && d >= rangeStart && d <= rangeEnd;
+
+  const rangeLabel = startMk === endMk
+    ? monthLabel(startMk)
+    : `${new Date(rangeStart + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} – ${new Date(rangeEnd + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+
+  // "/" in a download filename gets treated as a path separator by some browsers, so MM/YY becomes MM-YY on disk.
+  const mmYY = (mk) => `${mk.slice(5, 7)}-${mk.slice(2, 4)}`;
+  const fileLabel = startMk === endMk ? mmYY(startMk) : `${mmYY(startMk)} to ${mmYY(endMk)}`;
+
+  const monthPurchases = purchases.filter((p) => inRange(p.date));
 
   const myName = settings.myName || 'Primary User';
   const spouseName = settings.spouseName || 'Secondary User';
@@ -240,7 +269,7 @@ export function exportAsHTML({ bills, income, debts, savings, purchases, commitm
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Expense Tracker Export — ${ts}</title>
+<title>Monthly Expense Report — ${rangeLabel}</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 13px; color: #111; background: #fff; padding: 2rem; }
@@ -269,8 +298,8 @@ export function exportAsHTML({ bills, income, debts, savings, purchases, commitm
 </style>
 </head>
 <body>
-<h1>Expense Tracker</h1>
-<p class="subtitle">Exported on ${ts}</p>
+<h1>Monthly Expense Report</h1>
+<p class="subtitle">${rangeLabel} · Exported on ${ts}</p>
 
 ${inc('bills') && bills.length ? section('Bills', table(
   ['Name', 'Amount', 'Category', 'Owner', 'Due Day', 'Recurring'],
@@ -359,9 +388,9 @@ ${inc('projects') && projects.length ? section('Projects', table(
   ])
 )) : ''}
 
-${inc('purchases') && purchases.length ? section('Spending', table(
+${inc('purchases') && monthPurchases.length ? section('Spending', table(
   ['Date', 'Merchant', 'Amount', 'Category', 'By', 'Notes'],
-  purchases.map((p) => [
+  monthPurchases.map((p) => [
     p.date || '—',
     p.merchant || '—',
     `<span class="amount amount-neg">${fmt(p.amount)}</span>`,
@@ -372,7 +401,10 @@ ${inc('purchases') && purchases.length ? section('Spending', table(
 )) : ''}
 
 ${inc('budget') && budgetCategories.length ? (() => {
-  const monthSpends = budgetSpends.filter((s) => !mk || (s.month || s.monthKey) === mk);
+  const monthSpends = budgetSpends.filter((s) => {
+    const m = s.month || s.monthKey;
+    return m && m >= startMk && m <= endMk;
+  });
   const rows = budgetCategories.map((cat) => {
     const spent = monthSpends.filter((s) => s.categoryId === cat.id).reduce((sum, s) => sum + (s.amount || 0), 0);
     const remaining = (cat.monthlyLimit || 0) - spent;
@@ -416,7 +448,7 @@ ${inc('lists') && shoppingLists.length ? (() => {
 })() : ''}
 
 ${inc('shifts') && shifts.length ? (() => {
-  const displayShifts = mk ? shifts.filter((s) => s.date && s.date.startsWith(mk)) : [...shifts];
+  const displayShifts = shifts.filter((s) => inRange(s.date));
   if (displayShifts.length === 0) return '';
   displayShifts.sort((a, b) => a.date.localeCompare(b.date));
   const fmtTime = (t) => {
@@ -454,7 +486,7 @@ ${inc('shifts') && shifts.length ? (() => {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `expense-tracker-${new Date().toISOString().slice(0, 10)}.html`;
+  a.download = `Monthly Expense Report - ${fileLabel}.html`;
   a.click();
   URL.revokeObjectURL(url);
 }

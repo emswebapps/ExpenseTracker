@@ -4,7 +4,7 @@ import { User, Trash2, AlertTriangle, Wallet, PiggyBank, DollarSign, Sun, Moon, 
 import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
 import Modal from '../components/Modal';
-import { formatCurrency, exportAllData, exportAsHTML, exportJobScheduleHTML } from '../utils/helpers';
+import { formatCurrency, exportAllData, exportAsHTML, exportJobScheduleHTML, getMonthBounds } from '../utils/helpers';
 import { notificationPermission, sendNotification } from '../utils/notifications';
 
 const ALL_EXPORT_CATS = [
@@ -44,6 +44,8 @@ export default function Settings() {
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [saved, setSaved] = useState(false);
   const [exportCats, setExportCats] = useState(() => ALL_EXPORT_CATS.map((c) => c.key));
+  const [exportStartDate, setExportStartDate] = useState(() => getMonthBounds().start);
+  const [exportEndDate, setExportEndDate] = useState(() => getMonthBounds().end);
   const [shareLoading, setShareLoading] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
   const [shareError, setShareError] = useState('');
@@ -511,9 +513,24 @@ export default function Settings() {
               );
             })}
           </div>
+          <div style={{ marginBottom: '1rem' }}>
+            <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginBottom: '0.375rem' }}>
+              HTML report date range <span style={{ color: 'var(--subtle)' }}>(spending, shifts &amp; budget — defaults to this month only)</span>
+            </p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <input type="date" value={exportStartDate} onChange={(e) => setExportStartDate(e.target.value)} className="app-input" style={{ flex: '1 1 8rem' }} />
+              <span style={{ color: 'var(--muted)', fontSize: '0.8125rem' }}>to</span>
+              <input type="date" value={exportEndDate} onChange={(e) => setExportEndDate(e.target.value)} className="app-input" style={{ flex: '1 1 8rem' }} />
+              <button
+                onClick={() => { const b = getMonthBounds(); setExportStartDate(b.start); setExportEndDate(b.end); }}
+                style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--accent-text)', background: 'transparent', border: 'none', cursor: 'pointer', padding: '0.25rem 0.5rem' }}>
+                This Month
+              </button>
+            </div>
+          </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
             <button
-              onClick={() => exportAsHTML({ bills, income, debts, savings, purchases, commitments, plannedExpenses, agreements, projects, budgetCategories, budgetSpends, shoppingLists, shoppingItems, shifts, jobs, settings, include: exportCats })}
+              onClick={() => exportAsHTML({ bills, income, debts, savings, purchases, commitments, plannedExpenses, agreements, projects, budgetCategories, budgetSpends, shoppingLists, shoppingItems, shifts, jobs, settings, startDate: exportStartDate, endDate: exportEndDate, include: exportCats })}
               className="flex items-center gap-2 text-sm font-semibold"
               style={{ color: '#fff', border: 'none', padding: '0.625rem 1rem', borderRadius: '0.75rem', backgroundColor: 'var(--accent)', cursor: 'pointer' }}>
               <Download size={14} /> Export to HTML (Printable)

@@ -49,6 +49,7 @@ export function AppProvider({ children, uid }) {
   const [fcmToken, setFcmToken] = useState(() => localStorage.getItem('bt_fcm_token') || null);
   const [projects, setProjectsState] = useState(() => storage.getProjects());
   const [vaultDocuments, setVaultDocumentsState] = useState(() => storage.getVaultDocuments());
+  const [billStickyNotes, setBillStickyNotesState] = useState(() => storage.getBillStickyNotes());
   const [cloudLoaded, setCloudLoaded] = useState(false);
   const [testMode, setTestMode] = useState(false);
   // Selected month shared across all pages so toggling the month on one page
@@ -59,7 +60,7 @@ export function AppProvider({ children, uid }) {
 
   // Use refs to always have fresh values for the save function
   const stateRef = useRef({});
-  stateRef.current = { bills, income, budget, settings, notes, debts, savings, commitments, purchases, plannedExpenses, jobs, shifts, budgetCategories, budgetSpends, agreements, shoppingLists, shoppingItems, planningSettings, recurringTemplates, paycheckActuals, notifPrefs, fcmToken, projects, vaultDocuments };
+  stateRef.current = { bills, income, budget, settings, notes, debts, savings, commitments, purchases, plannedExpenses, jobs, shifts, budgetCategories, budgetSpends, agreements, shoppingLists, shoppingItems, planningSettings, recurringTemplates, paycheckActuals, notifPrefs, fcmToken, projects, vaultDocuments, billStickyNotes };
 
   // Load from Firestore on login
   useEffect(() => {
@@ -101,6 +102,7 @@ export function AppProvider({ children, uid }) {
         if (data.fcmToken && !fcmToken) { setFcmToken(data.fcmToken); localStorage.setItem('bt_fcm_token', data.fcmToken); }
         if (data.projects) { setProjectsState(data.projects); storage.setProjects(data.projects); }
         if (data.vaultDocuments) { setVaultDocumentsState(data.vaultDocuments); storage.setVaultDocuments(data.vaultDocuments); }
+        if (data.billStickyNotes) { setBillStickyNotesState(data.billStickyNotes); storage.setBillStickyNotes(data.billStickyNotes); }
       } else {
         // First login — upload existing localStorage data to Firestore
         saveUserData(uid, stateRef.current);
@@ -209,6 +211,11 @@ export function AppProvider({ children, uid }) {
     if (!testModeRef.current) { storage.setVaultDocuments(next); debouncedSync({ vaultDocuments: next }); }
   }, [debouncedSync]);
 
+  const persistBillStickyNotes = useCallback((next) => {
+    setBillStickyNotesState(next);
+    if (!testModeRef.current) { storage.setBillStickyNotes(next); debouncedSync({ billStickyNotes: next }); }
+  }, [debouncedSync]);
+
   const enterTestMode = useCallback(() => {
     testModeSnapshot.current = { ...stateRef.current };
     testModeRef.current = true;
@@ -241,6 +248,7 @@ export function AppProvider({ children, uid }) {
       setNotifPrefsState(snap.notifPrefs); storage.setNotifPrefs(snap.notifPrefs);
       setProjectsState(snap.projects); storage.setProjects(snap.projects);
       if (snap.vaultDocuments) { setVaultDocumentsState(snap.vaultDocuments); storage.setVaultDocuments(snap.vaultDocuments); }
+      if (snap.billStickyNotes) { setBillStickyNotesState(snap.billStickyNotes); storage.setBillStickyNotes(snap.billStickyNotes); }
       testModeSnapshot.current = null;
     }
     testModeRef.current = false;
@@ -569,6 +577,14 @@ export function AppProvider({ children, uid }) {
   const deleteVaultDocument = useCallback((id) => persistVaultDocuments(
     vaultDocuments.filter((d) => d.id !== id)
   ), [vaultDocuments, persistVaultDocuments]);
+
+  // ── Bill Sticky Notes (per month) ──
+  const setBillStickyNote = useCallback((mk, patch) => {
+    persistBillStickyNotes({
+      ...billStickyNotes,
+      [mk]: { ...billStickyNotes[mk], ...patch, updatedAt: new Date().toISOString() },
+    });
+  }, [billStickyNotes, persistBillStickyNotes]);
 
   // ── Projects ──
   const addProject = useCallback((p) => persistProjects([
@@ -916,6 +932,7 @@ export function AppProvider({ children, uid }) {
       notifPrefs, persistNotifPrefs, fcmToken, enablePushNotifications,
       projects, addProject, updateProject, deleteProject,
       vaultDocuments, addVaultDocument, updateVaultDocument, deleteVaultDocument,
+      billStickyNotes, setBillStickyNote,
       testMode, enterTestMode, exitTestMode,
     }}>
       {children}

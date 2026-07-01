@@ -23,6 +23,7 @@ const KEYS = {
   NOTIF_PREFS: 'bt_notif_prefs',
   PROJECTS: 'bt_projects',
   VAULT_DOCUMENTS: 'bt_vault_docs',
+  BILL_STICKY_NOTES: 'bt_bill_sticky_notes',
 };
 
 function get(key) {
@@ -131,6 +132,9 @@ export const storage = {
 
   getVaultDocuments: () => get(KEYS.VAULT_DOCUMENTS) || [],
   setVaultDocuments: (v) => set(KEYS.VAULT_DOCUMENTS, v),
+
+  getBillStickyNotes: () => get(KEYS.BILL_STICKY_NOTES) || {},
+  setBillStickyNotes: (v) => set(KEYS.BILL_STICKY_NOTES, v),
 
   getNotifPrefs: () => {
     const saved = get(KEYS.NOTIF_PREFS) || {};

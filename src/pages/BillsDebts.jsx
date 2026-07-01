@@ -15,6 +15,8 @@ import {
   calcDebtPayoff, getPayDatesForMonth,
 } from '../utils/helpers';
 import Modal from '../components/Modal';
+import ConfirmDialog from '../components/ConfirmDialog';
+import BillStickyNote from '../components/BillStickyNote';
 import FileUpload from '../components/FileUpload';
 import BillForm from '../components/BillForm';
 import DebtForm from '../components/DebtForm';
@@ -667,6 +669,7 @@ export default function BillsDebts() {
     budgetCategories, addBudgetCategory, updateBudgetCategory, deleteBudgetCategory, persistBudgetCategories,
     budgetSpends, addBudgetSpend, updateBudgetSpend, deleteBudgetSpend,
     settings, income,
+    billStickyNotes, setBillStickyNote,
     selectedMonth: mk, setSelectedMonth: setMk,
   } = useApp();
   const { user } = useAuth();
@@ -678,6 +681,7 @@ export default function BillsDebts() {
   const [editDebt, setEditDebt] = useState(null);
   const [ownerFilter, setOwnerFilter] = useState(null);
   const [calView, setCalView] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(null); // { message, onConfirm }
 
   // Budget tab state
   const [showImportBudget, setShowImportBudget] = useState(false);
@@ -725,6 +729,21 @@ export default function BillsDebts() {
 
   const toggleOwner = (val) => setOwnerFilter((cur) => cur === val ? null : val);
 
+  const requestDeleteBill = (id) => {
+    const bill = bills.find((b) => b.id === id);
+    setConfirmDelete({ message: `Delete "${bill?.name || 'this bill'}"? This can't be undone.`, onConfirm: () => deleteBill(id) });
+  };
+  const requestDeleteDebt = (id) => {
+    const debt = debts.find((d) => d.id === id);
+    setConfirmDelete({ message: `Delete "${debt?.name || 'this debt'}"? This can't be undone.`, onConfirm: () => deleteDebt(id) });
+  };
+  const requestDeleteCategory = (cat) => {
+    setConfirmDelete({ message: `Delete the "${cat.name}" envelope? Its logged spends will remain but won't be categorized.`, onConfirm: () => deleteBudgetCategory(cat.id) });
+  };
+  const requestDeleteSpend = (sp) => {
+    setConfirmDelete({ message: `Delete this ${formatCurrency(sp.amount)} spend${sp.description ? ` ("${sp.description}")` : ''}?`, onConfirm: () => deleteBudgetSpend(sp.id) });
+  };
+
   // Budget envelope computed values
   const monthBudgetSpends = useMemo(() => budgetSpends.filter((s) => s.month === mk), [budgetSpends, mk]);
   const categoryData = useMemo(() => budgetCategories.map((cat, idx) => {
@@ -742,6 +761,12 @@ export default function BillsDebts() {
 
   return (
     <div className="app-page">
+      <BillStickyNote
+        mk={mk}
+        monthLabel={monthLabel(mk)}
+        note={billStickyNotes[mk]}
+        onChange={(patch) => setBillStickyNote(mk, patch)}
+      />
       <div className="app-header">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
           <h1 style={{ fontSize: '1.625rem', fontWeight: 900, color: 'var(--text)', letterSpacing: '-0.02em' }}>Bills & Debts</h1>
@@ -867,7 +892,7 @@ export default function BillsDebts() {
               </div>
             ) : sortedBills.map((bill) => (
               <BillCard key={bill.id} bill={bill} mk={mk} onSetStatus={setBillStatusDirect}
-                onEdit={setEditBill} onDelete={deleteBill} onAttach={(b) => setAttachBillId(b.id)}
+                onEdit={setEditBill} onDelete={requestDeleteBill} onAttach={(b) => setAttachBillId(b.id)}
                 myName={myName} spouseName={spouseName} />
             ))}
             </>)}
@@ -965,7 +990,7 @@ export default function BillsDebts() {
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                             <span style={{ fontSize: '0.875rem', fontWeight: 700, color: 'var(--subtle)' }}>{formatCurrency(cat.monthlyLimit)}/mo</span>
                             <button onClick={() => { setEditCategory(cat); setShowManageCategories(true); }} style={{ padding: '0.25rem', color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer', borderRadius: '0.5rem' }}><Pencil size={13} /></button>
-                            {!cat.isPermanent && <button onClick={() => deleteBudgetCategory(cat.id)} style={{ padding: '0.25rem', color: 'var(--danger)', background: 'none', border: 'none', cursor: 'pointer', borderRadius: '0.5rem' }}><Trash2 size={13} /></button>}
+                            {!cat.isPermanent && <button onClick={() => requestDeleteCategory(cat)} style={{ padding: '0.25rem', color: 'var(--danger)', background: 'none', border: 'none', cursor: 'pointer', borderRadius: '0.5rem' }}><Trash2 size={13} /></button>}
                           </div>
                         </div>
 
@@ -1014,7 +1039,7 @@ export default function BillsDebts() {
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', flexShrink: 0 }}>
                                   <span style={{ fontSize: '0.9375rem', fontWeight: 700, color: 'var(--text)' }}>{formatCurrency(sp.amount)}</span>
                                   <button onClick={() => setEditSpend(sp)} style={{ padding: '0.25rem', color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer' }}><Pencil size={12} /></button>
-                                  <button onClick={() => deleteBudgetSpend(sp.id)} style={{ padding: '0.25rem', color: 'var(--danger)', background: 'none', border: 'none', cursor: 'pointer' }}><Trash2 size={12} /></button>
+                                  <button onClick={() => requestDeleteSpend(sp)} style={{ padding: '0.25rem', color: 'var(--danger)', background: 'none', border: 'none', cursor: 'pointer' }}><Trash2 size={12} /></button>
                                 </div>
                               </div>
                             ))}
@@ -1044,7 +1069,7 @@ export default function BillsDebts() {
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', flexShrink: 0 }}>
                             <span style={{ fontSize: '0.9375rem', fontWeight: 700, color: 'var(--text)' }}>{formatCurrency(sp.amount)}</span>
-                            <button onClick={() => deleteBudgetSpend(sp.id)} style={{ padding: '0.25rem', color: 'var(--danger)', background: 'none', border: 'none', cursor: 'pointer' }}><Trash2 size={12} /></button>
+                            <button onClick={() => requestDeleteSpend(sp)} style={{ padding: '0.25rem', color: 'var(--danger)', background: 'none', border: 'none', cursor: 'pointer' }}><Trash2 size={12} /></button>
                           </div>
                         </div>
                       ))}
@@ -1105,7 +1130,7 @@ export default function BillsDebts() {
               <>
                 {sortedDebts.map((debt) => (
                   <DebtCard key={debt.id} debt={debt} month={mk} onTogglePaid={toggleDebtPaid}
-                    onEdit={setEditDebt} onDelete={deleteDebt} myName={myName} spouseName={spouseName} />
+                    onEdit={setEditDebt} onDelete={requestDeleteDebt} myName={myName} spouseName={spouseName} />
                 ))}
 
                 {/* Debt payoff planner */}
@@ -1189,7 +1214,7 @@ export default function BillsDebts() {
                     <p style={{ fontSize: '0.8125rem', color: 'var(--subtle)' }}>{formatCurrency(cat.monthlyLimit)}/mo</p>
                   </div>
                   <button onClick={() => setEditCategory(cat)} style={{ padding: '0.375rem', color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer', borderRadius: '0.5rem' }}><Pencil size={14} /></button>
-                  {!cat.isPermanent && <button onClick={() => deleteBudgetCategory(cat.id)} style={{ padding: '0.375rem', color: 'var(--danger)', background: 'none', border: 'none', cursor: 'pointer', borderRadius: '0.5rem' }}><Trash2 size={14} /></button>}
+                  {!cat.isPermanent && <button onClick={() => requestDeleteCategory(cat)} style={{ padding: '0.375rem', color: 'var(--danger)', background: 'none', border: 'none', cursor: 'pointer', borderRadius: '0.5rem' }}><Trash2 size={14} /></button>}
                 </div>
               )
             ))}
@@ -1234,6 +1259,14 @@ export default function BillsDebts() {
             onCancel={() => setEditSpend(null)}
           />
         </Modal>
+      )}
+
+      {confirmDelete && (
+        <ConfirmDialog
+          message={confirmDelete.message}
+          onConfirm={() => { confirmDelete.onConfirm(); setConfirmDelete(null); }}
+          onCancel={() => setConfirmDelete(null)}
+        />
       )}
     </div>
   );

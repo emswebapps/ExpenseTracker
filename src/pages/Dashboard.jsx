@@ -242,9 +242,9 @@ export default function Dashboard() {
     budgetCategories, budgetSpends, addBudgetSpend,
     agreements, addAgreement, updateAgreement, deleteAgreement,
     setBillStatusDirect, addBill,
+    selectedMonth: mk, setSelectedMonth: setMk,
   } = useApp();
 
-  const [mk, setMk] = useState(() => monthKey(new Date()));
   const [showAddSaving, setShowAddSaving] = useState(false);
   const [editSaving, setEditSaving] = useState(null);
   const [showAddCommitment, setShowAddCommitment] = useState(false);

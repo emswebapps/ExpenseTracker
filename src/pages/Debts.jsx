@@ -84,8 +84,7 @@ function DebtCard({ debt, month, onTogglePaid, onEdit, onDelete, myName, spouseN
 }
 
 export default function Debts() {
-  const { debts, addDebt, updateDebt, deleteDebt, toggleDebtPaid, settings } = useApp();
-  const [mk, setMk] = useState(() => monthKey(new Date()));
+  const { debts, addDebt, updateDebt, deleteDebt, toggleDebtPaid, settings, selectedMonth: mk, setSelectedMonth: setMk } = useApp();
   const [showAdd, setShowAdd] = useState(false);
   const [editItem, setEditItem] = useState(null);
   const [ownerFilter, setOwnerFilter] = useState('all');

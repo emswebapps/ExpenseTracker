@@ -158,8 +158,7 @@ function BillCard({ bill, mk, onSetStatus, onEdit, onDelete, myName, spouseName 
 }
 
 export default function Bills() {
-  const { bills, addBill, updateBill, deleteBill, setBillStatusDirect, settings } = useApp();
-  const [mk, setMk] = useState(() => monthKey(new Date()));
+  const { bills, addBill, updateBill, deleteBill, setBillStatusDirect, settings, selectedMonth: mk, setSelectedMonth: setMk } = useApp();
   const [showAdd, setShowAdd] = useState(false);
   const [editBill, setEditBill] = useState(null);
   const [ownerFilter, setOwnerFilter] = useState(null);

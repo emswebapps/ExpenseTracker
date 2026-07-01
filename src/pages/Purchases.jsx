@@ -812,11 +812,10 @@ function ProjectsTab({ projects, addProject, updateProject, deleteProject }) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function Purchases() {
-  const { purchases, addPurchase, bulkAddPurchases, updatePurchase, deletePurchase, settings, setSettings, bills, addBill, income, recurringTemplates, addRecurringTemplate, updateRecurringTemplate, deleteRecurringTemplate, commitments, addCommitment, updateCommitment, deleteCommitment, toggleCommitment, agreements, addAgreement, updateAgreement, deleteAgreement, plannedExpenses, addPlannedExpense, updatePlannedExpense, deletePlannedExpense, savings, projects, addProject, updateProject, deleteProject } = useApp();
+  const { purchases, addPurchase, bulkAddPurchases, updatePurchase, deletePurchase, settings, setSettings, bills, addBill, income, recurringTemplates, addRecurringTemplate, updateRecurringTemplate, deleteRecurringTemplate, commitments, addCommitment, updateCommitment, deleteCommitment, toggleCommitment, agreements, addAgreement, updateAgreement, deleteAgreement, plannedExpenses, addPlannedExpense, updatePlannedExpense, deletePlannedExpense, savings, projects, addProject, updateProject, deleteProject, selectedMonth: mk, setSelectedMonth: setMk } = useApp();
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const [planTab, setPlanTab] = useState('spending');
-  const [mk, setMk] = useState(() => monthKey(new Date()));
   const [showAdd, setShowAdd] = useState(() => searchParams.get('new') === '1');
   const [editItem, setEditItem] = useState(null);
   const [attachPurchaseId, setAttachPurchaseId] = useState(null);

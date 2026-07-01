@@ -667,10 +667,10 @@ export default function BillsDebts() {
     budgetCategories, addBudgetCategory, updateBudgetCategory, deleteBudgetCategory, persistBudgetCategories,
     budgetSpends, addBudgetSpend, updateBudgetSpend, deleteBudgetSpend,
     settings, income,
+    selectedMonth: mk, setSelectedMonth: setMk,
   } = useApp();
   const { user } = useAuth();
   const [tab, setTab] = useState('bills');
-  const [mk, setMk] = useState(() => monthKey(new Date()));
   const [showAddBill, setShowAddBill] = useState(false);
   const [editBill, setEditBill] = useState(null);
   const [attachBillId, setAttachBillId] = useState(null);

@@ -254,11 +254,11 @@ export default function Settings() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
               <div style={{ backgroundColor: 'var(--surface2)', borderRadius: '0.75rem', padding: '0.625rem 0.875rem', display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 0 }}>
                 <p style={{ fontSize: '0.75rem', color: 'var(--subtle)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {`${window.location.origin}/ExpenseTracker/share/${settings.shareToken}`}
+                  {`${window.location.origin}/share/${settings.shareToken}`}
                 </p>
                 <button
                   onClick={() => {
-                    navigator.clipboard.writeText(`${window.location.origin}/ExpenseTracker/share/${settings.shareToken}`).then(() => {
+                    navigator.clipboard.writeText(`${window.location.origin}/share/${settings.shareToken}`).then(() => {
                       setShareCopied(true); setTimeout(() => setShareCopied(false), 2000);
                     });
                   }}

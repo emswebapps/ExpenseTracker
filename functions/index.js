@@ -131,8 +131,8 @@ exports.dailyNotifications = onSchedule(
               data: { tag: msg.tag },
               webpush: {
                 notification: {
-                  icon: 'https://pairamedic.github.io/ExpenseTracker/app-icon.jpeg',
-                  badge: 'https://pairamedic.github.io/ExpenseTracker/app-icon.jpeg',
+                  icon: 'https://billtracker-256ef.web.app/app-icon.jpeg',
+                  badge: 'https://billtracker-256ef.web.app/app-icon.jpeg',
                   tag: msg.tag,
                 },
               },

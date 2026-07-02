@@ -2,9 +2,9 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/png" sizes="32x32" href="/ExpenseTracker/favicon-32.png" />
-    <link rel="icon" type="image/jpeg" href="/ExpenseTracker/app-icon.jpeg" />
-    <link rel="apple-touch-icon" sizes="180x180" href="/ExpenseTracker/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="icon" type="image/jpeg" href="/app-icon.jpeg" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -12,10 +12,6 @@
     <meta name="apple-mobile-web-app-title" content="Finance Manager" />
     <meta name="theme-color" content="#0f172a" />
     <title>Finance Manager</title>
-    <script>
-      var redirect = sessionStorage.getItem('spa_redirect');
-      if (redirect) { sessionStorage.removeItem('spa_redirect'); history.replaceState(null, '', redirect); }
-    </script>
   </head>
   <body>
     <div id="root"></div>

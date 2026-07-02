@@ -120,7 +120,7 @@ function AppShell() {
 
 export default function App() {
   return (
-    <BrowserRouter basename="/ExpenseTracker">
+    <BrowserRouter>
       <AuthProvider>
         <AppShell />
       </AuthProvider>

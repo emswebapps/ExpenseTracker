@@ -17,8 +17,8 @@ messaging.onBackgroundMessage((payload) => {
   const body = payload.notification?.body || payload.data?.body || '';
   self.registration.showNotification(title, {
     body,
-    icon: '/ExpenseTracker/app-icon.jpeg',
-    badge: '/ExpenseTracker/app-icon.jpeg',
+    icon: '/app-icon.jpeg',
+    badge: '/app-icon.jpeg',
     tag: payload.data?.tag || 'finance-notification',
     data: payload.data,
   });

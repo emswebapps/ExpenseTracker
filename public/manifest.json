@@ -2,15 +2,15 @@
   "name": "Finance Manager",
   "short_name": "Finance",
   "description": "Track bills, income, debts and savings",
-  "start_url": "/ExpenseTracker/",
-  "scope": "/ExpenseTracker/",
+  "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#0f172a",
   "theme_color": "#0f172a",
   "orientation": "portrait-primary",
   "icons": [
     {
-      "src": "/ExpenseTracker/app-icon.jpeg",
+      "src": "/app-icon.jpeg",
       "sizes": "512x512",
       "type": "image/jpeg",
       "purpose": "any maskable"
@@ -21,22 +21,22 @@
       "name": "Log Purchase",
       "short_name": "Log",
       "description": "Quickly log a new purchase",
-      "url": "/ExpenseTracker/purchases?new=1",
-      "icons": [{ "src": "/ExpenseTracker/app-icon.jpeg", "sizes": "512x512", "type": "image/jpeg" }]
+      "url": "/purchases?new=1",
+      "icons": [{ "src": "/app-icon.jpeg", "sizes": "512x512", "type": "image/jpeg" }]
     },
     {
       "name": "View Bills",
       "short_name": "Bills",
       "description": "Check your bills and payments",
-      "url": "/ExpenseTracker/bills",
-      "icons": [{ "src": "/ExpenseTracker/app-icon.jpeg", "sizes": "512x512", "type": "image/jpeg" }]
+      "url": "/bills",
+      "icons": [{ "src": "/app-icon.jpeg", "sizes": "512x512", "type": "image/jpeg" }]
     },
     {
       "name": "Upload Document",
       "short_name": "Upload",
       "description": "Go to the Document Vault to upload files",
-      "url": "/ExpenseTracker/vault",
-      "icons": [{ "src": "/ExpenseTracker/app-icon.jpeg", "sizes": "512x512", "type": "image/jpeg" }]
+      "url": "/vault",
+      "icons": [{ "src": "/app-icon.jpeg", "sizes": "512x512", "type": "image/jpeg" }]
     }
   ]
 }

@@ -265,7 +265,7 @@ function ReadOnlyDashboard({ data }) {
       {/* ── header ── */}
       <div style={{ padding: '1.25rem 1.25rem 0' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.625rem' }}>
-          <img src="/ExpenseTracker/app-icon.jpeg" alt="" style={{ width: '2.5rem', height: '2.5rem', borderRadius: '0.75rem', objectFit: 'cover' }} />
+          <img src="/app-icon.jpeg" alt="" style={{ width: '2.5rem', height: '2.5rem', borderRadius: '0.75rem', objectFit: 'cover' }} />
           <div>
             <p style={{ fontSize: '1.0625rem', fontWeight: 900, color: '#f0f0f2', letterSpacing: '-0.01em' }}>Family Finance</p>
             <p style={{ fontSize: '0.75rem', color: '#555' }}>

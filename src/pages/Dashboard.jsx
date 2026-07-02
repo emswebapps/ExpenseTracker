@@ -420,8 +420,8 @@ export default function Dashboard() {
         const diff = b.dueDay - new Date().getDate();
         new Notification('Bill Due Soon', {
           body: `${b.name} — ${formatCurrency(b.amount)} due ${diff === 0 ? 'today' : `in ${diff} day${diff > 1 ? 's' : ''}`}`,
-          icon: '/ExpenseTracker/app-icon.jpeg',
-          badge: '/ExpenseTracker/app-icon.jpeg',
+          icon: '/app-icon.jpeg',
+          badge: '/app-icon.jpeg',
         });
       });
     };

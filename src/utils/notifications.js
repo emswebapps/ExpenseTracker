@@ -2,7 +2,7 @@ import { messaging } from '../firebase';
 import { getToken, onMessage } from 'firebase/messaging';
 
 const VAPID_KEY = 'bdUnK4mtP19w7NtBQniJNN39vroY5Q4lRHefPiSkc9M';
-const SW_PATH = '/ExpenseTracker/firebase-messaging-sw.js';
+const SW_PATH = '/firebase-messaging-sw.js';
 
 export function notificationsSupported() {
   return typeof window !== 'undefined' && 'Notification' in window;
@@ -24,8 +24,8 @@ export function sendNotification(title, options = {}) {
   if (!notificationsSupported() || Notification.permission !== 'granted') return false;
   try {
     new Notification(title, {
-      icon: '/ExpenseTracker/app-icon.jpeg',
-      badge: '/ExpenseTracker/app-icon.jpeg',
+      icon: '/app-icon.jpeg',
+      badge: '/app-icon.jpeg',
       ...options,
     });
     return true;

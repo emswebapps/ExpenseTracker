@@ -6,6 +6,40 @@ admin.initializeApp();
 const db = admin.firestore();
 const messaging = admin.messaging();
 
+const ICON = 'https://pairamedic.github.io/ExpenseTracker/app-icon.jpeg';
+const DEFAULT_TZ = 'America/New_York';
+
+/**
+ * Send one push to a user, deleting the token if FCM says it's dead.
+ * Returns false when the token is gone and further sends should be skipped.
+ */
+async function sendPush(userPath, token, msg) {
+  try {
+    await messaging.send({
+      token,
+      notification: { title: msg.title, body: msg.body },
+      data: { tag: msg.tag, url: msg.url || '/ExpenseTracker/' },
+      webpush: {
+        fcmOptions: { link: msg.url || 'https://pairamedic.github.io/ExpenseTracker/' },
+        notification: {
+          icon: ICON,
+          badge: ICON,
+          tag: msg.tag,
+          requireInteraction: !!msg.requireInteraction,
+        },
+      },
+    });
+    return true;
+  } catch (e) {
+    if (e.code === 'messaging/registration-token-not-registered') {
+      await db.doc(`${userPath}/data/app`).update({ fcmToken: admin.firestore.FieldValue.delete() });
+      return false;
+    }
+    console.error('Push send failed:', e.message);
+    return true;
+  }
+}
+
 // Runs daily at 8:00 AM Eastern — checks bills, commitments, and shift reminders
 // Requires Firebase Blaze (pay-as-you-go) plan to deploy Cloud Functions
 exports.dailyNotifications = onSchedule(
@@ -150,3 +184,151 @@ exports.dailyNotifications = onSchedule(
     }
   }
 );
+
+// ── To-do due dates & timers ────────────────────────────────────────────────
+// Runs every minute so per-item due reminders and countdown timers reach the
+// phone even when the app is closed. Sent keys are recorded in
+// users/{uid}/data/notifState so a reminder is only ever delivered once.
+
+const TIMER_GRACE_MS = 30 * 60 * 1000; // how late a timer push may still fire
+const DUE_GRACE_MS = 6 * 60 * 60 * 1000; // ditto for due-date reminders
+const SENT_KEY_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+
+/** Offset (ms) between UTC and `tz` at the given instant. */
+function tzOffsetMs(date, tz) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz, hour12: false,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  }).formatToParts(date).reduce((acc, p) => { acc[p.type] = p.value; return acc; }, {});
+  const asUTC = Date.UTC(
+    Number(parts.year), Number(parts.month) - 1, Number(parts.day),
+    Number(parts.hour) % 24, Number(parts.minute), Number(parts.second),
+  );
+  return asUTC - date.getTime();
+}
+
+/** Epoch ms for a "YYYY-MM-DD" + "HH:MM" wall clock reading in `tz`. */
+function wallClockToMs(dateStr, timeStr, tz) {
+  const [y, m, d] = String(dateStr).split('-').map(Number);
+  const [hh, mm] = String(timeStr || '23:59').split(':').map(Number);
+  if (!y || !m || !d || Number.isNaN(hh) || Number.isNaN(mm)) return null;
+  const naive = Date.UTC(y, m - 1, d, hh, mm, 0);
+  // Two passes so instants near a DST transition resolve correctly.
+  let ts = naive - tzOffsetMs(new Date(naive), tz);
+  ts = naive - tzOffsetMs(new Date(ts), tz);
+  return ts;
+}
+
+/** Due instant for a to-do: the client-stamped `dueAt`, else derived from the date/time. */
+function todoDueAt(item, tz) {
+  if (typeof item.dueAt === 'number' && item.dueAt > 0) return item.dueAt;
+  if (!item.dueDate) return null;
+  return wallClockToMs(item.dueDate, item.dueTime, tz);
+}
+
+/**
+ * Decide which to-do pushes are due right now for one user's data blob.
+ * Pure — no I/O — so the firing windows and dedupe rules are unit-testable.
+ *
+ * @param {object} data - the user's `data/app` document
+ * @param {object} sent - map of already-sent keys → timestamp
+ * @param {number} now - current epoch ms
+ * @returns {Array<{title: string, body: string, tag: string, requireInteraction?: boolean}>}
+ */
+function collectTodoMessages(data, sent, now) {
+  const { shoppingLists = [], shoppingItems = [], notifPrefs, settings } = data;
+  const prefs = { enabled: true, timers: true, ...(notifPrefs?.todos || {}) };
+  if (!prefs.enabled && !prefs.timers) return [];
+
+  const tz = settings?.timeZone || DEFAULT_TZ;
+  const todoLists = new Map(
+    shoppingLists.filter((l) => l.type === 'todo' && !l.archived).map((l) => [l.id, l]),
+  );
+
+  const messages = [];
+  for (const item of shoppingItems) {
+    const list = todoLists.get(item.listId);
+    if (!list) continue;
+    if (item.status && item.status !== 'pending') continue;
+
+    // Countdown timer elapsed
+    if (prefs.timers && typeof item.timerEndsAt === 'number') {
+      const key = `todo-timer-${item.id}-${item.timerEndsAt}`;
+      if (!sent[key] && item.timerEndsAt <= now && item.timerEndsAt > now - TIMER_GRACE_MS) {
+        messages.push({
+          title: `Timer done: ${item.name}`,
+          body: list.name,
+          tag: key,
+          requireInteraction: true,
+        });
+      }
+    }
+
+    // Due-date reminder (optionally ahead of the due time)
+    if (prefs.enabled && item.notifyEnabled) {
+      const dueAt = todoDueAt(item, tz);
+      if (dueAt) {
+        const lead = Number(item.remindOffsetMinutes) || 0;
+        const fireAt = dueAt - lead * 60 * 1000;
+        const key = `todo-due-${item.id}-${fireAt}`;
+        if (!sent[key] && fireAt <= now && fireAt > now - DUE_GRACE_MS) {
+          const when = new Date(dueAt).toLocaleTimeString('en-US', {
+            timeZone: tz, hour: 'numeric', minute: '2-digit',
+          });
+          messages.push({
+            title: lead > 0 ? `Due soon: ${item.name}` : `Due now: ${item.name}`,
+            body: lead > 0 ? `${list.name} — due at ${when}` : list.name,
+            tag: key,
+          });
+        }
+      }
+    }
+  }
+  return messages;
+}
+
+exports.todoReminders = onSchedule(
+  { schedule: 'every 1 minutes', timeZone: DEFAULT_TZ },
+  async () => {
+    const now = Date.now();
+    const userRefs = await db.collection('users').listDocuments();
+
+    for (const userRef of userRefs) {
+      try {
+        const dataSnap = await db.doc(`${userRef.path}/data/app`).get();
+        if (!dataSnap.exists) continue;
+
+        const data = dataSnap.data();
+        if (!data.fcmToken) continue;
+
+        const stateRef = db.doc(`${userRef.path}/data/notifState`);
+        const stateSnap = await stateRef.get();
+        const sent = (stateSnap.exists && stateSnap.data().todoSent) || {};
+
+        const messages = collectTodoMessages(data, sent, now);
+        if (messages.length === 0) continue;
+
+        const delivered = [];
+        for (const msg of messages) {
+          const alive = await sendPush(userRef.path, data.fcmToken, { ...msg, url: '/ExpenseTracker/lists' });
+          if (!alive) break; // token was revoked — leave the rest unmarked so they retry
+          delivered.push(msg.tag);
+        }
+
+        // Record what went out, dropping keys old enough that they can't recur.
+        const merged = { ...sent };
+        for (const tag of delivered) merged[tag] = now;
+        for (const [key, ts] of Object.entries(merged)) {
+          if (now - ts > SENT_KEY_TTL_MS) delete merged[key];
+        }
+        await stateRef.set({ todoSent: merged }, { merge: true });
+      } catch (err) {
+        console.error(`todoReminders: error for user ${userRef.id}:`, err.message);
+      }
+    }
+  },
+);
+
+// Exported for unit tests only.
+exports._internal = { collectTodoMessages, wallClockToMs };

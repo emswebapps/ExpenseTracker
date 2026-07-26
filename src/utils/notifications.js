@@ -1,8 +1,19 @@
-import { messaging } from '../firebase';
+import { messaging, FCM_VAPID_KEY } from '../firebase';
 import { getToken, onMessage } from 'firebase/messaging';
 
-const VAPID_KEY = 'bdUnK4mtP19w7NtBQniJNN39vroY5Q4lRHefPiSkc9M';
+const VAPID_KEY = FCM_VAPID_KEY;
 const SW_PATH = '/ExpenseTracker/firebase-messaging-sw.js';
+// The messaging worker gets its own scope so it doesn't displace the PWA's
+// service worker, which is registered at '/ExpenseTracker/'. Two workers can't
+// share one scope — the later registration would silently evict the earlier.
+const SW_SCOPE = '/ExpenseTracker/firebase-cloud-messaging-push-scope';
+
+// A VAPID application server key is an uncompressed P-256 point (65 bytes),
+// which is 87–88 base64url characters. Anything shorter can't produce a token,
+// so we check up front and surface a clear reason instead of failing silently.
+export function pushKeyConfigured() {
+  return typeof VAPID_KEY === 'string' && VAPID_KEY.length >= 80;
+}
 
 export function notificationsSupported() {
   return typeof window !== 'undefined' && 'Notification' in window;
@@ -22,12 +33,26 @@ export async function requestNotificationPermission() {
 
 export function sendNotification(title, options = {}) {
   if (!notificationsSupported() || Notification.permission !== 'granted') return false;
+  const opts = {
+    icon: '/ExpenseTracker/app-icon.jpeg',
+    badge: '/ExpenseTracker/app-icon.jpeg',
+    data: { url: '/ExpenseTracker/' },
+    ...options,
+  };
+  // Android Chrome throws on `new Notification()` — notifications there must go
+  // through the service worker. Prefer the service worker everywhere it exists
+  // so phones behave the same as desktop, and fall back to the constructor.
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.getRegistration()
+      .then((reg) => {
+        if (reg) return reg.showNotification(title, opts);
+        throw new Error('no service worker registration');
+      })
+      .catch(() => { try { new Notification(title, opts); } catch { /* unsupported */ } });
+    return true;
+  }
   try {
-    new Notification(title, {
-      icon: '/ExpenseTracker/app-icon.jpeg',
-      badge: '/ExpenseTracker/app-icon.jpeg',
-      ...options,
-    });
+    new Notification(title, opts);
     return true;
   } catch {
     return false;
@@ -105,6 +130,67 @@ export function formatDueBadge(dueDate, dueTime) {
   return { label: due.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), color: 'var(--muted)' };
 }
 
+// ── To-do due dates, reminder lead times, and timers ───────────────────────
+
+// Lead time between the reminder push and the item's due moment.
+export const REMINDER_LEAD_OPTIONS = [
+  { minutes: 0, label: 'At due time' },
+  { minutes: 5, label: '5 min before' },
+  { minutes: 15, label: '15 min before' },
+  { minutes: 30, label: '30 min before' },
+  { minutes: 60, label: '1 hour before' },
+  { minutes: 180, label: '3 hours before' },
+  { minutes: 1440, label: '1 day before' },
+];
+
+// Quick-start countdown timers, in minutes.
+export const TIMER_PRESETS = [5, 10, 15, 30, 60, 120];
+
+/**
+ * Absolute epoch ms for a to-do's due moment, resolved in the device's local
+ * time zone. Stored on the item as `dueAt` so the Cloud Function can schedule
+ * pushes without having to guess the user's time zone.
+ */
+export function computeDueAt(dueDate, dueTime) {
+  if (!dueDate) return null;
+  const ms = new Date(`${dueDate}T${dueTime || '23:59'}`).getTime();
+  return Number.isNaN(ms) ? null : ms;
+}
+
+/** Epoch ms at which a to-do's due reminder should fire, or null. */
+export function todoReminderAt(item) {
+  const dueAt = item.dueAt ?? computeDueAt(item.dueDate, item.dueTime);
+  if (!dueAt) return null;
+  const lead = Number(item.remindOffsetMinutes) || 0;
+  return dueAt - lead * 60 * 1000;
+}
+
+/** True when the item has a countdown timer that hasn't elapsed yet. */
+export function timerRunning(item) {
+  return !!item.timerEndsAt && item.timerEndsAt > Date.now();
+}
+
+/** "1h 12m" / "4m 30s" / "12s" — compact countdown label. */
+export function formatCountdown(ms) {
+  if (ms <= 0) return '0s';
+  const totalSec = Math.round(ms / 1000);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${String(s).padStart(2, '0')}s`;
+  return `${s}s`;
+}
+
+/** "45 min" / "1 hr" / "2 hr 30 min" — label for a timer duration. */
+export function formatTimerDuration(minutes) {
+  const mins = Number(minutes) || 0;
+  if (mins < 60) return `${mins} min`;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return m === 0 ? `${h} hr` : `${h} hr ${m} min`;
+}
+
 // ── Firebase Cloud Messaging (FCM) ──────────────────────────────────────────
 
 /**
@@ -113,13 +199,18 @@ export function formatDueBadge(dueDate, dueTime) {
  * Returns null if FCM is not supported in this browser.
  */
 export async function registerFCMToken() {
+  if (!pushKeyConfigured()) {
+    console.warn('[push] VITE_FCM_VAPID_KEY is missing or invalid — background push is disabled.');
+    return null;
+  }
   try {
     const client = await messaging;
     if (!client) return null;
-    const swReg = await navigator.serviceWorker.register(SW_PATH);
+    const swReg = await navigator.serviceWorker.register(SW_PATH, { scope: SW_SCOPE });
     const token = await getToken(client, { vapidKey: VAPID_KEY, serviceWorkerRegistration: swReg });
     return token || null;
-  } catch {
+  } catch (err) {
+    console.warn('[push] Could not register for background push:', err?.message || err);
     return null;
   }
 }

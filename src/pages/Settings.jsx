@@ -5,7 +5,7 @@ import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
 import Modal from '../components/Modal';
 import { formatCurrency, exportAllData, exportAsHTML, exportJobScheduleHTML, getMonthBounds } from '../utils/helpers';
-import { notificationPermission, sendNotification } from '../utils/notifications';
+import { notificationPermission, sendNotification, pushKeyConfigured, REMINDER_LEAD_OPTIONS } from '../utils/notifications';
 
 const ALL_EXPORT_CATS = [
   { key: 'bills', label: 'Bills' },
@@ -435,7 +435,9 @@ export default function Settings() {
               </div>
               {!fcmToken && (
                 <p style={{ fontSize: '0.75rem', color: 'var(--subtle)', marginBottom: '0.75rem', backgroundColor: 'var(--surface2)', padding: '0.625rem', borderRadius: '0.625rem' }}>
-                  Background push (when app is closed) requires a VAPID key — see VITE_FCM_VAPID_KEY in the project README. In-app alerts work now.
+                  {pushKeyConfigured()
+                    ? 'This device isn’t registered for background push yet. Reload the app, and on iPhone make sure it’s installed to your Home Screen — iOS only allows push for installed web apps.'
+                    : 'Background push (when the app is closed) requires a VAPID key — see VITE_FCM_VAPID_KEY in the project README. In-app alerts work now.'}
                 </p>
               )}
 
@@ -465,7 +467,17 @@ export default function Settings() {
               )}
 
               <p style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--accent-text)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.25rem', marginTop: '1rem' }}>To-Do Lists</p>
-              <NotifRow label="Item due time reminders" sublabel="Uses the time set on each to-do item" checked={!!notifPrefs.todos?.enabled} onChange={(v) => updatePref('todos', 'enabled', v)} />
+              <NotifRow label="Item due time reminders" sublabel="Uses the due date and time set on each to-do item" checked={!!notifPrefs.todos?.enabled} onChange={(v) => updatePref('todos', 'enabled', v)} />
+              {!!notifPrefs.todos?.enabled && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.375rem 0 0 0.25rem' }}>
+                  <span style={{ fontSize: '0.8125rem', color: 'var(--muted)' }}>Default lead time</span>
+                  <select value={notifPrefs.todos?.defaultLeadMinutes ?? 0} onChange={(e) => updatePref('todos', 'defaultLeadMinutes', Number(e.target.value))}
+                    style={{ backgroundColor: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '0.5rem', padding: '0.25rem 0.5rem', color: 'var(--text)', fontSize: '0.875rem' }}>
+                    {REMINDER_LEAD_OPTIONS.map((o) => <option key={o.minutes} value={o.minutes}>{o.label}</option>)}
+                  </select>
+                </div>
+              )}
+              <NotifRow label="Task timers" sublabel="Push when a countdown timer on a task runs out" checked={notifPrefs.todos?.timers !== false} onChange={(v) => updatePref('todos', 'timers', v)} />
               <NotifRow label="Morning reminder" sublabel="Push at set time if you have incomplete to-dos" checked={notifPrefs.todos?.morningEnabled !== false} onChange={(v) => updatePref('todos', 'morningEnabled', v)} />
               {notifPrefs.todos?.morningEnabled !== false && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.375rem 0 0 0.25rem' }}>

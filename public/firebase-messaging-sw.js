@@ -20,6 +20,25 @@ messaging.onBackgroundMessage((payload) => {
     icon: '/ExpenseTracker/app-icon.jpeg',
     badge: '/ExpenseTracker/app-icon.jpeg',
     tag: payload.data?.tag || 'finance-notification',
+    renotify: true,
     data: payload.data,
   });
+});
+
+// Tapping a notification focuses the open app (or launches it) on the page
+// the notification came from — to-do reminders and timers land on Lists.
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const target = event.notification.data?.url || '/ExpenseTracker/';
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      for (const client of clientList) {
+        if (client.url.includes('/ExpenseTracker') && 'focus' in client) {
+          if ('navigate' in client) client.navigate(target).catch(() => {});
+          return client.focus();
+        }
+      }
+      return self.clients.openWindow(target);
+    })
+  );
 });

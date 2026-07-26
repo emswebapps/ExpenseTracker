@@ -2,7 +2,7 @@ import { createContext, useContext, useState, useCallback, useEffect, useRef } f
 import { storage } from '../utils/storage';
 import { saveUserData, loadUserData, saveSharedView, saveFCMToken } from '../utils/firestoreSync';
 import { generateId, currentMonthKey, getBillStatus, nextBillStatus } from '../utils/helpers';
-import { notificationPermission, requestNotificationPermission, sendNotification, getDueDateMs, registerFCMToken, onForegroundMessage, scheduleShiftNotification, cancelShiftNotification } from '../utils/notifications';
+import { notificationPermission, requestNotificationPermission, sendNotification, computeDueAt, todoReminderAt, formatTimerDuration, registerFCMToken, onForegroundMessage, scheduleShiftNotification, cancelShiftNotification } from '../utils/notifications';
 
 const AppContext = createContext(null);
 
@@ -447,12 +447,44 @@ export function AppProvider({ children, uid }) {
   // ── Shopping Items ──
   const addShoppingItem = useCallback((item) => persistShoppingItems([
     ...shoppingItems,
-    { ...item, id: generateId(), createdAt: new Date().toISOString() },
+    {
+      ...item,
+      id: generateId(),
+      createdAt: new Date().toISOString(),
+      dueAt: item.dueAt ?? computeDueAt(item.dueDate, item.dueTime),
+    },
   ]), [shoppingItems, persistShoppingItems]);
 
   const updateShoppingItem = useCallback((id, u) => persistShoppingItems(
-    shoppingItems.map((i) => i.id === id ? { ...i, ...u } : i)
+    shoppingItems.map((i) => {
+      if (i.id !== id) return i;
+      const next = { ...i, ...u };
+      // Keep the due instant in sync whenever the date or time changes, so the
+      // Cloud Function can schedule the push without guessing a time zone.
+      if ('dueDate' in u || 'dueTime' in u) next.dueAt = computeDueAt(next.dueDate, next.dueTime);
+      // A task that's finished or blocked shouldn't keep counting down.
+      if (u.status && u.status !== 'pending' && next.timerEndsAt) {
+        next.timerEndsAt = null; next.timerDurationMinutes = null;
+      }
+      return next;
+    })
   ), [shoppingItems, persistShoppingItems]);
+
+  /** Start a countdown timer on a to-do item. */
+  const startTodoTimer = useCallback((id, minutes) => {
+    const mins = Number(minutes);
+    if (!mins || mins <= 0) return;
+    updateShoppingItem(id, {
+      timerEndsAt: Date.now() + mins * 60 * 1000,
+      timerDurationMinutes: mins,
+      status: 'pending',
+    });
+  }, [updateShoppingItem]);
+
+  /** Clear a running countdown timer. */
+  const cancelTodoTimer = useCallback((id) => {
+    updateShoppingItem(id, { timerEndsAt: null, timerDurationMinutes: null });
+  }, [updateShoppingItem]);
 
   const deleteShoppingItem = useCallback((id) => persistShoppingItems(
     shoppingItems.filter((i) => i.id !== id)
@@ -472,6 +504,8 @@ export function AppProvider({ children, uid }) {
       qty: null, price: null, checked: false,
       status: 'pending', notes: null,
       dueDate: listData.dueDate || null, dueTime: null, notifyEnabled: false,
+      dueAt: computeDueAt(listData.dueDate, null), remindOffsetMinutes: 0,
+      timerEndsAt: null, timerDurationMinutes: null,
     }));
     const nextLists = [...shoppingLists, newList];
     const nextItems = [...shoppingItems, ...newItems];
@@ -688,33 +722,78 @@ export function AppProvider({ children, uid }) {
     }
   }, [cloudLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Back-fill dueAt on to-do items saved before absolute due instants ──
+  // The Cloud Function schedules pushes off `dueAt`; without it, it has to fall
+  // back to assuming a time zone. Stamp it once from the device's own clock.
+  useEffect(() => {
+    if (uid && !cloudLoaded) return;
+    const items = stateRef.current.shoppingItems || [];
+    const needsStamp = items.some((i) => i.dueDate && i.dueAt == null);
+    if (!needsStamp) return;
+    persistShoppingItems(items.map((i) => (
+      i.dueDate && i.dueAt == null ? { ...i, dueAt: computeDueAt(i.dueDate, i.dueTime) } : i
+    )));
+  }, [cloudLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Global To-Do notification scheduling ──
+  // These are in-app timers — they only fire while the app is open. The same
+  // reminders are delivered by the `todoReminders` Cloud Function when the app
+  // is closed; both use the same notification tag so the phone shows only one.
   const todoNotifiedRef = useRef(new Set());
   useEffect(() => {
     if (notificationPermission() !== 'granted') return;
-    if (notifPrefs.todos?.enabled === false) return;
+    const prefs = notifPrefs.todos || {};
     const timers = {};
     const now = Date.now();
-    const todoListIds = new Set(shoppingLists.filter((l) => l.type === 'todo').map((l) => l.id));
+    const todoListIds = new Set(shoppingLists.filter((l) => l.type === 'todo' && !l.archived).map((l) => l.id));
     const todoItems = shoppingItems.filter((i) =>
-      todoListIds.has(i.listId) && (i.status === 'pending' || !i.status) && i.dueDate && i.notifyEnabled
+      todoListIds.has(i.listId) && (i.status === 'pending' || !i.status)
     );
-    todoItems.forEach((item) => {
-      if (todoNotifiedRef.current.has(item.id)) return;
-      const dueMs = getDueDateMs(item.dueDate, item.dueTime);
-      if (!dueMs) return;
-      const delay = dueMs - now;
-      const list = shoppingLists.find((l) => l.id === item.listId);
+
+    // Fires now, or on a timer if it's close enough to keep in memory.
+    const at = (fireAt, key, notify) => {
+      if (todoNotifiedRef.current.has(key)) return;
+      const delay = fireAt - now;
       if (delay <= 0) {
-        todoNotifiedRef.current.add(item.id);
-        sendNotification(`Overdue: ${item.name}`, { body: list ? `List: ${list.name}` : 'To-do is past due', tag: `todo-${item.id}` });
+        todoNotifiedRef.current.add(key);
+        notify();
       } else if (delay < 7 * 24 * 60 * 60 * 1000) {
-        timers[item.id] = setTimeout(() => {
-          todoNotifiedRef.current.add(item.id);
-          sendNotification(`Due now: ${item.name}`, { body: list ? `List: ${list.name}` : 'Your to-do is due', tag: `todo-${item.id}` });
+        timers[key] = setTimeout(() => {
+          todoNotifiedRef.current.add(key);
+          notify();
         }, Math.min(delay, 2147483647));
       }
+    };
+
+    todoItems.forEach((item) => {
+      const list = shoppingLists.find((l) => l.id === item.listId);
+      const listLabel = list ? `List: ${list.name}` : 'To-do list';
+
+      if (prefs.timers !== false && item.timerEndsAt) {
+        at(item.timerEndsAt, `todo-timer-${item.id}-${item.timerEndsAt}`, () => {
+          const dur = item.timerDurationMinutes ? ` (${formatTimerDuration(item.timerDurationMinutes)})` : '';
+          sendNotification(`Timer done: ${item.name}`, {
+            body: `${listLabel}${dur}`,
+            tag: `todo-timer-${item.id}-${item.timerEndsAt}`,
+            requireInteraction: true,
+          });
+        });
+      }
+
+      if (prefs.enabled !== false && item.notifyEnabled) {
+        const fireAt = todoReminderAt(item);
+        if (!fireAt) return;
+        const lead = Number(item.remindOffsetMinutes) || 0;
+        const overdue = fireAt <= now;
+        at(fireAt, `todo-due-${item.id}-${fireAt}`, () => {
+          const title = overdue ? `Overdue: ${item.name}`
+            : lead > 0 ? `Due soon: ${item.name}`
+            : `Due now: ${item.name}`;
+          sendNotification(title, { body: listLabel, tag: `todo-due-${item.id}-${fireAt}` });
+        });
+      }
     });
+
     return () => Object.values(timers).forEach(clearTimeout);
   }, [shoppingItems, shoppingLists, notifPrefs.todos]);
 
@@ -924,6 +1003,7 @@ export function AppProvider({ children, uid }) {
       agreements, addAgreement, updateAgreement, deleteAgreement,
       shoppingLists, addShoppingList, updateShoppingList, deleteShoppingList,
       shoppingItems, addShoppingItem, updateShoppingItem, deleteShoppingItem, toggleShoppingItem, importList,
+      startTodoTimer, cancelTodoTimer,
       planningSettings, updatePlanningSettings,
       recurringTemplates, addRecurringTemplate, updateRecurringTemplate, deleteRecurringTemplate,
       paycheckActuals, addPaycheckActual, updatePaycheckActual, deletePaycheckActual,

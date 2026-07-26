@@ -1,14 +1,15 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   ShoppingCart, Plus, X, MoreVertical, Pencil, Trash2,
   Archive, ArchiveRestore, MessageSquare, Check, Store,
   ClipboardList, Bell, BellOff, CheckCircle2, Ban,
-  Circle, Clipboard, Calendar,
+  Circle, Clipboard, Calendar, Timer, TimerOff,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import Modal from '../components/Modal';
 import {
   requestNotificationPermission, notificationPermission, formatDueBadge, getDueDateMs,
+  REMINDER_LEAD_OPTIONS, TIMER_PRESETS, timerRunning, formatCountdown, formatTimerDuration,
 } from '../utils/notifications';
 
 // ── List type config ─────────────────────────────────────────────────────────
@@ -108,34 +109,65 @@ function GroceryItemForm({ initial = {}, onSave, onCancel }) {
 }
 
 // ── TodoItemForm ──────────────────────────────────────────────────────────────
-function TodoItemForm({ initial = {}, onSave, onCancel }) {
+function TodoItemForm({ initial = {}, defaultLeadMinutes = 0, onSave, onCancel }) {
   const [name, setName] = useState(initial.name || '');
   const [notes, setNotes] = useState(initial.notes || '');
   const [dueDate, setDueDate] = useState(initial.dueDate || '');
   const [dueTime, setDueTime] = useState(initial.dueTime || '');
   const [notifyEnabled, setNotifyEnabled] = useState(initial.notifyEnabled ?? false);
+  const [remindOffset, setRemindOffset] = useState(
+    initial.remindOffsetMinutes ?? defaultLeadMinutes ?? 0
+  );
+  const [timerMinutes, setTimerMinutes] = useState(
+    timerRunning(initial) ? Math.max(1, Math.round((initial.timerEndsAt - Date.now()) / 60000)) : 0
+  );
+  const [customTimer, setCustomTimer] = useState('');
+  // Only rewrite the timer if the user actually touched these controls —
+  // otherwise editing a task's text would restart a running countdown.
+  const [timerTouched, setTimerTouched] = useState(false);
   const [permDenied, setPermDenied] = useState(false);
+
+  const ensurePermission = async () => {
+    const perm = notificationPermission();
+    if (perm === 'granted') return true;
+    if (perm === 'denied') { setPermDenied(true); return false; }
+    const result = await requestNotificationPermission();
+    if (result === 'granted') return true;
+    setPermDenied(true);
+    return false;
+  };
 
   const handleNotifyToggle = async () => {
     if (notifyEnabled) { setNotifyEnabled(false); return; }
-    const perm = notificationPermission();
-    if (perm === 'granted') { setNotifyEnabled(true); return; }
-    if (perm === 'denied') { setPermDenied(true); return; }
-    const result = await requestNotificationPermission();
-    if (result === 'granted') setNotifyEnabled(true);
-    else setPermDenied(true);
+    if (await ensurePermission()) setNotifyEnabled(true);
+  };
+
+  const pickTimer = async (mins) => {
+    setTimerTouched(true);
+    if (mins === timerMinutes) { setTimerMinutes(0); return; }
+    if (mins > 0 && !(await ensurePermission())) return;
+    setTimerMinutes(mins);
+    setCustomTimer('');
   };
 
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!name.trim()) return;
+    const custom = parseInt(customTimer, 10);
+    const mins = customTimer !== '' && custom > 0 ? custom : timerMinutes;
+
     onSave({
       name: name.trim(),
       notes: notes.trim() || null,
       dueDate: dueDate || null,
       dueTime: dueDate ? (dueTime || null) : null,
       notifyEnabled: dueDate ? notifyEnabled : false,
+      remindOffsetMinutes: dueDate && notifyEnabled ? Number(remindOffset) || 0 : 0,
       status: initial.status || 'pending',
+      ...(timerTouched ? {
+        timerEndsAt: mins > 0 ? Date.now() + mins * 60 * 1000 : null,
+        timerDurationMinutes: mins > 0 ? mins : null,
+      } : {}),
     });
   };
 
@@ -176,15 +208,81 @@ function TodoItemForm({ initial = {}, onSave, onCancel }) {
             }}
           >
             {notifyEnabled ? <Bell size={15} /> : <BellOff size={15} />}
-            {notifyEnabled ? 'Notify when due (on)' : 'Notify when due'}
+            {notifyEnabled ? 'Push notification when due (on)' : 'Push notification when due'}
           </button>
-          {permDenied && (
-            <p style={{ fontSize: '0.8125rem', color: 'var(--danger)', marginTop: '0.375rem' }}>
-              Notifications are blocked in your browser settings.
-            </p>
+          {notifyEnabled && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.625rem' }}>
+              <span style={{ fontSize: '0.8125rem', color: 'var(--muted)', flexShrink: 0 }}>Remind me</span>
+              <select
+                value={remindOffset}
+                onChange={(e) => setRemindOffset(Number(e.target.value))}
+                style={{ flex: 1, backgroundColor: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '0.5rem', padding: '0.375rem 0.5rem', color: 'var(--text)', fontSize: '0.875rem' }}
+              >
+                {REMINDER_LEAD_OPTIONS.map((o) => (
+                  <option key={o.minutes} value={o.minutes}>{o.label}</option>
+                ))}
+              </select>
+            </div>
           )}
         </div>
       )}
+
+      {/* Countdown timer */}
+      <div>
+        <label className="app-label" style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+          <Timer size={13} /> Timer <span style={{ color: 'var(--subtle)' }}>(optional)</span>
+        </label>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.375rem' }}>
+          {TIMER_PRESETS.map((mins) => {
+            const active = timerMinutes === mins && customTimer === '';
+            return (
+              <button
+                key={mins}
+                type="button"
+                onClick={() => pickTimer(mins)}
+                style={{
+                  padding: '0.375rem 0.625rem', borderRadius: '0.625rem', fontSize: '0.8125rem', fontWeight: '600',
+                  border: `1.5px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
+                  backgroundColor: active ? 'rgba(99,102,241,0.12)' : 'var(--surface2)',
+                  color: active ? 'var(--accent-text)' : 'var(--muted)', cursor: 'pointer',
+                }}
+              >
+                {formatTimerDuration(mins)}
+              </button>
+            );
+          })}
+          <input
+            className="app-input"
+            type="number" min="1" placeholder="Custom min"
+            value={customTimer}
+            onChange={(e) => { setTimerTouched(true); setCustomTimer(e.target.value); if (e.target.value) setTimerMinutes(0); }}
+            onFocus={ensurePermission}
+            style={{ width: '7rem', padding: '0.375rem 0.5rem', height: 'auto', fontSize: '0.8125rem' }}
+          />
+        </div>
+        {timerTouched && (timerMinutes > 0 || parseInt(customTimer, 10) > 0) && (
+          <p style={{ fontSize: '0.75rem', color: 'var(--subtle)', marginTop: '0.375rem' }}>
+            Pushes to your phone {formatTimerDuration(parseInt(customTimer, 10) > 0 ? parseInt(customTimer, 10) : timerMinutes)} after you save.
+          </p>
+        )}
+        {!timerTouched && timerRunning(initial) && (
+          <p style={{ fontSize: '0.75rem', color: 'var(--subtle)', marginTop: '0.375rem' }}>
+            Timer running — {formatCountdown(initial.timerEndsAt - Date.now())} left. Pick a length to restart it.
+          </p>
+        )}
+        {timerTouched && timerRunning(initial) && timerMinutes === 0 && !(parseInt(customTimer, 10) > 0) && (
+          <p style={{ fontSize: '0.75rem', color: 'var(--danger)', marginTop: '0.375rem' }}>
+            Saving will cancel the running timer.
+          </p>
+        )}
+      </div>
+
+      {permDenied && (
+        <p style={{ fontSize: '0.8125rem', color: 'var(--danger)' }}>
+          Notifications are blocked in your browser settings.
+        </p>
+      )}
+
       <div style={{ display: 'flex', gap: '0.75rem', paddingTop: '0.25rem' }}>
         <button type="button" onClick={onCancel} className="app-btn-secondary" style={{ flex: 1 }}>Cancel</button>
         <button type="submit" className="app-btn-primary" style={{ flex: 1 }}>Save Task</button>
@@ -354,6 +452,17 @@ function PasteImportModal({ onImport, onCancel }) {
   );
 }
 
+// ── Live clock for countdown labels ───────────────────────────────────────────
+// Only ticks while something on screen is actually counting down.
+function useTicker(active) {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!active) return;
+    const id = setInterval(() => setTick((t) => t + 1), 1000);
+    return () => clearInterval(id);
+  }, [active]);
+}
+
 // ── Shared menu button style ──────────────────────────────────────────────────
 const MENU_BTN = {
   width: '100%', display: 'flex', alignItems: 'center', gap: '0.625rem',
@@ -484,10 +593,22 @@ function TodoListCard({
   list, listItems,
   onEditList, onDeleteList, onArchiveList,
   onAddTodoItem, onDeleteItem, onUpdateItem, onEditItem,
+  onStartTimer, onCancelTimer,
 }) {
   const [expanded, setExpanded] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [quickAdd, setQuickAdd] = useState('');
+  const [timerMenuFor, setTimerMenuFor] = useState(null);
+
+  const hasRunningTimer = listItems.some((i) => timerRunning(i));
+  useTicker(expanded && hasRunningTimer);
+
+  const startTimer = async (itemId, mins) => {
+    const perm = notificationPermission();
+    if (perm === 'default') await requestNotificationPermission();
+    onStartTimer(itemId, mins);
+    setTimerMenuFor(null);
+  };
 
   const pending = listItems.filter((i) => i.status !== 'done' && i.status !== 'blocked');
   const done = listItems.filter((i) => i.status === 'done');
@@ -501,7 +622,7 @@ function TodoListCard({
   const handleQuickAdd = () => {
     const trimmed = quickAdd.trim();
     if (!trimmed) return;
-    onAddTodoItem({ listId: list.id, name: trimmed, status: 'pending', notes: null, dueDate: null, dueTime: null, notifyEnabled: false });
+    onAddTodoItem({ listId: list.id, name: trimmed, status: 'pending', notes: null, dueDate: null, dueTime: null, notifyEnabled: false, remindOffsetMinutes: 0, timerEndsAt: null, timerDurationMinutes: null });
     setQuickAdd('');
   };
 
@@ -543,6 +664,11 @@ function TodoListCard({
                 <>
                   <span>{done.length}/{listItems.length} done</span>
                   {blocked.length > 0 && <span style={{ color: '#f59e0b' }}>{blocked.length} blocked</span>}
+                  {hasRunningTimer && (
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '0.2rem', color: 'var(--accent-text)' }}>
+                      <Timer size={11} /> {listItems.filter(timerRunning).length} running
+                    </span>
+                  )}
                 </>
               )}
             </div>
@@ -569,46 +695,86 @@ function TodoListCard({
               const isPending = !isDone && !isBlocked;
               const due = item.dueDate ? formatDueBadge(item.dueDate, item.dueTime) : null;
               const isOverdue = due?.label === 'Overdue';
+              const running = timerRunning(item);
+              const timerElapsed = !!item.timerEndsAt && !running;
+              const remaining = running ? item.timerEndsAt - Date.now() : 0;
 
               return (
                 <div key={item.id} style={{
-                  display: 'flex', alignItems: 'flex-start', gap: '0.75rem',
                   padding: '0.75rem 1rem', borderBottom: '1px solid var(--border)',
                   opacity: (isDone || isBlocked) ? 0.55 : 1,
                   backgroundColor: isOverdue && isPending ? 'rgba(244,63,94,0.04)' : 'transparent',
                 }}>
-                  <button
-                    onClick={() => cycleStatus(item)}
-                    style={{ flexShrink: 0, marginTop: '0.125rem', background: 'none', border: 'none', cursor: 'pointer', padding: '0.125rem', display: 'flex', color: isDone ? 'var(--positive)' : isBlocked ? '#f59e0b' : 'var(--border)' }}
-                  >
-                    {isDone ? <CheckCircle2 size={20} /> : isBlocked ? <Ban size={20} /> : <Circle size={20} />}
-                  </button>
-                  <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={() => onEditItem(item)}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: '0.9375rem', color: isOverdue && isPending ? 'var(--danger)' : 'var(--text)', textDecoration: (isDone || isBlocked) ? 'line-through' : 'none', fontWeight: isOverdue && isPending ? '600' : '400' }}>
-                        {item.name}
-                      </span>
-                      {due && isPending && (
-                        <span style={{ fontSize: '0.75rem', fontWeight: '700', color: due.color, backgroundColor: `${due.color}18`, padding: '0.0625rem 0.375rem', borderRadius: '0.375rem' }}>
-                          {due.label}
-                        </span>
-                      )}
-                      {item.notifyEnabled && isPending && <Bell size={11} style={{ color: 'var(--muted)', flexShrink: 0 }} />}
-                    </div>
-                    {item.notes && <p style={{ fontSize: '0.8125rem', color: 'var(--subtle)', marginTop: '0.125rem', margin: '0.125rem 0 0' }}>{item.notes}</p>}
-                  </div>
-                  {isPending && (
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
                     <button
-                      onClick={() => markBlocked(item)}
-                      title="Mark as can't complete"
-                      style={{ flexShrink: 0, padding: '0.375rem', color: 'var(--subtle)', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', borderRadius: '0.5rem' }}
+                      onClick={() => cycleStatus(item)}
+                      style={{ flexShrink: 0, marginTop: '0.125rem', background: 'none', border: 'none', cursor: 'pointer', padding: '0.125rem', display: 'flex', color: isDone ? 'var(--positive)' : isBlocked ? '#f59e0b' : 'var(--border)' }}
                     >
-                      <Ban size={14} />
+                      {isDone ? <CheckCircle2 size={20} /> : isBlocked ? <Ban size={20} /> : <Circle size={20} />}
                     </button>
+                    <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={() => onEditItem(item)}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: '0.9375rem', color: isOverdue && isPending ? 'var(--danger)' : 'var(--text)', textDecoration: (isDone || isBlocked) ? 'line-through' : 'none', fontWeight: isOverdue && isPending ? '600' : '400' }}>
+                          {item.name}
+                        </span>
+                        {due && isPending && (
+                          <span style={{ fontSize: '0.75rem', fontWeight: '700', color: due.color, backgroundColor: `${due.color}18`, padding: '0.0625rem 0.375rem', borderRadius: '0.375rem' }}>
+                            {due.label}
+                          </span>
+                        )}
+                        {running && isPending && (
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '0.2rem', fontSize: '0.75rem', fontWeight: '700', color: 'var(--accent-text)', backgroundColor: 'rgba(99,102,241,0.14)', padding: '0.0625rem 0.375rem', borderRadius: '0.375rem', fontVariantNumeric: 'tabular-nums' }}>
+                            <Timer size={10} /> {formatCountdown(remaining)}
+                          </span>
+                        )}
+                        {timerElapsed && isPending && (
+                          <span style={{ fontSize: '0.75rem', fontWeight: '700', color: 'var(--danger)', backgroundColor: 'rgba(244,63,94,0.12)', padding: '0.0625rem 0.375rem', borderRadius: '0.375rem' }}>
+                            Timer done
+                          </span>
+                        )}
+                        {item.notifyEnabled && isPending && <Bell size={11} style={{ color: 'var(--muted)', flexShrink: 0 }} />}
+                      </div>
+                      {item.notes && <p style={{ fontSize: '0.8125rem', color: 'var(--subtle)', marginTop: '0.125rem', margin: '0.125rem 0 0' }}>{item.notes}</p>}
+                    </div>
+                    {isPending && (
+                      <button
+                        onClick={() => (running || timerElapsed)
+                          ? onCancelTimer(item.id)
+                          : setTimerMenuFor(timerMenuFor === item.id ? null : item.id)}
+                        title={(running || timerElapsed) ? 'Clear timer' : 'Start a timer'}
+                        style={{ flexShrink: 0, padding: '0.375rem', color: running ? 'var(--accent-text)' : 'var(--subtle)', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', borderRadius: '0.5rem' }}
+                      >
+                        {(running || timerElapsed) ? <TimerOff size={14} /> : <Timer size={14} />}
+                      </button>
+                    )}
+                    {isPending && (
+                      <button
+                        onClick={() => markBlocked(item)}
+                        title="Mark as can't complete"
+                        style={{ flexShrink: 0, padding: '0.375rem', color: 'var(--subtle)', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', borderRadius: '0.5rem' }}
+                      >
+                        <Ban size={14} />
+                      </button>
+                    )}
+                    <button onClick={() => onDeleteItem(item.id)} style={{ flexShrink: 0, color: 'var(--subtle)', background: 'none', border: 'none', cursor: 'pointer', padding: '0.375rem', display: 'flex', borderRadius: '0.5rem' }}>
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+
+                  {timerMenuFor === item.id && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.375rem', marginTop: '0.625rem', paddingLeft: '1.8rem' }}>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--subtle)', alignSelf: 'center', marginRight: '0.125rem' }}>Notify in</span>
+                      {TIMER_PRESETS.map((mins) => (
+                        <button
+                          key={mins}
+                          onClick={() => startTimer(item.id, mins)}
+                          style={{ padding: '0.25rem 0.5rem', borderRadius: '0.5rem', fontSize: '0.75rem', fontWeight: '600', border: '1.5px solid var(--border)', backgroundColor: 'var(--surface2)', color: 'var(--muted)', cursor: 'pointer' }}
+                        >
+                          {formatTimerDuration(mins)}
+                        </button>
+                      ))}
+                    </div>
                   )}
-                  <button onClick={() => onDeleteItem(item.id)} style={{ flexShrink: 0, color: 'var(--subtle)', background: 'none', border: 'none', cursor: 'pointer', padding: '0.375rem', display: 'flex', borderRadius: '0.5rem' }}>
-                    <Trash2 size={14} />
-                  </button>
                 </div>
               );
             })
@@ -651,6 +817,7 @@ export default function ShoppingLists() {
   const {
     shoppingLists, addShoppingList, updateShoppingList, deleteShoppingList,
     shoppingItems, addShoppingItem, updateShoppingItem, deleteShoppingItem, toggleShoppingItem, importList,
+    startTodoTimer, cancelTodoTimer, notifPrefs,
   } = useApp();
 
   const [search, setSearch] = useState('');
@@ -718,6 +885,8 @@ export default function ShoppingLists() {
     ...cardProps(list),
     onAddTodoItem: addShoppingItem,
     onUpdateItem: updateShoppingItem,
+    onStartTimer: startTodoTimer,
+    onCancelTimer: cancelTodoTimer,
   });
 
   const exportItems = exportList ? shoppingItems.filter((i) => i.listId === exportList.id) : [];
@@ -850,7 +1019,12 @@ export default function ShoppingLists() {
       )}
       {editItem && editItemListType === 'todo' && (
         <Modal title="Edit Task" onClose={() => setEditItem(null)}>
-          <TodoItemForm initial={editItem} onSave={(data) => { updateShoppingItem(editItem.id, data); setEditItem(null); }} onCancel={() => setEditItem(null)} />
+          <TodoItemForm
+            initial={editItem}
+            defaultLeadMinutes={notifPrefs?.todos?.defaultLeadMinutes ?? 0}
+            onSave={(data) => { updateShoppingItem(editItem.id, data); setEditItem(null); }}
+            onCancel={() => setEditItem(null)}
+          />
         </Modal>
       )}
       {exportList && (

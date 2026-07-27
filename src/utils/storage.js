@@ -143,6 +143,7 @@ export const storage = {
       commitments: { expiring: true, daysBefore: 3, ...(saved.commitments || {}) },
       todos: { enabled: true, timers: true, defaultLeadMinutes: 0, ...(saved.todos || {}) },
       shifts: { reminder: false, reminderTime: '18:00', ...(saved.shifts || {}) },
+      email: { enabled: false, address: '', ...(saved.email || {}) },
     };
   },
   setNotifPrefs: (v) => set(KEYS.NOTIF_PREFS, v),

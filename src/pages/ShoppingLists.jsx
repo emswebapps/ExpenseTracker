@@ -10,6 +10,7 @@ import Modal from '../components/Modal';
 import {
   requestNotificationPermission, notificationPermission, formatDueBadge, getDueDateMs,
   REMINDER_LEAD_OPTIONS, TIMER_PRESETS, timerRunning, formatCountdown, formatTimerDuration,
+  localTodayISO,
 } from '../utils/notifications';
 
 // ── List type config ─────────────────────────────────────────────────────────
@@ -156,13 +157,18 @@ function TodoItemForm({ initial = {}, defaultLeadMinutes = 0, onSave, onCancel }
     const custom = parseInt(customTimer, 10);
     const mins = customTimer !== '' && custom > 0 ? custom : timerMinutes;
 
+    // A time with no date means "today at that time." No date and no time means
+    // the task simply has no deadline.
+    const resolvedDate = dueDate || (dueTime ? localTodayISO() : null);
+    const hasDeadline = !!resolvedDate;
+
     onSave({
       name: name.trim(),
       notes: notes.trim() || null,
-      dueDate: dueDate || null,
-      dueTime: dueDate ? (dueTime || null) : null,
-      notifyEnabled: dueDate ? notifyEnabled : false,
-      remindOffsetMinutes: dueDate && notifyEnabled ? Number(remindOffset) || 0 : 0,
+      dueDate: resolvedDate,
+      dueTime: hasDeadline ? (dueTime || null) : null,
+      notifyEnabled: hasDeadline ? notifyEnabled : false,
+      remindOffsetMinutes: hasDeadline && notifyEnabled ? Number(remindOffset) || 0 : 0,
       status: initial.status || 'pending',
       ...(timerTouched ? {
         timerEndsAt: mins > 0 ? Date.now() + mins * 60 * 1000 : null,
@@ -184,16 +190,17 @@ function TodoItemForm({ initial = {}, defaultLeadMinutes = 0, onSave, onCancel }
       <div style={{ display: 'flex', gap: '0.75rem' }}>
         <div style={{ flex: 1 }}>
           <label className="app-label">Due Date</label>
-          <input className="app-input" type="date" value={dueDate} onChange={(e) => { setDueDate(e.target.value); if (!e.target.value) { setDueTime(''); setNotifyEnabled(false); } }} />
+          <input className="app-input" type="date" value={dueDate} onChange={(e) => { setDueDate(e.target.value); if (!e.target.value && !dueTime) setNotifyEnabled(false); }} />
         </div>
-        {dueDate && (
-          <div style={{ flex: 1 }}>
-            <label className="app-label">Due Time</label>
-            <input className="app-input" type="time" value={dueTime} onChange={(e) => setDueTime(e.target.value)} />
-          </div>
-        )}
+        <div style={{ flex: 1 }}>
+          <label className="app-label">Due Time</label>
+          <input className="app-input" type="time" value={dueTime} onChange={(e) => { setDueTime(e.target.value); if (!e.target.value && !dueDate) setNotifyEnabled(false); }} />
+        </div>
       </div>
-      {dueDate && (
+      <p style={{ fontSize: '0.75rem', color: 'var(--subtle)', marginTop: '-0.5rem' }}>
+        Set the exact date and time this task is due. Leave the date blank to use today (e.g. 2:00 PM today).
+      </p>
+      {(dueDate || dueTime) && (
         <div>
           <button
             type="button"

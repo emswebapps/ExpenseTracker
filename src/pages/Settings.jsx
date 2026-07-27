@@ -508,6 +508,40 @@ export default function Settings() {
           )}
         </section>
 
+        {/* Email Notifications */}
+        <section className="mb-4" style={cardStyle}>
+          <div className="flex items-center gap-2 mb-3">
+            <Mail size={15} style={{ color: 'var(--accent-text)' }} />
+            <span style={sectionLabelStyle}>Email Notifications</span>
+          </div>
+          <p style={{ fontSize: '0.8125rem', color: 'var(--muted)', marginBottom: '0.75rem' }}>
+            Also send your reminders to an inbox. You'll get an email an hour before a timed to-do is due
+            (if it isn't done yet), the day a bill is due, and for the same alerts that trigger in-app
+            notifications. Works even when the app is closed and requires no browser permission.
+          </p>
+          <NotifRow
+            label="Send notifications by email"
+            sublabel="Requires the Firebase Trigger Email extension (see setup guide)"
+            checked={!!notifPrefs.email?.enabled}
+            onChange={(v) => updatePref('email', 'enabled', v)}
+          />
+          {notifPrefs.email?.enabled && (
+            <div style={{ paddingTop: '0.75rem' }}>
+              <label className="app-label">Send emails to</label>
+              <input
+                type="email"
+                className="app-input"
+                placeholder={user?.email || 'you@example.com'}
+                value={notifPrefs.email?.address || ''}
+                onChange={(e) => updatePref('email', 'address', e.target.value)}
+              />
+              <p style={{ fontSize: '0.75rem', color: 'var(--subtle)', marginTop: '0.375rem' }}>
+                Leave blank to use your account email ({user?.email || 'not set'}).
+              </p>
+            </div>
+          )}
+        </section>
+
         {/* Export */}
         <section className="mb-4" style={cardStyle}>
           <p className="mb-1" style={sectionLabelStyle}>Export Data</p>

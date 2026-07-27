@@ -14,6 +14,51 @@ Mobile-first bill and budget tracking app built with React + Vite + Tailwind CSS
 - Mobile-first dark UI, works great on phone, iPad, and desktop
 - Add to Home Screen on iOS/Android for an app-like experience
 
+## To-do timers & due dates
+
+To-do items support a due date/time and a countdown timer, both of which push a
+notification to your phone even when the app is closed.
+
+- **Due date + time** — set on a task, with an optional lead time ("30 min
+  before", "1 day before", …). Turn on *Push notification when due* on the task.
+- **Timer** — tap the ⏱ button on any task for a quick countdown (5 min … 2 hr,
+  or a custom number of minutes). The remaining time ticks live on the task row.
+- Defaults and on/off switches live in **Settings → Notifications → To-Do Lists**.
+
+Delivery is handled by the `todoReminders` Cloud Function, which runs every
+minute and sends through FCM. In-app timers cover the case where the app is
+already open; both use the same notification tag, so the phone only ever shows
+one alert per reminder.
+
+## Push notification setup
+
+Background push needs two things configured:
+
+1. **VAPID key** — in the Firebase Console under *Project Settings → Cloud
+   Messaging → Web Push certificates*, generate (or copy) the key pair and take
+   the public key. Add it as a repository secret named `VITE_FCM_VAPID_KEY`
+   (Settings → Secrets and variables → Actions); the deploy workflow passes it
+   into the build. For local dev, put it in a `.env` file:
+
+   ```
+   VITE_FCM_VAPID_KEY=<public key>
+   ```
+
+   The key is ~87 characters. If it's missing or malformed the app logs a
+   warning, falls back to in-app alerts, and Settings says push is unavailable.
+
+2. **Cloud Functions** — requires the Firebase Blaze plan:
+
+   ```bash
+   npm --prefix functions install
+   npm --prefix functions test     # unit tests for the reminder logic
+   firebase deploy --only functions
+   ```
+
+On **iPhone**, iOS only delivers web push to apps installed to the Home Screen —
+open the site in Safari, *Share → Add to Home Screen*, then enable notifications
+from inside the installed app.
+
 ## Dev
 
 ```bash

@@ -32,7 +32,10 @@ jobs:
 
       - run: npm run build
         env:
-          VITE_FCM_VAPID_KEY: bdUnK4mtP19w7NtBQniJNN39vroY5Q4lRHefPiSkc9M
+          # Web Push certificate public key from Firebase Console → Project
+          # Settings → Cloud Messaging. Set it as a repository secret; without
+          # it the app still works, but background push is disabled.
+          VITE_FCM_VAPID_KEY: ${{ secrets.VITE_FCM_VAPID_KEY }}
 
       - uses: actions/configure-pages@v5
 

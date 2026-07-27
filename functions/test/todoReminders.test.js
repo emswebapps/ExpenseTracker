@@ -5,7 +5,9 @@ const { test } = require('node:test');
 
 process.env.GOOGLE_CLOUD_PROJECT = process.env.GOOGLE_CLOUD_PROJECT || 'test-project';
 const { _internal } = require('../index');
-const { collectTodoMessages, wallClockToMs } = _internal;
+const { collectTodoMessages, collectTodoEmails, wallClockToMs } = _internal;
+
+const EMAIL_ON = { notifPrefs: { email: { enabled: true } } };
 
 const NOW = Date.UTC(2026, 6, 26, 18, 0, 0); // 2026-07-26 14:00 America/New_York
 const MIN = 60 * 1000;
@@ -145,4 +147,43 @@ test('a legacy item with no due time defaults to end of day', () => {
   const msgs = collectTodoMessages(
     build([item({ notifyEnabled: true, dueDate: '2026-07-26' })]), {}, NOW);
   assert.deepStrictEqual(msgs, []); // 23:59 hasn't arrived at 14:00
+});
+
+// ── collectTodoEmails: the "due in an hour, still not done" email ──
+
+test('email fires an hour before the due moment', () => {
+  const dueAt = NOW + 60 * MIN;
+  const emails = collectTodoEmails(build([item({ dueAt })], EMAIL_ON), {}, NOW);
+  assert.strictEqual(emails.length, 1);
+  assert.match(emails[0].subject, /Due soon: Call plumber/);
+  assert.strictEqual(emails[0].tag, `todo-email-1h-T1-${dueAt}`);
+});
+
+test('email does not fire more than an hour out', () => {
+  const dueAt = NOW + 61 * MIN;
+  assert.deepStrictEqual(collectTodoEmails(build([item({ dueAt })], EMAIL_ON), {}, NOW), []);
+});
+
+test('email is suppressed when the email channel is off', () => {
+  const dueAt = NOW + 60 * MIN;
+  assert.deepStrictEqual(collectTodoEmails(build([item({ dueAt })]), {}, NOW), []);
+});
+
+test('email is not resent once its key is recorded', () => {
+  const dueAt = NOW + 60 * MIN;
+  const sent = { [`todo-email-1h-T1-${dueAt}`]: NOW - MIN };
+  assert.deepStrictEqual(collectTodoEmails(build([item({ dueAt })], EMAIL_ON), sent, NOW), []);
+});
+
+test('email skips completed and blocked tasks', () => {
+  const dueAt = NOW + 60 * MIN;
+  for (const status of ['done', 'blocked']) {
+    assert.deepStrictEqual(
+      collectTodoEmails(build([item({ status, dueAt })], EMAIL_ON), {}, NOW), [], `status=${status}`);
+  }
+});
+
+test('email does not fire long after the window has passed', () => {
+  const dueAt = NOW - 7 * 60 * MIN;
+  assert.deepStrictEqual(collectTodoEmails(build([item({ dueAt })], EMAIL_ON), {}, NOW), []);
 });

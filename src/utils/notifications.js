@@ -146,14 +146,24 @@ export const REMINDER_LEAD_OPTIONS = [
 // Quick-start countdown timers, in minutes.
 export const TIMER_PRESETS = [5, 10, 15, 30, 60, 120];
 
+/** Today's date as a local "YYYY-MM-DD" string. */
+export function localTodayISO() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 /**
  * Absolute epoch ms for a to-do's due moment, resolved in the device's local
  * time zone. Stored on the item as `dueAt` so the Cloud Function can schedule
  * pushes without having to guess the user's time zone.
+ *
+ * A blank date with a time given assumes today, so "due at 2:00 PM" means today
+ * at 2 PM. A blank date and blank time means the item has no deadline.
  */
 export function computeDueAt(dueDate, dueTime) {
-  if (!dueDate) return null;
-  const ms = new Date(`${dueDate}T${dueTime || '23:59'}`).getTime();
+  if (!dueDate && !dueTime) return null;
+  const date = dueDate || localTodayISO();
+  const ms = new Date(`${date}T${dueTime || '23:59'}`).getTime();
   return Number.isNaN(ms) ? null : ms;
 }
 

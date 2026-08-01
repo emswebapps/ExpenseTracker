@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { User, Trash2, AlertTriangle, Wallet, PiggyBank, DollarSign, Sun, Moon, LogOut, Mail, Download, Share2, RefreshCw, Copy, Check, X, Bell, BellOff, Lock, FolderOpen, ChevronRight, FlaskConical } from 'lucide-react';
+import { User, Trash2, AlertTriangle, Wallet, PiggyBank, DollarSign, Sun, Moon, LogOut, Mail, Download, Share2, RefreshCw, Copy, Check, X, Bell, BellOff, Lock, FolderOpen, ChevronRight, FlaskConical, CalendarPlus } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
 import Modal from '../components/Modal';
+import CalendarExportModal from '../components/CalendarExportModal';
 import { formatCurrency, exportAllData, exportAsHTML, exportJobScheduleHTML, getMonthBounds } from '../utils/helpers';
 import { notificationPermission, sendNotification, pushKeyConfigured, REMINDER_LEAD_OPTIONS } from '../utils/notifications';
 
@@ -56,6 +57,7 @@ export default function Settings() {
   const [updating, setUpdating] = useState(false);
   const [jobExportId, setJobExportId] = useState('');
   const [scheduleShowIncome, setScheduleShowIncome] = useState(true);
+  const [showCalendarExport, setShowCalendarExport] = useState(false);
 
   const handleForceUpdate = async () => {
     setUpdating(true);
@@ -611,6 +613,21 @@ export default function Settings() {
                 </button>
               </div>
             )}
+            {jobs.length > 0 && (
+              <div style={{ padding: '0.75rem', backgroundColor: 'var(--surface2)', borderRadius: '0.75rem', border: '1px solid var(--border)' }}>
+                <p style={{ fontSize: '0.8125rem', fontWeight: 700, color: 'var(--text)', marginBottom: '0.5rem' }}>Shifts to Calendar</p>
+                <p style={{ fontSize: '0.75rem', color: 'var(--subtle)', marginBottom: '0.75rem' }}>
+                  Send your logged shifts to Outlook, Apple Calendar or Google Calendar as an .ics file, with a reminder before each shift.
+                </p>
+                <button
+                  onClick={() => setShowCalendarExport(true)}
+                  disabled={shifts.length === 0}
+                  className="flex items-center gap-2 text-sm font-semibold"
+                  style={{ color: shifts.length ? '#fff' : 'var(--muted)', border: 'none', padding: '0.625rem 1rem', borderRadius: '0.75rem', width: '100%', backgroundColor: shifts.length ? 'var(--accent)' : 'var(--border)', cursor: shifts.length ? 'pointer' : 'not-allowed' }}>
+                  <CalendarPlus size={14} /> Add Shifts to Calendar
+                </button>
+              </div>
+            )}
           </div>
         </section>
 
@@ -691,6 +708,15 @@ export default function Settings() {
             <button onClick={clearAll} className="flex-1 py-3 rounded-xl font-semibold text-white" style={{ backgroundColor: 'var(--danger)' }}>Delete Everything</button>
           </div>
         </Modal>
+      )}
+
+      {showCalendarExport && (
+        <CalendarExportModal
+          jobs={jobs}
+          shifts={shifts}
+          initialJobId={jobExportId || 'all'}
+          onClose={() => setShowCalendarExport(false)}
+        />
       )}
     </div>
   );

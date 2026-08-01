@@ -1,12 +1,13 @@
 import { useState, useMemo, useEffect } from 'react';
 import {
   Briefcase, Clock, ChevronLeft, ChevronRight, Plus, Pencil, Trash2,
-  MoreVertical, Check, Calculator, Save, Info, Share2,
+  MoreVertical, Check, Calculator, Save, Info, Share2, CalendarPlus,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { formatCurrency, monthKey } from '../utils/helpers';
 import { calcPaycheck, calcHoursFromShifts, getPayPeriodBounds, getPayPeriodAtOffset } from '../utils/taxCalc';
 import Modal from '../components/Modal';
+import CalendarExportModal from '../components/CalendarExportModal';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -1084,6 +1085,7 @@ function HoursTab({ jobs, shifts, addShift, updateShift, deleteShift, bulkSaveSh
   const [logDate, setLogDate] = useState(today());
   const [showShiftForm, setShowShiftForm] = useState(false);
   const [showBulkForm, setShowBulkForm] = useState(false);
+  const [showCalendarExport, setShowCalendarExport] = useState(false);
   const [editShift, setEditShift] = useState(null);
   const [calView, setCalView] = useState(true);
   const [periodOffset, setPeriodOffset] = useState(0);
@@ -1125,7 +1127,15 @@ function HoursTab({ jobs, shifts, addShift, updateShift, deleteShift, bulkSaveSh
 
   return (
     <div style={{ padding: '0 1rem' }}>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '0.75rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
+        <button onClick={() => setShowCalendarExport(true)} disabled={shifts.length === 0}
+          title="Export shifts to Outlook / Apple Calendar"
+          style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.4375rem 0.75rem', borderRadius: '0.625rem',
+            border: '1px solid var(--border)', backgroundColor: 'var(--surface2)',
+            color: shifts.length === 0 ? 'var(--subtle)' : 'var(--muted)', fontSize: '0.75rem', fontWeight: 700,
+            cursor: shifts.length === 0 ? 'not-allowed' : 'pointer', opacity: shifts.length === 0 ? 0.5 : 1 }}>
+          <CalendarPlus size={14} /> Add to Calendar
+        </button>
         <div style={{ display: 'flex', backgroundColor: 'var(--surface2)', borderRadius: '0.625rem', padding: '0.1875rem', gap: '0.125rem' }}>
           {[['Calendar', true], ['List', false]].map(([lbl, v]) => (
             <button key={lbl} onClick={() => setCalView(v)}
@@ -1379,6 +1389,9 @@ function HoursTab({ jobs, shifts, addShift, updateShift, deleteShift, bulkSaveSh
             onSave={(d) => { updateShift(editShift.id, d); setEditShift(null); }}
             onCancel={() => setEditShift(null)} />
         </Modal>
+      )}
+      {showCalendarExport && (
+        <CalendarExportModal jobs={jobs} shifts={shifts} onClose={() => setShowCalendarExport(false)} />
       )}
     </div>
   );

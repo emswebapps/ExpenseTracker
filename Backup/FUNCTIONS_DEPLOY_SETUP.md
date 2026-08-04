@@ -76,12 +76,20 @@ After this, any change to the reminder logic deploys itself on merge to `main`.
 
 ## If the deploy fails
 
+The workflow checks the key before it deploys, so most credential problems are
+named outright in the log. Read the first `::error::` line — it says what is
+wrong with the secret.
+
 | Error | Fix |
 |-------|-----|
 | `FIREBASE_SERVICE_ACCOUNT is not set` | The secret name is wrong or it's on the wrong repo |
+| `secret is not valid JSON` | A partial paste — the value must run from the opening `{` to the closing `}`, with no surrounding quotes |
+| `not a service account key` | That's the Firebase *web app* config or a CI token. You want the JSON downloaded in step 3 |
+| `private_key is not a usable private key` | The key was mangled (usually newlines stripped). Download a fresh one and paste it unmodified |
+| `key belongs to project "…"` | The service account was created in the wrong Google Cloud project |
+| `Failed to authenticate, have you run firebase login?` | The key is well-formed but Google rejected it — the key was deleted or disabled, or its service account was removed. Create a new key (steps 1–4) |
 | `Permission denied` / `caller does not have permission` | A role from step 2 is missing — the message names the service |
 | `API has not been used in project…` | Enable the named API under **APIs & Services → Library**, then re-run |
-| `Unexpected token in JSON` | The secret is a partial paste — it must include the braces |
 | Billing errors | Cloud Functions need the **Blaze** plan |
 
 The workflow is deliberately gated on `npm test` in `functions/`, so a failure

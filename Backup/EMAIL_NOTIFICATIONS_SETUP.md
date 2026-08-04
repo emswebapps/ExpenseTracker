@@ -6,17 +6,20 @@ mailbox (`notifications@emslearn.org`).
 
 Once configured, the app emails you:
 
-- **An hour before a dated task is due** — on to‑do *and* work lists, but only
-  if it still isn't marked complete. (`todoReminders` Cloud Function, runs every
-  minute.)
-- **The day a bill is due** — plus overdue bills, bills due tomorrow, expiring
-  commitments, goal target dates, project dates, and the work‑log reminder,
-  bundled into one **daily digest** at 8:00 AM Eastern. (`dailyNotifications`
-  Cloud Function.)
+- **Ahead of a dated task's due moment** — on to‑do *and* work lists, but only if
+  it still isn't marked complete. The lead is yours to pick (at the due time up
+  to a day before, default one hour). (`todoReminders` Cloud Function, runs
+  every minute.)
+- **A daily digest** covering bills due today, overdue bills, bills due
+  tomorrow, expiring commitments, goal target dates, project dates, and the
+  work‑log reminder. It goes out at the time set in **Settings → Notifications →
+  Daily Summary** (default 8:00 AM), in your own time zone, and each section can
+  be included or excluded individually. (`dailyNotifications` Cloud Function,
+  ticks every 15 minutes and sends each account once per local day.)
 
-These are the same events that raise in‑app / push notifications — email is just
-an extra delivery channel you switch on per account in **Settings → Email
-Notifications**.
+Email is its own channel, not a mirror of push: **Settings → Email
+Notifications** decides what reaches the inbox independently of the push
+toggles, so a category can be emailed without buzzing the phone, or the reverse.
 
 ---
 
@@ -168,11 +171,23 @@ Verify in **Firebase console → Functions** that `dailyNotifications` and
 2. Toggle **Send notifications by email** on.
 3. Optionally enter a **Send emails to** address. Leave it blank to use your
    account's login email.
-4. That's it — the setting syncs to Firestore, and the Cloud Functions read it
+4. Under **Task Due Emails**, choose how far ahead of a task's due moment the
+   email goes — at the due time, or up to a day before.
+5. Under **Daily Email Digest**, tick the sections you want in the once-a-day
+   email: bills, commitments, goals, projects, work log. Anything unticked is
+   left out of the email even if it still notifies your phone.
+6. To move the digest, set **Settings → Notifications → Daily Summary → Send my
+   daily reminders at**. That one time governs both the daily push batch and the
+   daily email, in your own time zone.
+7. That's it — the settings sync to Firestore, and the Cloud Functions read them
    on their next run.
 
 > **Recipient resolution:** the function uses the address you type in Settings;
 > if that's blank it falls back to the account's Firebase Auth login email.
+>
+> **Timing precision:** `dailyNotifications` ticks every 15 minutes, so the
+> digest lands on the first tick at or after your chosen time. A time later than
+> 23:45 is treated as 23:45, since there's no tick after that in the local day.
 
 ---
 
@@ -228,6 +243,7 @@ SMTP port:        465 (SSL)  |  587 (STARTTLS)
 SMTP user:        notifications@emslearn.org
 Default FROM:     notifications@emslearn.org
 Connection URI:   smtps://notifications%40emslearn.org@smtp.ionos.com:465
-Functions:        dailyNotifications (8 AM ET digest), todoReminders (every minute)
+Functions:        dailyNotifications (digest, every 15 min, per-user send time)
+                  todoReminders (task due emails, every minute)
 Toggle:           Settings → Email Notifications
 ```

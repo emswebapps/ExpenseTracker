@@ -134,7 +134,7 @@ test('email fires an hour before the due moment', () => {
   const emails = collectTodoEmails(build([item({ dueAt })], EMAIL_ON), {}, NOW);
   assert.strictEqual(emails.length, 1);
   assert.match(emails[0].subject, /Due soon: Call plumber/);
-  assert.strictEqual(emails[0].tag, `todo-email-1h-T1-${dueAt}`);
+  assert.strictEqual(emails[0].tag, `todo-email-T1-${dueAt}-60`);
 });
 
 test('email does not fire more than an hour out', () => {
@@ -149,7 +149,7 @@ test('email is suppressed when the email channel is off', () => {
 
 test('email is not resent once its key is recorded', () => {
   const dueAt = NOW + 60 * MIN;
-  const sent = { [`todo-email-1h-T1-${dueAt}`]: NOW - MIN };
+  const sent = { [`todo-email-T1-${dueAt}-60`]: NOW - MIN };
   assert.deepStrictEqual(collectTodoEmails(build([item({ dueAt })], EMAIL_ON), sent, NOW), []);
 });
 
@@ -171,4 +171,46 @@ test('work list items are emailed too', () => {
   const emails = collectTodoEmails(build([item({ listId: 'L4', dueAt })], EMAIL_ON), {}, NOW);
   assert.strictEqual(emails.length, 1);
   assert.match(emails[0].lines[0], /Shift prep/);
+});
+
+// ── Task email lead time ──
+
+test('task email lead time is configurable', () => {
+  const prefs = (taskLeadMinutes) => ({ notifPrefs: { email: { enabled: true, taskLeadMinutes } } });
+  const dueAt = NOW + 90 * MIN;
+
+  // An hour's lead means the email is still half an hour away...
+  assert.deepStrictEqual(collectTodoEmails(build([item({ dueAt })], EMAIL_ON), {}, NOW), []);
+  // ...while two hours' lead is already past due and fires now.
+  const at2h = collectTodoEmails(build([item({ dueAt })], prefs(120)), {}, NOW);
+  assert.strictEqual(at2h.length, 1);
+  assert.match(at2h[0].title, /due in about 2 hours/);
+  assert.strictEqual(at2h[0].tag, `todo-email-T1-${dueAt}-120`);
+
+  // A short lead holds off until the task is nearly due.
+  const soon = NOW + 15 * MIN;
+  assert.deepStrictEqual(collectTodoEmails(build([item({ dueAt: soon })], prefs(5)), {}, NOW), []);
+  const at15 = collectTodoEmails(build([item({ dueAt: soon })], prefs(15)), {}, NOW);
+  assert.strictEqual(at15.length, 1);
+  assert.match(at15[0].title, /due in 15 minutes/);
+
+  // Zero lead means the email lands at the due moment itself.
+  const atDue = collectTodoEmails(build([item({ dueAt: NOW })], prefs(0)), {}, NOW);
+  assert.strictEqual(atDue.length, 1);
+  assert.match(atDue[0].title, /is due now/);
+});
+
+test('changing the lead re-arms an already-sent email', () => {
+  const dueAt = NOW + 60 * MIN;
+  const sent = { [`todo-email-T1-${dueAt}-60`]: NOW - MIN };
+  assert.deepStrictEqual(collectTodoEmails(build([item({ dueAt })], EMAIL_ON), sent, NOW), []);
+  const relead = collectTodoEmails(
+    build([item({ dueAt })], { notifPrefs: { email: { enabled: true, taskLeadMinutes: 120 } } }), sent, NOW);
+  assert.strictEqual(relead.length, 1);
+});
+
+test('task emails can be switched off without disabling email', () => {
+  const dueAt = NOW + 60 * MIN;
+  const off = { notifPrefs: { email: { enabled: true, tasks: false } } };
+  assert.deepStrictEqual(collectTodoEmails(build([item({ dueAt })], off), {}, NOW), []);
 });

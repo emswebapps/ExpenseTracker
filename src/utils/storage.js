@@ -139,11 +139,23 @@ export const storage = {
   getNotifPrefs: () => {
     const saved = get(KEYS.NOTIF_PREFS) || {};
     return {
-      bills: { overdue: true, dayBefore: true, ...(saved.bills || {}) },
+      bills: { overdue: true, dayBefore: true, sameDay: true, ...(saved.bills || {}) },
       commitments: { expiring: true, daysBefore: 3, ...(saved.commitments || {}) },
       todos: { enabled: true, defaultLeadMinutes: 0, ...(saved.todos || {}) },
       shifts: { reminder: false, reminderTime: '18:00', ...(saved.shifts || {}) },
-      email: { enabled: false, address: '', ...(saved.email || {}) },
+      goals: { enabled: true, ...(saved.goals || {}) },
+      projects: { enabled: true, ...(saved.projects || {}) },
+      // When the once-a-day summary goes out, in your own time zone. Governs
+      // both the daily push batch and the daily email digest.
+      daily: { time: '08:00', ...(saved.daily || {}) },
+      // Email is its own channel: `enabled` turns it on, and each flag below
+      // picks what lands in the inbox, independently of the push toggles.
+      email: {
+        enabled: false, address: '',
+        tasks: true, taskLeadMinutes: 60,
+        bills: true, commitments: true, goals: true, projects: true, workLog: true,
+        ...(saved.email || {}),
+      },
     };
   },
   setNotifPrefs: (v) => set(KEYS.NOTIF_PREFS, v),

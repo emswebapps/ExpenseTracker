@@ -98,164 +98,231 @@ async function resolveRecipient(uid, data) {
   return addr || null;
 }
 
-// Runs daily at 8:00 AM Eastern — checks bills, commitments, and shift reminders
+// ── Daily summary (bills, commitments, goals, projects, work log) ───────────
+// The scheduler ticks every 15 minutes; each user's summary goes out on the
+// first tick at or after the time they picked in their own time zone, once per
+// local day. `notifState.dailyRunDate` is what makes it once-per-day.
+
+const DAILY_DEFAULT_TIME = '08:00';
+// Last tick of a local day. A later choice than this would never be reached, so
+// it fires on this tick instead of being lost.
+const LAST_TICK_MINUTES = 23 * 60 + 45;
+
+/** Local calendar date ("YYYY-MM-DD") and minutes past local midnight in `tz`. */
+function localDateAndMinutes(date, tz) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz, hour12: false,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit',
+  }).formatToParts(date).reduce((acc, p) => { acc[p.type] = p.value; return acc; }, {});
+  return {
+    date: `${parts.year}-${parts.month}-${parts.day}`,
+    minutes: (Number(parts.hour) % 24) * 60 + Number(parts.minute),
+  };
+}
+
+/** Minutes past midnight for an "HH:MM" string, or null if unparseable. */
+function timeToMinutes(str) {
+  const [h, m] = String(str || '').split(':').map(Number);
+  if (Number.isNaN(h) || Number.isNaN(m)) return null;
+  return h * 60 + m;
+}
+
+/** Whole days from one "YYYY-MM-DD" to another. */
+function daysBetween(fromISO, toISO) {
+  const parse = (s) => {
+    const [y, m, d] = String(s).split('-').map(Number);
+    return Date.UTC(y, m - 1, d);
+  };
+  const ms = parse(toISO) - parse(fromISO);
+  return Number.isNaN(ms) ? null : Math.round(ms / 86400000);
+}
+
+/** The day-of-month that follows `localDate`, handling month ends. */
+function tomorrowDayOfMonth(localDate) {
+  const [y, m, d] = localDate.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + 1)).getUTCDate();
+}
+
+/**
+ * Every reminder that applies to `localDate`, tagged with the category that
+ * decides whether each channel wants it. Pure, so the windows are testable.
+ * Building the full set here — rather than filtering as we go — is what lets
+ * push and email be configured independently of one another.
+ *
+ * @returns {Array<{title, body, tag, category, kind?}>}
+ */
+function collectDailyMessages(data, localDate) {
+  const { bills = [], commitments = [], plannedExpenses = [], projects = [], notifPrefs } = data;
+  const daysBefore = notifPrefs?.commitments?.daysBefore ?? 3;
+  const mk = localDate.slice(0, 7);
+  const todayDay = Number(localDate.slice(8, 10));
+  const tomorrowDay = tomorrowDayOfMonth(localDate);
+
+  const messages = [];
+
+  // ── Bills ──
+  for (const bill of bills) {
+    if (!bill.dueDay || bill.isPermanent) continue;
+    const status = (bill.statusMonths?.[mk]) || (bill.paidMonths?.[mk] ? 'paid' : 'unpaid');
+    if (status === 'paid') continue;
+
+    if (bill.dueDay < todayDay) {
+      messages.push({
+        title: `Bill Overdue: ${bill.name}`,
+        body: `$${bill.amount} was due on the ${bill.dueDay}th`,
+        tag: `bill-overdue-${bill.id}-${mk}`,
+        category: 'bills', kind: 'overdue',
+      });
+    } else if (bill.dueDay === todayDay) {
+      messages.push({
+        title: `Bill Due Today: ${bill.name}`,
+        body: `$${bill.amount} due today`,
+        tag: `bill-today-${bill.id}-${mk}`,
+        category: 'bills', kind: 'sameDay',
+      });
+    } else if (bill.dueDay === tomorrowDay) {
+      messages.push({
+        title: `Bill Due Tomorrow: ${bill.name}`,
+        body: `$${bill.amount} due tomorrow`,
+        tag: `bill-tomorrow-${bill.id}-${mk}`,
+        category: 'bills', kind: 'dayBefore',
+      });
+    }
+  }
+
+  // ── Commitments ──
+  for (const c of commitments) {
+    if (c.completed || !c.endDate) continue;
+    const diffDays = daysBetween(localDate, c.endDate);
+    if (diffDays === null || diffDays < 0 || diffDays > daysBefore) continue;
+    messages.push({
+      title: `Commitment: ${c.description || 'Commitment'}`,
+      body: diffDays === 0 ? 'Expires today'
+        : diffDays === 1 ? 'Expires tomorrow'
+        : `Expires in ${diffDays} days`,
+      tag: `commit-exp-${c.id}-${localDate}`,
+      category: 'commitments',
+    });
+  }
+
+  // ── Goals (planned expenses) ──
+  for (const pe of plannedExpenses) {
+    if (pe.status === 'completed' || !pe.targetDate) continue;
+    const diffDays = daysBetween(localDate, pe.targetDate);
+    if (diffDays === null || diffDays < 0 || diffDays > 7) continue;
+    messages.push({
+      title: `Goal: ${pe.name}`,
+      body: diffDays === 0 ? 'Target date is today'
+        : diffDays === 1 ? 'Target date is tomorrow'
+        : `Target date in ${diffDays} days`,
+      tag: `goal-due-${pe.id}-${localDate}`,
+      category: 'goals',
+    });
+  }
+
+  // ── Projects ──
+  for (const p of projects) {
+    if (p.completed) continue;
+    for (const [field, label] of [['reviewDate', 'Review'], ['dueDate', 'Due']]) {
+      if (!p[field]) continue;
+      const diffDays = daysBetween(localDate, p[field]);
+      if (diffDays === null || diffDays < 0 || diffDays > 3) continue;
+      messages.push({
+        title: `Project: ${p.name}`,
+        body: diffDays === 0 ? `${label} date is today`
+          : diffDays === 1 ? `${label} date is tomorrow`
+          : `${label} date in ${diffDays} days`,
+        tag: `project-${field}-${p.id}-${localDate}`,
+        category: 'projects',
+      });
+    }
+  }
+
+  // ── Work log reminder ──
+  messages.push({
+    title: 'Work Log Reminder',
+    body: "Don't forget to log your hours for today!",
+    tag: `shift-reminder-${localDate}`,
+    category: 'workLog',
+  });
+
+  return messages;
+}
+
+/** The subset of the daily messages this user wants pushed to their phone. */
+function filterDailyForPush(messages, notifPrefs) {
+  const bills = { overdue: true, dayBefore: true, sameDay: true, ...(notifPrefs?.bills || {}) };
+  const commitments = { expiring: true, ...(notifPrefs?.commitments || {}) };
+  const shifts = { reminder: false, ...(notifPrefs?.shifts || {}) };
+  return messages.filter((m) => {
+    switch (m.category) {
+      case 'bills': return !!bills[m.kind];
+      case 'commitments': return !!commitments.expiring;
+      case 'goals': return notifPrefs?.goals?.enabled !== false;
+      case 'projects': return notifPrefs?.projects?.enabled !== false;
+      case 'workLog': return !!shifts.reminder;
+      default: return true;
+    }
+  });
+}
+
+/** The subset this user wants in the daily email — set independently of push. */
+function filterDailyForEmail(messages, notifPrefs) {
+  const email = notifPrefs?.email || {};
+  if (!email.enabled) return [];
+  return messages.filter((m) => email[m.category] !== false);
+}
+
 // Requires Firebase Blaze (pay-as-you-go) plan to deploy Cloud Functions
 exports.dailyNotifications = onSchedule(
-  { schedule: 'every day 08:00', timeZone: 'America/New_York' },
+  { schedule: 'every 15 minutes', timeZone: DEFAULT_TZ },
   async () => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const todayDay = today.getDate();
-    const todayStr = today.toISOString().slice(0, 10);
-    const tomorrowDay = todayDay + 1;
-    const mk = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+    const now = new Date();
+    const userRefs = await db.collection('users').listDocuments();
 
-    const usersSnap = await db.collection('users').listDocuments();
-
-    for (const userRef of usersSnap) {
+    for (const userRef of userRefs) {
       try {
         const dataSnap = await db.doc(`${userRef.path}/data/app`).get();
         if (!dataSnap.exists) continue;
 
         const data = dataSnap.data();
-        const { bills = [], commitments = [], plannedExpenses = [], projects = [], fcmToken, notifPrefs } = data;
+        const { fcmToken, notifPrefs, settings } = data;
         // Process the user if they can receive push OR email. Someone who only
         // enabled email (no browser push token) still gets the daily digest.
         const emailOn = !!(notifPrefs && notifPrefs.email && notifPrefs.email.enabled);
         if (!fcmToken && !emailOn) continue;
 
-        const prefs = {
-          bills: { overdue: true, dayBefore: true, sameDay: true, ...(notifPrefs?.bills || {}) },
-          commitments: { expiring: true, daysBefore: 3, ...(notifPrefs?.commitments || {}) },
-          shifts: { reminder: false, reminderTime: '18:00', ...(notifPrefs?.shifts || {}) },
-        };
+        const tz = settings?.timeZone || DEFAULT_TZ;
+        const local = localDateAndMinutes(now, tz);
+        const scheduled = Math.min(
+          timeToMinutes(notifPrefs?.daily?.time) ?? timeToMinutes(DAILY_DEFAULT_TIME),
+          LAST_TICK_MINUTES,
+        );
+        if (local.minutes < scheduled) continue;
 
-        const messages = [];
+        const stateRef = db.doc(`${userRef.path}/data/notifState`);
+        const stateSnap = await stateRef.get();
+        const stateData = stateSnap.exists ? stateSnap.data() : {};
+        if (stateData.dailyRunDate === local.date) continue; // already sent today
 
-        // ── Bill checks ──
-        if (prefs.bills.overdue || prefs.bills.dayBefore || prefs.bills.sameDay) {
-          for (const bill of bills) {
-            if (!bill.dueDay || bill.isPermanent) continue;
-            const status = (bill.statusMonths?.[mk]) || (bill.paidMonths?.[mk] ? 'paid' : 'unpaid');
-            if (status === 'paid') continue;
-
-            if (prefs.bills.overdue && bill.dueDay < todayDay) {
-              messages.push({
-                title: `Bill Overdue: ${bill.name}`,
-                body: `$${bill.amount} was due on the ${bill.dueDay}th`,
-                tag: `bill-overdue-${bill.id}-${mk}`,
-              });
-            } else if (prefs.bills.sameDay && bill.dueDay === todayDay) {
-              messages.push({
-                title: `Bill Due Today: ${bill.name}`,
-                body: `$${bill.amount} due today`,
-                tag: `bill-today-${bill.id}-${mk}`,
-              });
-            } else if (prefs.bills.dayBefore && bill.dueDay === tomorrowDay) {
-              messages.push({
-                title: `Bill Due Tomorrow: ${bill.name}`,
-                body: `$${bill.amount} due tomorrow`,
-                tag: `bill-tomorrow-${bill.id}-${mk}`,
-              });
-            }
-          }
-        }
-
-        // ── Commitment checks ──
-        if (prefs.commitments.expiring) {
-          const daysBefore = prefs.commitments.daysBefore ?? 3;
-          for (const c of commitments) {
-            if (c.completed || !c.endDate) continue;
-            const end = new Date(c.endDate + 'T12:00:00');
-            const diffDays = Math.round((end.getTime() - today.getTime()) / 86400000);
-            if (diffDays < 0 || diffDays > daysBefore) continue;
-            const body = diffDays === 0 ? 'Expires today'
-              : diffDays === 1 ? 'Expires tomorrow'
-              : `Expires in ${diffDays} days`;
-            messages.push({
-              title: `Commitment: ${c.description || 'Commitment'}`,
-              body,
-              tag: `commit-exp-${c.id}-${todayStr}`,
-            });
-          }
-        }
-
-        // ── Goal (planned expense) target date checks ──
-        for (const pe of plannedExpenses) {
-          if (pe.status === 'completed' || !pe.targetDate) continue;
-          const target = new Date(pe.targetDate + 'T12:00:00');
-          const diffDays = Math.round((target.getTime() - today.getTime()) / 86400000);
-          if (diffDays < 0 || diffDays > 7) continue;
-          const body = diffDays === 0 ? 'Target date is today'
-            : diffDays === 1 ? 'Target date is tomorrow'
-            : `Target date in ${diffDays} days`;
-          messages.push({
-            title: `Goal: ${pe.name}`,
-            body,
-            tag: `goal-due-${pe.id}-${todayStr}`,
-          });
-        }
-
-        // ── Project date checks ──
-        for (const p of projects) {
-          if (p.completed) continue;
-          for (const [field, label] of [['reviewDate', 'Review'], ['dueDate', 'Due']]) {
-            if (!p[field]) continue;
-            const date = new Date(p[field] + 'T12:00:00');
-            const diffDays = Math.round((date.getTime() - today.getTime()) / 86400000);
-            if (diffDays < 0 || diffDays > 3) continue;
-            const body = diffDays === 0 ? `${label} date is today`
-              : diffDays === 1 ? `${label} date is tomorrow`
-              : `${label} date in ${diffDays} days`;
-            messages.push({
-              title: `Project: ${p.name}`,
-              body,
-              tag: `project-${field}-${p.id}-${todayStr}`,
-            });
-          }
-        }
-
-        // ── Shift log reminder ──
-        if (prefs.shifts.reminder) {
-          messages.push({
-            title: 'Work Log Reminder',
-            body: "Don't forget to log your hours for today!",
-            tag: `shift-reminder-${todayStr}`,
-          });
-        }
+        const messages = collectDailyMessages(data, local.date);
 
         if (fcmToken) {
-          for (const msg of messages) {
-            try {
-              await messaging.send({
-                token: fcmToken,
-                notification: { title: msg.title, body: msg.body },
-                data: { tag: msg.tag },
-                webpush: {
-                  notification: {
-                    icon: 'https://pairamedic.github.io/ExpenseTracker/app-icon.jpeg',
-                    badge: 'https://pairamedic.github.io/ExpenseTracker/app-icon.jpeg',
-                    tag: msg.tag,
-                  },
-                },
-              });
-            } catch (e) {
-              if (e.code === 'messaging/registration-token-not-registered') {
-                await db.doc(`${userRef.path}/data/app`).update({ fcmToken: admin.firestore.FieldValue.delete() });
-                break;
-              }
-            }
+          for (const msg of filterDailyForPush(messages, notifPrefs)) {
+            const alive = await sendPush(userRef.path, fcmToken, msg);
+            if (!alive) break;
           }
         }
 
         // ── Email digest ──
-        // One email a day covering everything above (bills due today, overdue,
-        // due tomorrow, expiring commitments, goals, projects, shift reminder).
-        if (messages.length > 0) {
+        // One email a day covering whatever the email toggles ask for.
+        const emailMessages = filterDailyForEmail(messages, notifPrefs);
+        if (emailMessages.length > 0) {
           const recipient = await resolveRecipient(userRef.id, data);
           if (recipient) {
-            const lines = messages.map((m) => `${m.title} — ${m.body}`);
-            const subject = `ExpenseTracker: ${messages.length} reminder${messages.length !== 1 ? 's' : ''} for today`;
+            const lines = emailMessages.map((m) => `${m.title} — ${m.body}`);
+            const subject = `ExpenseTracker: ${emailMessages.length} reminder${emailMessages.length !== 1 ? 's' : ''} for today`;
             try {
               await enqueueEmail(recipient, subject, "Today's reminders", lines);
             } catch (e) {
@@ -263,6 +330,8 @@ exports.dailyNotifications = onSchedule(
             }
           }
         }
+
+        await stateRef.set({ dailyRunDate: local.date }, { merge: true });
       } catch (err) {
         console.error(`Error processing user ${userRef.id}:`, err.message);
       }
@@ -363,13 +432,27 @@ function collectTodoMessages(data, sent, now) {
   return messages;
 }
 
-// How far ahead of a timed to-do's due moment the "still not done" email goes.
-const TODO_EMAIL_LEAD_MS = 60 * 60 * 1000; // one hour
+// Default lead for the "still not done" task email when none is configured.
+const TODO_EMAIL_LEAD_MINUTES = 60;
+
+/** "in about an hour" / "in 15 minutes" / "tomorrow" — for the email subject. */
+function describeLead(minutes) {
+  if (minutes >= 1440) {
+    const days = Math.round(minutes / 1440);
+    return days === 1 ? 'tomorrow' : `in ${days} days`;
+  }
+  if (minutes >= 60) {
+    const hours = Math.round(minutes / 60);
+    return hours === 1 ? 'in about an hour' : `in about ${hours} hours`;
+  }
+  return `in ${minutes} minutes`;
+}
 
 /**
- * Decide which to-do *emails* are due right now for one user's data blob.
- * An email goes out roughly an hour before a timed to-do is due, but only while
- * it's still pending — i.e. it hasn't been marked complete. Pure, so testable.
+ * Decide which task *emails* are due right now for one user's data blob.
+ * An email goes out `email.taskLeadMinutes` ahead of a dated task's due moment,
+ * but only while it's still pending — i.e. it hasn't been marked complete.
+ * Pure, so testable.
  *
  * @param {object} data - the user's `data/app` document
  * @param {object} sent - map of already-sent email keys → timestamp
@@ -379,6 +462,12 @@ const TODO_EMAIL_LEAD_MS = 60 * 60 * 1000; // one hour
 function collectTodoEmails(data, sent, now) {
   const pref = data.notifPrefs && data.notifPrefs.email;
   if (!pref || !pref.enabled) return [];
+  if (pref.tasks === false) return []; // task emails switched off on their own
+
+  const leadMinutes = Number.isFinite(Number(pref.taskLeadMinutes))
+    ? Number(pref.taskLeadMinutes)
+    : TODO_EMAIL_LEAD_MINUTES;
+  const leadMs = Math.max(0, leadMinutes) * 60 * 1000;
 
   const { shoppingLists = [], shoppingItems = [], settings } = data;
   const tz = settings?.timeZone || DEFAULT_TZ;
@@ -395,8 +484,9 @@ function collectTodoEmails(data, sent, now) {
     const dueAt = todoDueAt(item, tz);
     if (!dueAt) continue;
 
-    const fireAt = dueAt - TODO_EMAIL_LEAD_MS;
-    const key = `todo-email-1h-${item.id}-${dueAt}`;
+    const fireAt = dueAt - leadMs;
+    // The lead is part of the key, so changing it re-arms the email.
+    const key = `todo-email-${item.id}-${dueAt}-${leadMinutes}`;
     if (!sent[key] && fireAt <= now && fireAt > now - DUE_GRACE_MS) {
       const when = new Date(dueAt).toLocaleString('en-US', {
         timeZone: tz, weekday: 'short', month: 'short', day: 'numeric',
@@ -404,7 +494,9 @@ function collectTodoEmails(data, sent, now) {
       });
       out.push({
         subject: `Due soon: ${item.name}`,
-        title: `"${item.name}" is due in about an hour`,
+        title: leadMinutes > 0
+          ? `"${item.name}" is due ${describeLead(leadMinutes)}`
+          : `"${item.name}" is due now`,
         lines: [
           `Your task "${item.name}" on the list "${list.name}" is due at ${when}.`,
           "It hasn't been marked complete yet.",
@@ -493,4 +585,8 @@ exports.todoReminders = onSchedule(
 );
 
 // Exported for unit tests only.
-exports._internal = { collectTodoMessages, collectTodoEmails, wallClockToMs };
+exports._internal = {
+  collectTodoMessages, collectTodoEmails, wallClockToMs,
+  collectDailyMessages, filterDailyForPush, filterDailyForEmail,
+  localDateAndMinutes, daysBetween, tomorrowDayOfMonth,
+};

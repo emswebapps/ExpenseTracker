@@ -22,6 +22,27 @@ const ALL_EXPORT_CATS = [
   { key: 'lists', label: 'Shopping Lists' },
 ];
 
+// How far ahead of a task's due moment the email goes out.
+const EMAIL_LEAD_OPTIONS = [
+  { minutes: 0, label: 'at the due time' },
+  { minutes: 15, label: '15 minutes before' },
+  { minutes: 30, label: '30 minutes before' },
+  { minutes: 60, label: '1 hour before' },
+  { minutes: 120, label: '2 hours before' },
+  { minutes: 240, label: '4 hours before' },
+  { minutes: 1440, label: '1 day before' },
+];
+
+// What the once-a-day email can cover. Each maps to a `notifPrefs.email` flag
+// and to a message category in the dailyNotifications Cloud Function.
+const EMAIL_DIGEST_CATEGORIES = [
+  { key: 'bills', label: 'Bills', sublabel: 'Due today, due tomorrow, and overdue' },
+  { key: 'commitments', label: 'Commitments', sublabel: 'Ones about to expire' },
+  { key: 'goals', label: 'Goals', sublabel: 'Approaching target dates' },
+  { key: 'projects', label: 'Projects', sublabel: 'Review and due dates' },
+  { key: 'workLog', label: 'Work log reminder', sublabel: 'Nudge to log your hours' },
+];
+
 function NotifRow({ label, sublabel, checked, onChange }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.5rem 0', borderBottom: '1px solid var(--border)' }}>
@@ -441,10 +462,20 @@ export default function Settings() {
                 </p>
               )}
 
-              <p style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--accent-text)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.25rem', marginTop: '0.5rem' }}>Bills</p>
-              <NotifRow label="Same-day reminder (8 AM)" sublabel="Notification at 8 AM on the day a bill is due" checked={!!notifPrefs.bills?.sameDay} onChange={(v) => updatePref('bills', 'sameDay', v)} />
-              <NotifRow label="Overdue bill alert" sublabel="Fires immediately when a bill is past due" checked={!!notifPrefs.bills?.overdue} onChange={(v) => updatePref('bills', 'overdue', v)} />
-              <NotifRow label="1-day payment reminder" sublabel="Fires the day before a bill is due" checked={!!notifPrefs.bills?.dayBefore} onChange={(v) => updatePref('bills', 'dayBefore', v)} />
+              <p style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--accent-text)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.25rem', marginTop: '0.5rem' }}>Daily Summary</p>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.25rem 0 0.5rem 0.25rem' }}>
+                <span style={{ fontSize: '0.8125rem', color: 'var(--muted)' }}>Send my daily reminders at</span>
+                <input type="time" value={notifPrefs.daily?.time || '08:00'} onChange={(e) => updatePref('daily', 'time', e.target.value)}
+                  style={{ backgroundColor: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '0.5rem', padding: '0.25rem 0.5rem', color: 'var(--text)', fontSize: '0.875rem' }} />
+              </div>
+              <p style={{ fontSize: '0.75rem', color: 'var(--subtle)', marginBottom: '0.5rem' }}>
+                Your time zone. Covers the bill, commitment, goal and project reminders below — on your phone and in the daily email.
+              </p>
+
+              <p style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--accent-text)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.25rem', marginTop: '1rem' }}>Bills</p>
+              <NotifRow label="Same-day reminder" sublabel="At your daily summary time on the day a bill is due" checked={!!notifPrefs.bills?.sameDay} onChange={(v) => updatePref('bills', 'sameDay', v)} />
+              <NotifRow label="Overdue bill alert" sublabel="While a bill is past due and unpaid" checked={!!notifPrefs.bills?.overdue} onChange={(v) => updatePref('bills', 'overdue', v)} />
+              <NotifRow label="1-day payment reminder" sublabel="The day before a bill is due" checked={!!notifPrefs.bills?.dayBefore} onChange={(v) => updatePref('bills', 'dayBefore', v)} />
               <div style={{ paddingTop: '0.75rem' }}>
                 <button
                   onClick={() => sendNotification('Bill Due Today: Rent', { body: '$1,200.00 due today — this is a test', tag: 'test-notif-' + Date.now() })}
@@ -466,7 +497,11 @@ export default function Settings() {
                 </div>
               )}
 
-              <p style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--accent-text)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.25rem', marginTop: '1rem' }}>To-Do Lists</p>
+              <p style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--accent-text)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.25rem', marginTop: '1rem' }}>Goals &amp; Projects</p>
+              <NotifRow label="Goal target dates" sublabel="In the week leading up to a planned expense target date" checked={notifPrefs.goals?.enabled !== false} onChange={(v) => updatePref('goals', 'enabled', v)} />
+              <NotifRow label="Project review &amp; due dates" sublabel="In the three days before a project date" checked={notifPrefs.projects?.enabled !== false} onChange={(v) => updatePref('projects', 'enabled', v)} />
+
+              <p style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--accent-text)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.25rem', marginTop: '1rem' }}>To-Do &amp; Work Lists</p>
               <NotifRow label="Item due time reminders" sublabel="Uses the due date and time set on each to-do and work item" checked={!!notifPrefs.todos?.enabled} onChange={(v) => updatePref('todos', 'enabled', v)} />
               {!!notifPrefs.todos?.enabled && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.375rem 0 0 0.25rem' }}>
@@ -514,9 +549,9 @@ export default function Settings() {
             <span style={sectionLabelStyle}>Email Notifications</span>
           </div>
           <p style={{ fontSize: '0.8125rem', color: 'var(--muted)', marginBottom: '0.75rem' }}>
-            Also send your reminders to an inbox. You'll get an email an hour before a dated to-do or work task is due
-            (if it isn't done yet), the day a bill is due, and for the same alerts that trigger in-app
-            notifications. Works even when the app is closed and requires no browser permission.
+            Send reminders to an inbox as well as your phone. Email is its own channel — what you pick
+            here is independent of the push toggles above, so you can email something you don't want
+            buzzing your phone, or the reverse. Works when the app is closed and needs no browser permission.
           </p>
           <NotifRow
             label="Send notifications by email"
@@ -525,19 +560,56 @@ export default function Settings() {
             onChange={(v) => updatePref('email', 'enabled', v)}
           />
           {notifPrefs.email?.enabled && (
-            <div style={{ paddingTop: '0.75rem' }}>
-              <label className="app-label">Send emails to</label>
-              <input
-                type="email"
-                className="app-input"
-                placeholder={user?.email || 'you@example.com'}
-                value={notifPrefs.email?.address || ''}
-                onChange={(e) => updatePref('email', 'address', e.target.value)}
+            <>
+              <div style={{ paddingTop: '0.75rem' }}>
+                <label className="app-label">Send emails to</label>
+                <input
+                  type="email"
+                  className="app-input"
+                  placeholder={user?.email || 'you@example.com'}
+                  value={notifPrefs.email?.address || ''}
+                  onChange={(e) => updatePref('email', 'address', e.target.value)}
+                />
+                <p style={{ fontSize: '0.75rem', color: 'var(--subtle)', marginTop: '0.375rem' }}>
+                  Leave blank to use your account email ({user?.email || 'not set'}).
+                </p>
+              </div>
+
+              <p style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--accent-text)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.25rem', marginTop: '1rem' }}>Task Due Emails</p>
+              <NotifRow
+                label="Email me before a task is due"
+                sublabel="To-do and work items with a due date, only while still unfinished"
+                checked={notifPrefs.email?.tasks !== false}
+                onChange={(v) => updatePref('email', 'tasks', v)}
               />
-              <p style={{ fontSize: '0.75rem', color: 'var(--subtle)', marginTop: '0.375rem' }}>
-                Leave blank to use your account email ({user?.email || 'not set'}).
+              {notifPrefs.email?.tasks !== false && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.375rem 0 0 0.25rem' }}>
+                  <span style={{ fontSize: '0.8125rem', color: 'var(--muted)' }}>Send it</span>
+                  <select value={notifPrefs.email?.taskLeadMinutes ?? 60} onChange={(e) => updatePref('email', 'taskLeadMinutes', Number(e.target.value))}
+                    style={{ backgroundColor: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '0.5rem', padding: '0.25rem 0.5rem', color: 'var(--text)', fontSize: '0.875rem' }}>
+                    {EMAIL_LEAD_OPTIONS.map((o) => <option key={o.minutes} value={o.minutes}>{o.label}</option>)}
+                  </select>
+                </div>
+              )}
+
+              <p style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--accent-text)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.25rem', marginTop: '1rem' }}>Daily Email Digest</p>
+              <p style={{ fontSize: '0.75rem', color: 'var(--subtle)', marginBottom: '0.5rem' }}>
+                One email at {notifPrefs.daily?.time || '08:00'} covering whatever you tick here. Change the time under
+                Notifications → Daily Summary.
               </p>
-            </div>
+              {EMAIL_DIGEST_CATEGORIES.map(({ key, label, sublabel }) => (
+                <NotifRow
+                  key={key}
+                  label={label}
+                  sublabel={sublabel}
+                  checked={notifPrefs.email?.[key] !== false}
+                  onChange={(v) => updatePref('email', key, v)}
+                />
+              ))}
+              <p style={{ fontSize: '0.75rem', color: 'var(--subtle)', marginTop: '0.625rem' }}>
+                Untick everything here and you'll still get task due emails — the digest just won't be sent.
+              </p>
+            </>
           )}
         </section>
 

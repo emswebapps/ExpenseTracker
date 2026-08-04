@@ -60,6 +60,19 @@ jobs:
         run: |
           printf '%s' "$KEY" > "$RUNNER_TEMP/gcp-key.json"
 
+      # The Firebase CLI reports every credential problem — bad paste, wrong
+      # project, revoked key — as "Failed to authenticate, have you run firebase
+      # login?", which is not enough to act on. Check what can be checked
+      # locally first, so the log names the actual problem.
+      - name: Validate the service account key
+        run: |
+          node .github/scripts/validate-service-account.mjs \
+            "$RUNNER_TEMP/gcp-key.json" billtracker-256ef
+
+      # --debug so that a failure Google *does* reject (revoked key, missing
+      # role, disabled API) prints its real cause instead of the same vague
+      # line. It does not log the auth header, so the credential stays out of
+      # the log.
       - name: Deploy functions
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/gcp-key.json
@@ -68,7 +81,8 @@ jobs:
             --only functions \
             --project billtracker-256ef \
             --non-interactive \
-            --force
+            --force \
+            --debug
 
       # The key is a real credential — don't leave it on the runner disk even
       # though the runner is discarded, and remove it even if the deploy failed.

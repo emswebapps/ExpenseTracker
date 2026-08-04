@@ -468,6 +468,24 @@ export function AppProvider({ children, uid }) {
     },
   ]), [shoppingItems, persistShoppingItems]);
 
+  // Adding several items has to be one write, not a loop over addShoppingItem:
+  // each of those calls closes over the same `shoppingItems`, so N calls in a
+  // row would all append to the same starting array and only the last would
+  // survive.
+  const addShoppingItems = useCallback((items) => {
+    if (!items || items.length === 0) return;
+    const now = new Date().toISOString();
+    persistShoppingItems([
+      ...shoppingItems,
+      ...items.map((item) => ({
+        ...item,
+        id: generateId(),
+        createdAt: now,
+        dueAt: item.dueAt ?? computeDueAt(item.dueDate, item.dueTime),
+      })),
+    ]);
+  }, [shoppingItems, persistShoppingItems]);
+
   const updateShoppingItem = useCallback((id, u) => persistShoppingItems(
     shoppingItems.map((i) => {
       if (i.id !== id) return i;
@@ -983,7 +1001,7 @@ export function AppProvider({ children, uid }) {
       budgetSpends, addBudgetSpend, updateBudgetSpend, deleteBudgetSpend,
       agreements, addAgreement, updateAgreement, deleteAgreement,
       shoppingLists, addShoppingList, updateShoppingList, deleteShoppingList,
-      shoppingItems, addShoppingItem, updateShoppingItem, deleteShoppingItem, toggleShoppingItem, importList,
+      shoppingItems, addShoppingItem, addShoppingItems, updateShoppingItem, deleteShoppingItem, toggleShoppingItem, importList,
       planningSettings, updatePlanningSettings,
       recurringTemplates, addRecurringTemplate, updateRecurringTemplate, deleteRecurringTemplate,
       paycheckActuals, addPaycheckActual, updatePaycheckActual, deletePaycheckActual,

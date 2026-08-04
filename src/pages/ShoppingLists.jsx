@@ -351,34 +351,71 @@ function TaskItemForm({ initial = {}, defaultLeadMinutes = 0, onSave, onCancel }
   );
 }
 
-// ── GroceryExportModal ────────────────────────────────────────────────────────
-function ExportModal({ list, items, onClose }) {
-  const [copied, setCopied] = useState(false);
-  const text = useMemo(() => {
-    const lines = [`🛒 ${list.name}`];
-    if (list.store) lines.push(list.store);
-    lines.push('');
-    const unchecked = items.filter((i) => !i.checked);
-    const checked = items.filter((i) => i.checked);
-    const fmt = (item, done) => {
-      let line = (done ? '✓ ' : '☐ ') + item.name;
+// ── ExportModal ───────────────────────────────────────────────────────────────
+// Every list type can be sent as a text message, so this formats by type rather
+// than assuming groceries: task lists carry a status and a due time, wishlists
+// carry a link, groceries carry quantity and price.
+function buildShareText(list, items) {
+  const taskList = isTaskList(list.type);
+  const wishlist = isWishlist(list.type);
+  const isDone = (i) => (taskList ? i.status === 'done' : !!i.checked);
+
+  const heading = taskList ? '📋' : wishlist ? '🎁' : '🛒';
+  const lines = [`${heading} ${list.name}`];
+  if (list.store) lines.push(list.store);
+  if (wishlist && list.forPerson) lines.push(`For: ${list.forPerson}`);
+  lines.push('');
+
+  const fmt = (item) => {
+    let line;
+    if (taskList) {
+      line = (item.status === 'done' ? '✓ ' : item.status === 'blocked' ? '⛔ ' : '☐ ') + item.name;
+      const due = formatDueMoment(item.dueDate, item.dueTime);
+      if (due) line += ` — ${due}`;
+    } else {
+      line = (isDone(item) ? '✓ ' : '☐ ') + item.name;
       if (item.qty) line += ` (${item.qty})`;
       if (item.price != null) line += ` - $${Number(item.price).toFixed(2)}`;
-      return line;
-    };
-    unchecked.forEach((i) => lines.push(fmt(i, false)));
-    if (unchecked.length > 0 && checked.length > 0) lines.push('');
-    checked.forEach((i) => lines.push(fmt(i, true)));
+    }
+    if (item.notes) line += `\n    ${item.notes}`;
+    if (wishlist && item.url) line += `\n    ${item.url}`;
+    return line;
+  };
+
+  const open = items.filter((i) => !isDone(i));
+  const done = items.filter(isDone);
+  open.forEach((i) => lines.push(fmt(i)));
+  if (open.length > 0 && done.length > 0) lines.push('');
+  done.forEach((i) => lines.push(fmt(i)));
+
+  if (items.length === 0) lines.push('(no items yet)');
+
+  // A running total only means something where the items carry prices.
+  if (!taskList) {
     const priced = items.filter((i) => i.price != null);
     if (priced.length > 0) {
       lines.push('');
-      lines.push(`Est. total: $${priced.reduce((s, i) => s + (i.price ?? 0), 0).toFixed(2)}`);
+      const total = priced.reduce((s, i) => s + (i.price ?? 0), 0);
+      lines.push(`${wishlist ? 'Total' : 'Est. total'}: $${total.toFixed(2)}`);
     }
-    return lines.join('\n');
-  }, [list, items]);
+  }
+  return lines.join('\n');
+}
+
+function ExportModal({ list, items, onClose }) {
+  const [copied, setCopied] = useState(false);
+  const text = useMemo(() => buildShareText(list, items), [list, items]);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
+  };
+
+  // On a phone this opens the OS share sheet, so the list goes straight into
+  // Messages instead of making you paste it yourself. Desktop browsers mostly
+  // lack it, so copying stays available either way.
+  const canShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
+  const handleShare = () => {
+    navigator.share({ title: list.name, text }).catch(() => {});
   };
 
   return (
@@ -386,13 +423,55 @@ function ExportModal({ list, items, onClose }) {
       <div style={{ backgroundColor: 'var(--surface2)', borderRadius: '0.75rem', padding: '1rem', border: '1px solid var(--border)' }}>
         <pre style={{ fontFamily: 'inherit', fontSize: '0.875rem', color: 'var(--text)', whiteSpace: 'pre-wrap', margin: 0, lineHeight: 1.7 }}>{text}</pre>
       </div>
-      <button onClick={handleCopy} className="app-btn-primary" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', justifyContent: 'center' }}>
-        {copied ? <Check size={16} /> : <MessageSquare size={16} />}
-        {copied ? 'Copied!' : 'Copy for Text Message'}
+      {canShare && (
+        <button onClick={handleShare} className="app-btn-primary" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', justifyContent: 'center' }}>
+          <MessageSquare size={16} /> Send as Text Message
+        </button>
+      )}
+      <button onClick={handleCopy} className={canShare ? 'app-btn-secondary' : 'app-btn-primary'} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', justifyContent: 'center' }}>
+        {copied ? <Check size={16} /> : <Clipboard size={16} />}
+        {copied ? 'Copied!' : 'Copy to Clipboard'}
       </button>
       <button onClick={onClose} className="app-btn-secondary">Close</button>
     </div>
   );
+}
+
+// ── Pasted text → one item per line ──────────────────────────────────────────
+/**
+ * Split pasted text into item names, one per line, stripping the bullet and
+ * numbering styles a list usually arrives with. Blank lines and rules like
+ * "---" drop out.
+ */
+function splitPastedLines(text) {
+  return String(text ?? '')
+    .split(/\r\n|\r|\n/)
+    .map((line) => {
+      const trimmed = line.trim();
+      const bullet = trimmed.match(/^[-–—•*]\s*(.+)$/) || trimmed.match(/^\d+[.)]\s*(.+)$/);
+      return (bullet ? bullet[1] : trimmed).trim();
+    })
+    .filter((line) => line && !/^[#=\-–—_*]{2,}$/.test(line));
+}
+
+/**
+ * Paste handler for the quick-add boxes. A one-line paste is left alone so
+ * normal typing is untouched; a multi-line paste becomes one item per line,
+ * which an <input> can't do on its own — it flattens the newlines into a single
+ * run-on item.
+ *
+ * Anything already typed joins the first pasted line rather than being lost.
+ */
+function pasteAsItems(e, { current, setCurrent, makeItem, addItems }) {
+  const text = e.clipboardData?.getData('text') ?? '';
+  if (!/[\r\n]/.test(text)) return;
+  const names = splitPastedLines(text);
+  if (names.length === 0) return;
+  e.preventDefault();
+  const prefix = current.trim();
+  if (prefix) names[0] = `${prefix} ${names[0]}`;
+  addItems(names.map(makeItem));
+  setCurrent('');
 }
 
 // ── List text parser ─────────────────────────────────────────────────────────
@@ -543,7 +622,7 @@ const MENU_BTN = {
 function GroceryListCard({
   list, listItems,
   onEditList, onDeleteList, onArchiveList,
-  onAddItem, onDeleteItem, onToggleItem, onEditItem, onExport,
+  onAddItem, onAddItems, onDeleteItem, onToggleItem, onEditItem, onExport,
 }) {
   const [expanded, setExpanded] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -554,15 +633,21 @@ function GroceryListCard({
   const total = priced.reduce((sum, i) => sum + (i.price ?? 0), 0);
   const progress = listItems.length > 0 ? checkedCount / listItems.length : 0;
 
+  const makeItem = (name) => ({ listId: list.id, name, qty: null, price: null, checked: false });
+
   const handleQuickAdd = () => {
     const trimmed = quickAdd.trim();
     if (!trimmed) return;
-    onAddItem({ listId: list.id, name: trimmed, qty: null, price: null, checked: false });
+    onAddItem(makeItem(trimmed));
     setQuickAdd('');
   };
 
+  const handlePaste = (e) => pasteAsItems(e, {
+    current: quickAdd, setCurrent: setQuickAdd, makeItem, addItems: onAddItems,
+  });
+
   return (
-    <div style={{ position: 'relative', backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '1rem', overflow: 'hidden' }}>
+    <div style={{ position: 'relative', backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '1rem', overflow: menuOpen ? 'visible' : 'hidden' }}>
       <div style={{ padding: '1rem', cursor: 'pointer' }} onClick={() => setExpanded((v) => !v)}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '0.5rem' }}>
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -624,7 +709,7 @@ function GroceryListCard({
             ))
           )}
           <div style={{ padding: '0.75rem 1rem', display: 'flex', gap: '0.5rem' }}>
-            <input className="app-input" style={{ flex: 1 }} placeholder="Add item…" value={quickAdd} onChange={(e) => setQuickAdd(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleQuickAdd()} />
+            <input className="app-input" style={{ flex: 1 }} placeholder="Add item — or paste a list" value={quickAdd} onChange={(e) => setQuickAdd(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleQuickAdd()} onPaste={handlePaste} />
             <button onClick={handleQuickAdd} disabled={!quickAdd.trim()} style={{ flexShrink: 0, padding: '0 1rem', borderRadius: '0.75rem', height: '2.75rem', backgroundColor: quickAdd.trim() ? 'var(--accent)' : 'var(--surface2)', color: quickAdd.trim() ? '#fff' : 'var(--subtle)', border: 'none', cursor: quickAdd.trim() ? 'pointer' : 'default', display: 'flex', alignItems: 'center', gap: '0.25rem', fontWeight: '600', fontSize: '0.875rem' }}>
               <Plus size={16} /> Add
             </button>
@@ -661,7 +746,7 @@ function GroceryListCard({
 function WishlistCard({
   list, listItems,
   onEditList, onDeleteList, onArchiveList,
-  onAddItem, onDeleteItem, onToggleItem, onEditItem,
+  onAddItem, onAddItems, onDeleteItem, onToggleItem, onEditItem, onExport,
 }) {
   const [expanded, setExpanded] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -672,23 +757,31 @@ function WishlistCard({
   const remaining = wanted.reduce((sum, i) => sum + (i.price ?? 0), 0);
   const progress = listItems.length > 0 ? bought.length / listItems.length : 0;
 
+  // A pasted link on its own becomes an item named after its site.
+  const makeItem = (raw) => {
+    const asLink = safeExternalUrl(raw);
+    const looksLikeUrl = asLink && /^(https?:\/\/|www\.)/i.test(raw);
+    return {
+      listId: list.id,
+      name: looksLikeUrl ? (linkHost(raw) || raw) : raw,
+      url: looksLikeUrl ? asLink : null,
+      price: null, notes: null, qty: null, checked: false,
+    };
+  };
+
   const handleQuickAdd = () => {
     const trimmed = quickAdd.trim();
     if (!trimmed) return;
-    // A pasted link on its own becomes an item named after its site.
-    const asLink = safeExternalUrl(trimmed);
-    const looksLikeUrl = asLink && /^(https?:\/\/|www\.)/i.test(trimmed);
-    onAddItem({
-      listId: list.id,
-      name: looksLikeUrl ? (linkHost(trimmed) || trimmed) : trimmed,
-      url: looksLikeUrl ? asLink : null,
-      price: null, notes: null, qty: null, checked: false,
-    });
+    onAddItem(makeItem(trimmed));
     setQuickAdd('');
   };
 
+  const handlePaste = (e) => pasteAsItems(e, {
+    current: quickAdd, setCurrent: setQuickAdd, makeItem, addItems: onAddItems,
+  });
+
   return (
-    <div style={{ position: 'relative', backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '1rem', overflow: 'hidden' }}>
+    <div style={{ position: 'relative', backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '1rem', overflow: menuOpen ? 'visible' : 'hidden' }}>
       <div style={{ padding: '1rem', cursor: 'pointer' }} onClick={() => setExpanded((v) => !v)}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '0.5rem' }}>
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -754,8 +847,8 @@ function WishlistCard({
             })
           )}
           <div style={{ padding: '0.75rem 1rem', display: 'flex', gap: '0.5rem' }}>
-            <input className="app-input" style={{ flex: 1 }} placeholder="Add an item or paste a link…" value={quickAdd}
-              onChange={(e) => setQuickAdd(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleQuickAdd()} />
+            <input className="app-input" style={{ flex: 1 }} placeholder="Add an item, a link, or paste a list" value={quickAdd}
+              onChange={(e) => setQuickAdd(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleQuickAdd()} onPaste={handlePaste} />
             <button onClick={handleQuickAdd} disabled={!quickAdd.trim()}
               style={{ flexShrink: 0, padding: '0 1rem', borderRadius: '0.75rem', height: '2.75rem', backgroundColor: quickAdd.trim() ? 'var(--accent)' : 'var(--surface2)', color: quickAdd.trim() ? '#fff' : 'var(--subtle)', border: 'none', cursor: quickAdd.trim() ? 'pointer' : 'default', display: 'flex', alignItems: 'center', gap: '0.25rem', fontWeight: '600', fontSize: '0.875rem' }}>
               <Plus size={16} /> Add
@@ -768,6 +861,7 @@ function WishlistCard({
         <>
           <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => setMenuOpen(false)} />
           <div style={{ position: 'absolute', right: '0.75rem', top: '3rem', zIndex: 50, backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '0.75rem', overflow: 'hidden', minWidth: '11rem', boxShadow: '0 8px 32px rgba(0,0,0,0.3)' }}>
+            <button onClick={() => { onExport(list); setMenuOpen(false); }} style={MENU_BTN}><MessageSquare size={14} /> Share as text</button>
             <button onClick={() => { onEditList(list); setMenuOpen(false); }} style={MENU_BTN}><Pencil size={14} /> Edit list</button>
             <button onClick={() => { onArchiveList(list.id); setMenuOpen(false); }} style={MENU_BTN}>
               {list.archived ? <ArchiveRestore size={14} /> : <Archive size={14} />}
@@ -787,7 +881,7 @@ function WishlistCard({
 function TaskListCard({
   list, listItems,
   onEditList, onDeleteList, onArchiveList,
-  onAddTodoItem, onDeleteItem, onUpdateItem, onEditItem,
+  onAddTodoItem, onAddTodoItems, onDeleteItem, onUpdateItem, onEditItem, onExport,
 }) {
   const [expanded, setExpanded] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -847,12 +941,21 @@ function TaskListCard({
     setDueMenuFor(null);
   };
 
+  const makeItem = (name) => ({
+    listId: list.id, name, status: 'pending', notes: null,
+    dueDate: null, dueTime: null, notifyEnabled: false, remindOffsetMinutes: 0,
+  });
+
   const handleQuickAdd = () => {
     const trimmed = quickAdd.trim();
     if (!trimmed) return;
-    onAddTodoItem({ listId: list.id, name: trimmed, status: 'pending', notes: null, dueDate: null, dueTime: null, notifyEnabled: false, remindOffsetMinutes: 0 });
+    onAddTodoItem(makeItem(trimmed));
     setQuickAdd('');
   };
+
+  const handlePaste = (e) => pasteAsItems(e, {
+    current: quickAdd, setCurrent: setQuickAdd, makeItem, addItems: onAddTodoItems,
+  });
 
   const cycleStatus = (item) => {
     if (item.status === 'done' || item.status === 'blocked') {
@@ -869,7 +972,7 @@ function TaskListCard({
   const progress = listItems.length > 0 ? done.length / listItems.length : 0;
 
   return (
-    <div style={{ position: 'relative', backgroundColor: 'var(--surface)', border: `1px solid ${overdue.length > 0 ? 'rgba(244,63,94,0.4)' : 'var(--border)'}`, borderRadius: '1rem', overflow: 'hidden' }}>
+    <div style={{ position: 'relative', backgroundColor: 'var(--surface)', border: `1px solid ${overdue.length > 0 ? 'rgba(244,63,94,0.4)' : 'var(--border)'}`, borderRadius: '1rem', overflow: menuOpen ? 'visible' : 'hidden' }}>
       <div style={{ padding: '1rem', cursor: 'pointer' }} onClick={() => setExpanded((v) => !v)}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '0.5rem' }}>
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -1035,9 +1138,10 @@ function TaskListCard({
           )}
           <div style={{ padding: '0.75rem 1rem', display: 'flex', gap: '0.5rem' }}>
             <input
-              className="app-input" style={{ flex: 1 }} placeholder="Quick add task…"
+              className="app-input" style={{ flex: 1 }} placeholder="Add task — or paste a list"
               value={quickAdd} onChange={(e) => setQuickAdd(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleQuickAdd()}
+              onPaste={handlePaste}
             />
             <button
               onClick={handleQuickAdd} disabled={!quickAdd.trim()}
@@ -1053,6 +1157,7 @@ function TaskListCard({
         <>
           <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => setMenuOpen(false)} />
           <div style={{ position: 'absolute', right: '0.75rem', top: '3rem', zIndex: 50, backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '0.75rem', overflow: 'hidden', minWidth: '11rem', boxShadow: '0 8px 32px rgba(0,0,0,0.3)' }}>
+            <button onClick={() => { onExport(list); setMenuOpen(false); }} style={MENU_BTN}><MessageSquare size={14} /> Share as text</button>
             <button onClick={() => { onEditList(list); setMenuOpen(false); }} style={MENU_BTN}><Pencil size={14} /> Edit list</button>
             <button onClick={() => { onArchiveList(list.id); setMenuOpen(false); }} style={MENU_BTN}>
               {list.archived ? <ArchiveRestore size={14} /> : <Archive size={14} />}
@@ -1070,7 +1175,7 @@ function TaskListCard({
 export default function ShoppingLists() {
   const {
     shoppingLists, addShoppingList, updateShoppingList, deleteShoppingList,
-    shoppingItems, addShoppingItem, updateShoppingItem, deleteShoppingItem, toggleShoppingItem, importList,
+    shoppingItems, addShoppingItem, addShoppingItems, updateShoppingItem, deleteShoppingItem, toggleShoppingItem, importList,
     notifPrefs,
   } = useApp();
 
@@ -1134,6 +1239,7 @@ export default function ShoppingLists() {
   const groceryCardProps = (list) => ({
     ...cardProps(list),
     onAddItem: addShoppingItem,
+    onAddItems: addShoppingItems,
     onToggleItem: toggleShoppingItem,
     onExport: setExportList,
   });
@@ -1141,12 +1247,16 @@ export default function ShoppingLists() {
   const taskCardProps = (list) => ({
     ...cardProps(list),
     onAddTodoItem: addShoppingItem,
+    onAddTodoItems: addShoppingItems,
+    onExport: setExportList,
     onUpdateItem: updateShoppingItem,
   });
 
   const wishlistCardProps = (list) => ({
     ...cardProps(list),
     onAddItem: addShoppingItem,
+    onAddItems: addShoppingItems,
+    onExport: setExportList,
     onToggleItem: toggleShoppingItem,
   });
 

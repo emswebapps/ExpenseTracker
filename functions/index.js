@@ -385,6 +385,49 @@ function todoDueAt(item, tz) {
 }
 
 /**
+ * Has this item been dealt with? Task lists track a `status`, the other list
+ * types a `checked` flag.
+ */
+function itemIsFinished(list, item) {
+  return TASK_LIST_TYPES.includes(list.type) ? item.status === 'done' : !!item.checked;
+}
+
+/** The items still outstanding on a list. */
+function outstandingItems(list, shoppingItems) {
+  return shoppingItems.filter((i) => i.listId === list.id && !itemIsFinished(list, i));
+}
+
+/**
+ * Lists carrying their own reminder — set on the list as a whole rather than on
+ * any one item. Deliberately not restricted to task lists: "go shopping
+ * Saturday at 10" is as worth a reminder as a work deadline.
+ *
+ * A list whose items are all finished is skipped — there's nothing left to be
+ * reminded about. An empty list still fires, since a list you haven't filled in
+ * yet is exactly the thing worth a nudge.
+ */
+function listsDueFor(shoppingLists, shoppingItems, tz, now) {
+  const out = [];
+  for (const list of shoppingLists) {
+    if (list.archived || !list.notifyEnabled) continue;
+
+    const dueAt = todoDueAt(list, tz);
+    if (!dueAt) continue;
+
+    const own = shoppingItems.filter((i) => i.listId === list.id);
+    if (own.length > 0 && own.every((i) => itemIsFinished(list, i))) continue;
+
+    // The lead was chosen on the list itself, so push and email land together.
+    const lead = Math.max(0, Number(list.remindOffsetMinutes) || 0);
+    const fireAt = dueAt - lead * 60 * 1000;
+    if (fireAt > now || fireAt <= now - DUE_GRACE_MS) continue;
+
+    out.push({ list, dueAt, lead, fireAt, remaining: outstandingItems(list, shoppingItems) });
+  }
+  return out;
+}
+
+/**
  * Decide which to-do pushes are due right now for one user's data blob.
  * Pure — no I/O — so the firing windows and dedupe rules are unit-testable.
  *
@@ -429,6 +472,22 @@ function collectTodoMessages(data, sent, now) {
       }
     }
   }
+
+  // ── Reminders set on a list as a whole ──
+  for (const { list, dueAt, lead, fireAt, remaining } of listsDueFor(shoppingLists, shoppingItems, tz, now)) {
+    const key = `list-due-${list.id}-${fireAt}`;
+    if (sent[key]) continue;
+    const when = new Date(dueAt).toLocaleTimeString('en-US', {
+      timeZone: tz, hour: 'numeric', minute: '2-digit',
+    });
+    const left = remaining.length === 1 ? '1 item left' : `${remaining.length} items left`;
+    messages.push({
+      title: lead > 0 ? `Coming up: ${list.name}` : `Due now: ${list.name}`,
+      body: lead > 0 ? `${left} — due at ${when}` : left,
+      tag: key,
+    });
+  }
+
   return messages;
 }
 
@@ -505,6 +564,36 @@ function collectTodoEmails(data, sent, now) {
       });
     }
   }
+
+  // ── Reminders set on a list as a whole ──
+  // These use the lead stored on the list rather than the global task lead, so
+  // the email arrives alongside the push the user configured.
+  for (const { list, dueAt, lead, remaining } of listsDueFor(shoppingLists, shoppingItems, tz, now)) {
+    const key = `list-email-${list.id}-${dueAt}-${lead}`;
+    if (sent[key]) continue;
+    const when = new Date(dueAt).toLocaleString('en-US', {
+      timeZone: tz, weekday: 'short', month: 'short', day: 'numeric',
+      hour: 'numeric', minute: '2-digit',
+    });
+    const names = remaining.slice(0, 20).map((i) => i.name);
+    const more = remaining.length - names.length;
+    out.push({
+      subject: `Coming up: ${list.name}`,
+      title: lead > 0
+        ? `"${list.name}" is due ${describeLead(lead)}`
+        : `"${list.name}" is due now`,
+      lines: [
+        `Your list "${list.name}" is due at ${when}.`,
+        remaining.length === 0
+          ? 'It has no items on it yet.'
+          : `${remaining.length === 1 ? '1 item is' : `${remaining.length} items are`} still outstanding:`,
+        ...names,
+        ...(more > 0 ? [`…and ${more} more.`] : []),
+      ],
+      tag: key,
+    });
+  }
+
   return out;
 }
 

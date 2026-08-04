@@ -436,13 +436,29 @@ export function AppProvider({ children, uid }) {
   const deleteAgreement = useCallback((id) => persistAgreements(agreements.filter((a) => a.id !== id)), [agreements, persistAgreements]);
 
   // ── Shopping Lists ──
+  // Lists carry the same due/reminder shape as items, so a reminder can be set
+  // on the list as a whole. `dueAt` is stamped here for the same reason it is on
+  // items: the Cloud Function reads an absolute instant rather than re-deriving
+  // one from a wall-clock time in an unknown zone.
   const addShoppingList = useCallback((list) => persistShoppingLists([
     ...shoppingLists,
-    { ...list, id: generateId(), archived: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+    {
+      ...list,
+      id: generateId(),
+      archived: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      dueAt: list.dueAt ?? computeDueAt(list.dueDate, list.dueTime),
+    },
   ]), [shoppingLists, persistShoppingLists]);
 
   const updateShoppingList = useCallback((id, u) => persistShoppingLists(
-    shoppingLists.map((l) => l.id === id ? { ...l, ...u, updatedAt: new Date().toISOString() } : l)
+    shoppingLists.map((l) => {
+      if (l.id !== id) return l;
+      const next = { ...l, ...u, updatedAt: new Date().toISOString() };
+      if ('dueDate' in u || 'dueTime' in u) next.dueAt = computeDueAt(next.dueDate, next.dueTime);
+      return next;
+    })
   ), [shoppingLists, persistShoppingLists]);
 
   const deleteShoppingList = useCallback((id) => {
@@ -509,7 +525,10 @@ export function AppProvider({ children, uid }) {
   const importList = useCallback((listData, itemNames) => {
     const listId = generateId();
     const now = new Date().toISOString();
-    const newList = { ...listData, id: listId, archived: false, createdAt: now, updatedAt: now };
+    const newList = {
+      ...listData, id: listId, archived: false, createdAt: now, updatedAt: now,
+      dueAt: computeDueAt(listData.dueDate, listData.dueTime),
+    };
     const newItems = itemNames.map((name) => ({
       id: generateId(), listId, name: name.trim(), createdAt: now,
       qty: null, price: null, checked: false,

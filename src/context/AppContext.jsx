@@ -1,10 +1,17 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import { storage } from '../utils/storage';
 import { saveUserData, loadUserData, saveSharedView, saveFCMToken } from '../utils/firestoreSync';
+import { deleteFile } from '../utils/storageUtils';
 import { generateId, currentMonthKey, getBillStatus, nextBillStatus, isTaskList } from '../utils/helpers';
 import { notificationPermission, requestNotificationPermission, sendNotification, computeDueAt, todoReminderAt, registerFCMToken, onForegroundMessage, scheduleShiftNotification, cancelShiftNotification } from '../utils/notifications';
 
 const AppContext = createContext(null);
+
+/** A copy of a list or item without its uploaded files or scanned text. */
+function stripAttachments(record) {
+  const { attachments, ocrText, ...rest } = record; // eslint-disable-line no-unused-vars
+  return rest;
+}
 
 const PERMANENT_BUDGET_CATEGORIES = [
   { name: 'Gas', monthlyLimit: 200 },
@@ -467,6 +474,14 @@ export function AppProvider({ children, uid }) {
     setShoppingListsState(newLists);
     setShoppingItemsState(newItems);
     if (!testModeRef.current) {
+      // Take the uploaded files with it, so deleting a list doesn't quietly
+      // leave its photos paying rent in Storage. Best effort — a failed delete
+      // must never block the list from going.
+      const doomed = [
+        ...(shoppingLists.find((l) => l.id === id)?.attachments || []),
+        ...shoppingItems.filter((i) => i.listId === id).flatMap((i) => i.attachments || []),
+      ];
+      doomed.forEach((att) => { deleteFile(att.url).catch(() => {}); });
       storage.setShoppingLists(newLists);
       storage.setShoppingItems(newItems);
       debouncedSync({ shoppingLists: newLists, shoppingItems: newItems });
@@ -513,9 +528,13 @@ export function AppProvider({ children, uid }) {
     })
   ), [shoppingItems, persistShoppingItems]);
 
-  const deleteShoppingItem = useCallback((id) => persistShoppingItems(
-    shoppingItems.filter((i) => i.id !== id)
-  ), [shoppingItems, persistShoppingItems]);
+  const deleteShoppingItem = useCallback((id) => {
+    if (!testModeRef.current) {
+      const gone = shoppingItems.find((i) => i.id === id);
+      (gone?.attachments || []).forEach((att) => { deleteFile(att.url).catch(() => {}); });
+    }
+    persistShoppingItems(shoppingItems.filter((i) => i.id !== id));
+  }, [shoppingItems, persistShoppingItems]);
 
   const toggleShoppingItem = useCallback((id) => persistShoppingItems(
     shoppingItems.map((i) => i.id === id ? { ...i, checked: !i.checked } : i)
@@ -691,8 +710,11 @@ export function AppProvider({ children, uid }) {
       debts,
       savings,
       commitments: commitments.filter((c) => !c.completed),
-      shoppingLists,
-      shoppingItems,
+      // Anyone holding the share link can read this snapshot, and a Storage
+      // download URL is a working key to the file — so uploaded files and the
+      // text scanned off them stay out of it.
+      shoppingLists: shoppingLists.map(stripAttachments),
+      shoppingItems: shoppingItems.map(stripAttachments),
     };
   }, [bills, income, purchases, debts, savings, commitments, settings, shoppingLists, shoppingItems]);
 
@@ -764,6 +786,16 @@ export function AppProvider({ children, uid }) {
     )));
   }, [cloudLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Same back-fill for lists, which gained their own due date later than items.
+  useEffect(() => {
+    if (uid && !cloudLoaded) return;
+    const lists = stateRef.current.shoppingLists || [];
+    if (!lists.some((l) => l.dueDate && l.dueAt == null)) return;
+    persistShoppingLists(lists.map((l) => (
+      l.dueDate && l.dueAt == null ? { ...l, dueAt: computeDueAt(l.dueDate, l.dueTime) } : l
+    )));
+  }, [cloudLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Global To-Do notification scheduling ──
   // These are in-app timers — they only fire while the app is open. The same
   // reminders are delivered by the `todoReminders` Cloud Function when the app
@@ -811,6 +843,37 @@ export function AppProvider({ children, uid }) {
         });
       }
     });
+
+    // ── Reminders set on a list as a whole ──
+    // Every kind of list, not just task lists: "go shopping Saturday at 10" is
+    // as worth a nudge as a work deadline. The tag matches the one the
+    // `todoReminders` Cloud Function uses, so an open app and a background push
+    // never show the same reminder twice.
+    if (prefs.enabled !== false) {
+      shoppingLists.forEach((list) => {
+        if (list.archived || !list.notifyEnabled) return;
+        const fireAt = todoReminderAt(list);
+        if (!fireAt) return;
+
+        const own = shoppingItems.filter((i) => i.listId === list.id);
+        const isFinished = (i) => (isTaskList(list.type) ? i.status === 'done' : !!i.checked);
+        // Nothing outstanding means nothing to be reminded about; an empty list
+        // still fires, since that's exactly the one worth a nudge.
+        if (own.length > 0 && own.every(isFinished)) return;
+
+        const remaining = own.filter((i) => !isFinished(i)).length;
+        const lead = Number(list.remindOffsetMinutes) || 0;
+        at(fireAt, `list-due-${list.id}-${fireAt}`, () => {
+          sendNotification(
+            lead > 0 ? `Coming up: ${list.name}` : `Due now: ${list.name}`,
+            {
+              body: remaining === 1 ? '1 item left' : `${remaining} items left`,
+              tag: `list-due-${list.id}-${fireAt}`,
+            },
+          );
+        });
+      });
+    }
 
     return () => Object.values(timers).forEach(clearTimeout);
   }, [shoppingItems, shoppingLists, notifPrefs.todos]);

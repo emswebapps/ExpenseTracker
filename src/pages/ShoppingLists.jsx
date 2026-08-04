@@ -4,11 +4,15 @@ import {
   Archive, ArchiveRestore, MessageSquare, Check, Store,
   ClipboardList, Bell, BellOff, CheckCircle2, Ban,
   Circle, Clipboard, Calendar, CalendarClock, Briefcase,
-  Gift, Link2, ExternalLink, User,
+  Gift, Link2, ExternalLink, User, Paperclip,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { useAuth } from '../context/AuthContext';
 import Modal from '../components/Modal';
-import { isTaskList, isWishlist, safeExternalUrl, linkHost, formatCurrency } from '../utils/helpers';
+import AttachmentPanel from '../components/AttachmentPanel';
+import {
+  isTaskList, isWishlist, safeExternalUrl, linkHost, formatCurrency, splitPastedLines,
+} from '../utils/helpers';
 import {
   requestNotificationPermission, notificationPermission, formatDueBadge, getDueDateMs,
   REMINDER_LEAD_OPTIONS, localTodayISO, formatDueMoment,
@@ -25,6 +29,39 @@ const LIST_TYPES = [
 ];
 
 const listTypeMeta = (type) => LIST_TYPES.find((t) => t.key === type) || LIST_TYPES[0];
+
+/**
+ * A blank item of the right shape for a list — tasks carry a status, everything
+ * else a checkbox. Used where items are created outside a card, e.g. from a
+ * scanned photo.
+ */
+function newItemForList(list, name) {
+  const base = { listId: list.id, name };
+  if (isTaskList(list.type)) {
+    return {
+      ...base, status: 'pending', notes: null,
+      dueDate: null, dueTime: null, notifyEnabled: false, remindOffsetMinutes: 0,
+    };
+  }
+  if (isWishlist(list.type)) return { ...base, url: null, price: null, notes: null, qty: null, checked: false };
+  return { ...base, qty: null, price: null, checked: false };
+}
+
+/** Paperclip + count, for a list or item carrying attachments. */
+function AttachBadge({ count, style }) {
+  if (!count) return null;
+  return (
+    <span
+      title={`${count} ${count === 1 ? 'attachment' : 'attachments'}`}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: '0.125rem', flexShrink: 0,
+        fontSize: '0.6875rem', fontWeight: 700, color: 'var(--muted)', ...style,
+      }}
+    >
+      <Paperclip size={10} />{count}
+    </span>
+  );
+}
 
 /** Offsets for the quick due-date chips, in days from today. */
 const QUICK_DATES = [
@@ -289,8 +326,37 @@ function ListForm({ initial = {}, defaultLeadMinutes = 0, onSave, onCancel }) {
   );
 }
 
+// ── ListReminderForm ──────────────────────────────────────────────────────────
+// The reminder on a list as a whole, on its own rather than buried in the list
+// editor — "remind me about this list on Saturday at 10" is a thing you set
+// long after the list itself was made.
+function ListReminderForm({ list, defaultLeadMinutes = 0, onSave, onCancel }) {
+  const due = useDueReminder(list, defaultLeadMinutes);
+
+  return (
+    <form
+      onSubmit={(e) => { e.preventDefault(); onSave(due.dueFields()); }}
+      style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}
+    >
+      <p style={{ fontSize: '0.8125rem', color: 'var(--muted)' }}>
+        A reminder for <strong style={{ color: 'var(--text)' }}>{list.name}</strong> as a whole. Items with
+        their own due times keep firing separately.
+      </p>
+      <DueReminderFields
+        due={due}
+        help="Pick when the whole list is due — the reminder covers whatever is still unfinished on it."
+        notifyLabel="Remind me about this list"
+      />
+      <div style={{ display: 'flex', gap: '0.75rem', paddingTop: '0.25rem' }}>
+        <button type="button" onClick={onCancel} className="app-btn-secondary" style={{ flex: 1 }}>Cancel</button>
+        <button type="submit" className="app-btn-primary" style={{ flex: 1 }}>Save</button>
+      </div>
+    </form>
+  );
+}
+
 // ── GroceryItemForm ───────────────────────────────────────────────────────────
-function GroceryItemForm({ initial = {}, onSave, onCancel }) {
+function GroceryItemForm({ initial = {}, attachments = null, onSave, onCancel }) {
   const [name, setName] = useState(initial.name || '');
   const [qty, setQty] = useState(initial.qty || '');
   const [price, setPrice] = useState(initial.price != null ? String(initial.price) : '');
@@ -317,6 +383,7 @@ function GroceryItemForm({ initial = {}, onSave, onCancel }) {
           <input className="app-input" type="number" step="0.01" min="0" placeholder="0.00" value={price} onChange={(e) => setPrice(e.target.value)} />
         </div>
       </div>
+      {attachments}
       <div style={{ display: 'flex', gap: '0.75rem', paddingTop: '0.25rem' }}>
         <button type="button" onClick={onCancel} className="app-btn-secondary" style={{ flex: 1 }}>Cancel</button>
         <button type="submit" className="app-btn-primary" style={{ flex: 1 }}>Save Item</button>
@@ -328,7 +395,7 @@ function GroceryItemForm({ initial = {}, onSave, onCancel }) {
 // ── WishlistItemForm ──────────────────────────────────────────────────────────
 // A thing you'd like to buy later: what it is, roughly what it costs, and where
 // to find it again.
-function WishlistItemForm({ initial = {}, onSave, onCancel }) {
+function WishlistItemForm({ initial = {}, attachments = null, onSave, onCancel }) {
   const [name, setName] = useState(initial.name || '');
   const [url, setUrl] = useState(initial.url || '');
   const [price, setPrice] = useState(initial.price != null ? String(initial.price) : '');
@@ -370,6 +437,7 @@ function WishlistItemForm({ initial = {}, onSave, onCancel }) {
         <label className="app-label">Notes <span style={{ color: 'var(--subtle)' }}>(optional)</span></label>
         <input className="app-input" placeholder="e.g. size medium, black one" value={notes} onChange={(e) => setNotes(e.target.value)} />
       </div>
+      {attachments}
       <div style={{ display: 'flex', gap: '0.75rem', paddingTop: '0.25rem' }}>
         <button type="button" onClick={onCancel} className="app-btn-secondary" style={{ flex: 1 }}>Cancel</button>
         <button type="submit" className="app-btn-primary" style={{ flex: 1 }} disabled={badLink}>Save Item</button>
@@ -381,7 +449,7 @@ function WishlistItemForm({ initial = {}, onSave, onCancel }) {
 // ── TaskItemForm ──────────────────────────────────────────────────────────────
 // Used by both to-do and work lists. A task is due at an absolute moment — a
 // date and a clock time — never a countdown.
-function TaskItemForm({ initial = {}, defaultLeadMinutes = 0, onSave, onCancel }) {
+function TaskItemForm({ initial = {}, defaultLeadMinutes = 0, attachments = null, onSave, onCancel }) {
   const [name, setName] = useState(initial.name || '');
   const [notes, setNotes] = useState(initial.notes || '');
   const due = useDueReminder(initial, defaultLeadMinutes);
@@ -413,6 +481,8 @@ function TaskItemForm({ initial = {}, defaultLeadMinutes = 0, onSave, onCancel }
         help="Set the exact date and time this task is due. Leave the date blank to use today (e.g. 2:00 PM today)."
         notifyLabel="Push notification when due"
       />
+
+      {attachments}
 
       <div style={{ display: 'flex', gap: '0.75rem', paddingTop: '0.25rem' }}>
         <button type="button" onClick={onCancel} className="app-btn-secondary" style={{ flex: 1 }}>Cancel</button>
@@ -509,22 +579,6 @@ function ExportModal({ list, items, onClose }) {
 }
 
 // ── Pasted text → one item per line ──────────────────────────────────────────
-/**
- * Split pasted text into item names, one per line, stripping the bullet and
- * numbering styles a list usually arrives with. Blank lines and rules like
- * "---" drop out.
- */
-function splitPastedLines(text) {
-  return String(text ?? '')
-    .split(/\r\n|\r|\n/)
-    .map((line) => {
-      const trimmed = line.trim();
-      const bullet = trimmed.match(/^[-–—•*]\s*(.+)$/) || trimmed.match(/^\d+[.)]\s*(.+)$/);
-      return (bullet ? bullet[1] : trimmed).trim();
-    })
-    .filter((line) => line && !/^[#=\-–—_*]{2,}$/.test(line));
-}
-
 /**
  * Paste handler for the quick-add boxes. A one-line paste is left alone so
  * normal typing is untouched; a multi-line paste becomes one item per line,
@@ -689,10 +743,41 @@ const MENU_BTN = {
   background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left',
 };
 
+// ── CardMenu ──────────────────────────────────────────────────────────────────
+// The overflow menu every list card carries. One copy, so grocery, wishlist and
+// task cards can't drift apart on what a list can do.
+function CardMenu({ list, open, onClose, onExport, onEditList, onAttachList, onRemindList, onArchiveList, onDeleteList }) {
+  if (!open) return null;
+  const close = (fn) => () => { fn(); onClose(); };
+  const attachCount = (list.attachments || []).length;
+
+  return (
+    <>
+      <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={onClose} />
+      <div style={{ position: 'absolute', right: '0.75rem', top: '3rem', zIndex: 50, backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '0.75rem', overflow: 'hidden', minWidth: '12rem', boxShadow: '0 8px 32px rgba(0,0,0,0.3)' }}>
+        <button onClick={close(() => onExport(list))} style={MENU_BTN}><MessageSquare size={14} /> Share as text</button>
+        <button onClick={close(() => onRemindList(list))} style={MENU_BTN}>
+          {list.notifyEnabled ? <Bell size={14} /> : <BellOff size={14} />}
+          {list.notifyEnabled ? 'Edit reminder' : 'Remind me'}
+        </button>
+        <button onClick={close(() => onAttachList(list))} style={MENU_BTN}>
+          <Paperclip size={14} /> Attachments{attachCount > 0 ? ` (${attachCount})` : ''}
+        </button>
+        <button onClick={close(() => onEditList(list))} style={MENU_BTN}><Pencil size={14} /> Edit list</button>
+        <button onClick={close(() => onArchiveList(list.id))} style={MENU_BTN}>
+          {list.archived ? <ArchiveRestore size={14} /> : <Archive size={14} />}
+          {list.archived ? 'Unarchive' : 'Archive'}
+        </button>
+        <button onClick={close(() => onDeleteList(list.id))} style={{ ...MENU_BTN, color: 'var(--danger)' }}><Trash2 size={14} /> Delete list</button>
+      </div>
+    </>
+  );
+}
+
 // ── GroceryListCard ───────────────────────────────────────────────────────────
 function GroceryListCard({
   list, listItems,
-  onEditList, onDeleteList, onArchiveList,
+  onEditList, onDeleteList, onArchiveList, onAttachList, onRemindList,
   onAddItem, onAddItems, onDeleteItem, onToggleItem, onEditItem, onExport,
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -726,6 +811,7 @@ function GroceryListCard({
               <ShoppingCart size={14} style={{ color: 'var(--accent-text)', flexShrink: 0 }} />
               <span style={{ fontWeight: '700', fontSize: '1rem', color: 'var(--text)' }}>{list.name}</span>
               <ListDueBadge list={list} />
+              <AttachBadge count={(list.attachments || []).length} />
             </div>
             {list.store && (
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', marginBottom: '0.25rem' }}>
@@ -771,6 +857,7 @@ function GroceryListCard({
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.375rem', flexWrap: 'wrap' }}>
                     <span style={{ fontSize: '0.9375rem', color: 'var(--text)', textDecoration: item.checked ? 'line-through' : 'none' }}>{item.name}</span>
                     {item.qty && <span style={{ fontSize: '0.8125rem', color: 'var(--subtle)' }}>({item.qty})</span>}
+                    <AttachBadge count={(item.attachments || []).length} />
                   </div>
                   {item.price != null && <span style={{ fontSize: '0.8125rem', color: 'var(--accent-text)' }}>${Number(item.price).toFixed(2)}</span>}
                 </div>
@@ -796,20 +883,11 @@ function GroceryListCard({
         </div>
       )}
 
-      {menuOpen && (
-        <>
-          <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => setMenuOpen(false)} />
-          <div style={{ position: 'absolute', right: '0.75rem', top: '3rem', zIndex: 50, backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '0.75rem', overflow: 'hidden', minWidth: '11rem', boxShadow: '0 8px 32px rgba(0,0,0,0.3)' }}>
-            <button onClick={() => { onExport(list); setMenuOpen(false); }} style={MENU_BTN}><MessageSquare size={14} /> Share as text</button>
-            <button onClick={() => { onEditList(list); setMenuOpen(false); }} style={MENU_BTN}><Pencil size={14} /> Edit list</button>
-            <button onClick={() => { onArchiveList(list.id); setMenuOpen(false); }} style={MENU_BTN}>
-              {list.archived ? <ArchiveRestore size={14} /> : <Archive size={14} />}
-              {list.archived ? 'Unarchive' : 'Archive'}
-            </button>
-            <button onClick={() => { onDeleteList(list.id); setMenuOpen(false); }} style={{ ...MENU_BTN, color: 'var(--danger)' }}><Trash2 size={14} /> Delete list</button>
-          </div>
-        </>
-      )}
+      <CardMenu
+        list={list} open={menuOpen} onClose={() => setMenuOpen(false)}
+        onExport={onExport} onEditList={onEditList} onAttachList={onAttachList}
+        onRemindList={onRemindList} onArchiveList={onArchiveList} onDeleteList={onDeleteList}
+      />
     </div>
   );
 }
@@ -817,7 +895,7 @@ function GroceryListCard({
 // ── WishlistCard ──────────────────────────────────────────────────────────────
 function WishlistCard({
   list, listItems,
-  onEditList, onDeleteList, onArchiveList,
+  onEditList, onDeleteList, onArchiveList, onAttachList, onRemindList,
   onAddItem, onAddItems, onDeleteItem, onToggleItem, onEditItem, onExport,
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -861,6 +939,7 @@ function WishlistCard({
               <Gift size={14} style={{ color: 'var(--accent-text)', flexShrink: 0 }} />
               <span style={{ fontWeight: '700', fontSize: '1rem', color: 'var(--text)' }}>{list.name}</span>
               <ListDueBadge list={list} />
+              <AttachBadge count={(list.attachments || []).length} />
               <span style={{ display: 'flex', alignItems: 'center', gap: '0.2rem', fontSize: '0.6875rem', fontWeight: 700, color: 'var(--accent-text)', backgroundColor: 'rgba(99,102,241,0.14)', padding: '0.125rem 0.4375rem', borderRadius: '0.375rem' }}>
                 <User size={10} /> {list.forPerson || 'Me'}
               </span>
@@ -901,6 +980,7 @@ function WishlistCard({
                     <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.375rem', flexWrap: 'wrap' }}>
                       <span style={{ fontSize: '0.9375rem', color: 'var(--text)', textDecoration: item.checked ? 'line-through' : 'none' }}>{item.name}</span>
                       {item.price != null && <span style={{ fontSize: '0.8125rem', fontWeight: 700, color: 'var(--accent-text)' }}>{formatCurrency(item.price)}</span>}
+                      <AttachBadge count={(item.attachments || []).length} />
                     </div>
                     {item.notes && <p style={{ fontSize: '0.8125rem', color: 'var(--subtle)', margin: '0.125rem 0 0' }}>{item.notes}</p>}
                     {host && <p style={{ fontSize: '0.75rem', color: 'var(--subtle)', margin: '0.125rem 0 0', display: 'flex', alignItems: 'center', gap: '0.25rem' }}><Link2 size={10} /> {host}</p>}
@@ -930,20 +1010,11 @@ function WishlistCard({
         </div>
       )}
 
-      {menuOpen && (
-        <>
-          <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => setMenuOpen(false)} />
-          <div style={{ position: 'absolute', right: '0.75rem', top: '3rem', zIndex: 50, backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '0.75rem', overflow: 'hidden', minWidth: '11rem', boxShadow: '0 8px 32px rgba(0,0,0,0.3)' }}>
-            <button onClick={() => { onExport(list); setMenuOpen(false); }} style={MENU_BTN}><MessageSquare size={14} /> Share as text</button>
-            <button onClick={() => { onEditList(list); setMenuOpen(false); }} style={MENU_BTN}><Pencil size={14} /> Edit list</button>
-            <button onClick={() => { onArchiveList(list.id); setMenuOpen(false); }} style={MENU_BTN}>
-              {list.archived ? <ArchiveRestore size={14} /> : <Archive size={14} />}
-              {list.archived ? 'Unarchive' : 'Archive'}
-            </button>
-            <button onClick={() => { onDeleteList(list.id); setMenuOpen(false); }} style={{ ...MENU_BTN, color: 'var(--danger)' }}><Trash2 size={14} /> Delete list</button>
-          </div>
-        </>
-      )}
+      <CardMenu
+        list={list} open={menuOpen} onClose={() => setMenuOpen(false)}
+        onExport={onExport} onEditList={onEditList} onAttachList={onAttachList}
+        onRemindList={onRemindList} onArchiveList={onArchiveList} onDeleteList={onDeleteList}
+      />
     </div>
   );
 }
@@ -953,7 +1024,7 @@ function WishlistCard({
 // the clock button on a row sets that moment without opening the full editor.
 function TaskListCard({
   list, listItems,
-  onEditList, onDeleteList, onArchiveList,
+  onEditList, onDeleteList, onArchiveList, onAttachList, onRemindList,
   onAddTodoItem, onAddTodoItems, onDeleteItem, onUpdateItem, onEditItem, onExport,
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -1053,6 +1124,7 @@ function TaskListCard({
               <ListIcon size={14} style={{ color: 'var(--accent-text)', flexShrink: 0 }} />
               <span style={{ fontWeight: '700', fontSize: '1rem', color: 'var(--text)' }}>{list.name}</span>
               <ListDueBadge list={list} />
+              <AttachBadge count={(list.attachments || []).length} />
               {list.dueDate && (
                 <span style={{ display: 'flex', alignItems: 'center', gap: '0.2rem', fontSize: '0.75rem', color: 'var(--muted)' }}>
                   <Calendar size={10} /> {fmtDate(list.dueDate)}
@@ -1125,6 +1197,7 @@ function TaskListCard({
                           </span>
                         )}
                         {item.notifyEnabled && pendingItem && <Bell size={11} style={{ color: 'var(--muted)', flexShrink: 0 }} />}
+                        <AttachBadge count={(item.attachments || []).length} />
                       </div>
                       {item.notes && <p style={{ fontSize: '0.8125rem', color: 'var(--subtle)', marginTop: '0.125rem', margin: '0.125rem 0 0' }}>{item.notes}</p>}
                     </div>
@@ -1227,20 +1300,11 @@ function TaskListCard({
         </div>
       )}
 
-      {menuOpen && (
-        <>
-          <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => setMenuOpen(false)} />
-          <div style={{ position: 'absolute', right: '0.75rem', top: '3rem', zIndex: 50, backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '0.75rem', overflow: 'hidden', minWidth: '11rem', boxShadow: '0 8px 32px rgba(0,0,0,0.3)' }}>
-            <button onClick={() => { onExport(list); setMenuOpen(false); }} style={MENU_BTN}><MessageSquare size={14} /> Share as text</button>
-            <button onClick={() => { onEditList(list); setMenuOpen(false); }} style={MENU_BTN}><Pencil size={14} /> Edit list</button>
-            <button onClick={() => { onArchiveList(list.id); setMenuOpen(false); }} style={MENU_BTN}>
-              {list.archived ? <ArchiveRestore size={14} /> : <Archive size={14} />}
-              {list.archived ? 'Unarchive' : 'Archive'}
-            </button>
-            <button onClick={() => { onDeleteList(list.id); setMenuOpen(false); }} style={{ ...MENU_BTN, color: 'var(--danger)' }}><Trash2 size={14} /> Delete list</button>
-          </div>
-        </>
-      )}
+      <CardMenu
+        list={list} open={menuOpen} onClose={() => setMenuOpen(false)}
+        onExport={onExport} onEditList={onEditList} onAttachList={onAttachList}
+        onRemindList={onRemindList} onArchiveList={onArchiveList} onDeleteList={onDeleteList}
+      />
     </div>
   );
 }
@@ -1252,6 +1316,8 @@ export default function ShoppingLists() {
     shoppingItems, addShoppingItem, addShoppingItems, updateShoppingItem, deleteShoppingItem, toggleShoppingItem, importList,
     notifPrefs,
   } = useApp();
+  const { user } = useAuth();
+  const uid = user?.uid;
 
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
@@ -1263,6 +1329,10 @@ export default function ShoppingLists() {
   const [addItemToList, setAddItemToList] = useState(null);
   const [exportList, setExportList] = useState(null);
   const [showArchived, setShowArchived] = useState(false);
+  // Lists are edited elsewhere while these modals are open, so hold the id and
+  // read the live record — an uploaded file must not be lost to a stale copy.
+  const [attachListId, setAttachListId] = useState(null);
+  const [remindListId, setRemindListId] = useState(null);
 
   const active = useMemo(() => shoppingLists.filter((l) => !l.archived), [shoppingLists]);
   const archived = useMemo(() => shoppingLists.filter((l) => l.archived), [shoppingLists]);
@@ -1275,7 +1345,12 @@ export default function ShoppingLists() {
       result = result.filter((l) =>
         l.name.toLowerCase().includes(q) ||
         l.store?.toLowerCase().includes(q) ||
-        shoppingItems.some((i) => i.listId === l.id && i.name.toLowerCase().includes(q))
+        // Text read off a scanned photo is searchable too, so a list found by
+        // what's written on the receipt still turns up.
+        l.ocrText?.toLowerCase().includes(q) ||
+        shoppingItems.some((i) => i.listId === l.id && (
+          i.name.toLowerCase().includes(q) || i.ocrText?.toLowerCase().includes(q)
+        ))
       );
     }
     return result;
@@ -1306,6 +1381,8 @@ export default function ShoppingLists() {
     onEditList: setEditList,
     onDeleteList: deleteShoppingList,
     onArchiveList: (id) => updateShoppingList(id, { archived: !shoppingLists.find((l) => l.id === id)?.archived }),
+    onAttachList: (l) => setAttachListId(l.id),
+    onRemindList: (l) => setRemindListId(l.id),
     onEditItem: handleEditItem,
     onDeleteItem: deleteShoppingItem,
   });
@@ -1341,6 +1418,27 @@ export default function ShoppingLists() {
   };
 
   const exportItems = exportList ? shoppingItems.filter((i) => i.listId === exportList.id) : [];
+
+  const attachList = attachListId ? shoppingLists.find((l) => l.id === attachListId) : null;
+  const remindList = remindListId ? shoppingLists.find((l) => l.id === remindListId) : null;
+  // The editor holds a snapshot from when the row was tapped; attachments are
+  // saved as they upload, so the panel has to read the live item instead.
+  const liveEditItem = editItem ? shoppingItems.find((i) => i.id === editItem.id) : null;
+
+  /** The attachments block shown inside an item editor. */
+  const itemAttachments = (item) => (
+    <div style={{ borderTop: '1px solid var(--border)', paddingTop: '1rem' }}>
+      <label className="app-label">Attachments & scans</label>
+      <AttachmentPanel
+        storagePath={`users/${uid}/lists/${item.listId}/items/${item.id}`}
+        attachments={item.attachments || []}
+        onChange={(next) => updateShoppingItem(item.id, { attachments: next })}
+        ocrText={item.ocrText || ''}
+        onOcrText={(text) => updateShoppingItem(item.id, { ocrText: text || null })}
+        hint="A photo of the part, the label, the receipt — or scan one for its text."
+      />
+    </div>
+  );
 
   return (
     <div className="app-page">
@@ -1455,23 +1553,57 @@ export default function ShoppingLists() {
           <ListForm initial={editList} defaultLeadMinutes={notifPrefs?.todos?.defaultLeadMinutes ?? 0} onSave={(data) => { updateShoppingList(editList.id, data); setEditList(null); }} onCancel={() => setEditList(null)} />
         </Modal>
       )}
-      {editItem && !isTaskList(editItemListType) && !isWishlist(editItemListType) && (
+      {liveEditItem && !isTaskList(editItemListType) && !isWishlist(editItemListType) && (
         <Modal title="Edit Item" onClose={() => setEditItem(null)}>
-          <GroceryItemForm initial={editItem} onSave={(data) => { updateShoppingItem(editItem.id, data); setEditItem(null); }} onCancel={() => setEditItem(null)} />
+          <GroceryItemForm
+            initial={editItem}
+            attachments={itemAttachments(liveEditItem)}
+            onSave={(data) => { updateShoppingItem(editItem.id, data); setEditItem(null); }}
+            onCancel={() => setEditItem(null)}
+          />
         </Modal>
       )}
-      {editItem && isWishlist(editItemListType) && (
+      {liveEditItem && isWishlist(editItemListType) && (
         <Modal title="Edit Item" onClose={() => setEditItem(null)}>
-          <WishlistItemForm initial={editItem} onSave={(data) => { updateShoppingItem(editItem.id, data); setEditItem(null); }} onCancel={() => setEditItem(null)} />
+          <WishlistItemForm
+            initial={editItem}
+            attachments={itemAttachments(liveEditItem)}
+            onSave={(data) => { updateShoppingItem(editItem.id, data); setEditItem(null); }}
+            onCancel={() => setEditItem(null)}
+          />
         </Modal>
       )}
-      {editItem && isTaskList(editItemListType) && (
+      {liveEditItem && isTaskList(editItemListType) && (
         <Modal title="Edit Task" onClose={() => setEditItem(null)}>
           <TaskItemForm
             initial={editItem}
             defaultLeadMinutes={notifPrefs?.todos?.defaultLeadMinutes ?? 0}
+            attachments={itemAttachments(liveEditItem)}
             onSave={(data) => { updateShoppingItem(editItem.id, data); setEditItem(null); }}
             onCancel={() => setEditItem(null)}
+          />
+        </Modal>
+      )}
+      {remindList && (
+        <Modal title="List Reminder" onClose={() => setRemindListId(null)}>
+          <ListReminderForm
+            list={remindList}
+            defaultLeadMinutes={notifPrefs?.todos?.defaultLeadMinutes ?? 0}
+            onSave={(data) => { updateShoppingList(remindList.id, data); setRemindListId(null); }}
+            onCancel={() => setRemindListId(null)}
+          />
+        </Modal>
+      )}
+      {attachList && (
+        <Modal title={`Attachments · ${attachList.name}`} onClose={() => setAttachListId(null)}>
+          <AttachmentPanel
+            storagePath={`users/${uid}/lists/${attachList.id}`}
+            attachments={attachList.attachments || []}
+            onChange={(next) => updateShoppingList(attachList.id, { attachments: next })}
+            ocrText={attachList.ocrText || ''}
+            onOcrText={(text) => updateShoppingList(attachList.id, { ocrText: text || null })}
+            onAddItems={(names) => addShoppingItems(names.map((n) => newItemForList(attachList, n)))}
+            hint="Photograph a handwritten list, a receipt or a flyer — Scan reads the text so each line can become an item."
           />
         </Modal>
       )}

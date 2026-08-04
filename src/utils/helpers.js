@@ -15,6 +15,25 @@ export function isWishlist(type) {
 }
 
 /**
+ * Split free text into item names, one per line, stripping the bullet and
+ * numbering styles a list usually arrives with. Blank lines and rules like
+ * "---" drop out.
+ *
+ * Shared by the paste boxes and the photo scanner: both end up holding a block
+ * of text that should become one item per line.
+ */
+export function splitPastedLines(text) {
+  return String(text ?? '')
+    .split(/\r\n|\r|\n/)
+    .map((line) => {
+      const trimmed = line.trim();
+      const bullet = trimmed.match(/^[-–—•*]\s*(.+)$/) || trimmed.match(/^\d+[.)]\s*(.+)$/);
+      return (bullet ? bullet[1] : trimmed).trim();
+    })
+    .filter((line) => line && !/^[#=\-–—_*]{2,}$/.test(line));
+}
+
+/**
  * A link safe to hand to an <a href>. Bare hosts get https://, and anything
  * that isn't http(s) — javascript:, data: — is rejected outright, since these
  * URLs are typed by hand and pasted from anywhere.

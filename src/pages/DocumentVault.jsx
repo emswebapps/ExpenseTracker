@@ -5,7 +5,7 @@ import {
   FileText, Image, File, ExternalLink, Search, Receipt, TrendingUp,
   ShoppingBag, ChevronDown, ChevronUp, Plus, Trash2, Pencil, X,
   Camera, Upload, AlertTriangle, Clock, FolderOpen, Tag, Calendar,
-  Check, Filter, ScanLine,
+  Check, Filter, ScanLine, ClipboardList,
 } from 'lucide-react';
 import { fileCategory, formatFileSize, uploadFile, deleteFile } from '../utils/storageUtils';
 
@@ -396,7 +396,7 @@ function AttachedSection({ icon: Icon, title, color, items }) {
 }
 
 export default function DocumentVault() {
-  const { bills, income, purchases, vaultDocuments, addVaultDocument, updateVaultDocument, deleteVaultDocument } = useApp();
+  const { bills, income, purchases, shoppingLists, shoppingItems, vaultDocuments, addVaultDocument, updateVaultDocument, deleteVaultDocument } = useApp();
   const { user } = useAuth();
   const [query, setQuery] = useState('');
   const [filterType, setFilterType] = useState('all');
@@ -445,7 +445,18 @@ export default function DocumentVault() {
     (p.attachments || []).map((att) => ({ att, source: p.merchant }))
   ).filter((i) => !q || i.att.name.toLowerCase().includes(q) || i.source.toLowerCase().includes(q)), [purchases, q]);
 
-  const attachedCount = billDocs.length + incomeDocs.length + purchaseDocs.length;
+  // Files attached to a list, or to one of its items — the item's own list is
+  // the useful label, since "Milk" on its own says nothing about where it came
+  // from.
+  const listDocs = useMemo(() => {
+    const listName = (id) => shoppingLists.find((l) => l.id === id)?.name || 'List';
+    return [
+      ...shoppingLists.flatMap((l) => (l.attachments || []).map((att) => ({ att, source: l.name }))),
+      ...shoppingItems.flatMap((i) => (i.attachments || []).map((att) => ({ att, source: `${listName(i.listId)} · ${i.name}` }))),
+    ].filter((i) => !q || i.att.name.toLowerCase().includes(q) || i.source.toLowerCase().includes(q));
+  }, [shoppingLists, shoppingItems, q]);
+
+  const attachedCount = billDocs.length + incomeDocs.length + purchaseDocs.length + listDocs.length;
 
   const urgentDocs = vaultDocuments.filter((doc) => {
     const expiryDays = daysUntil(doc.expiryDate);
@@ -592,14 +603,15 @@ export default function DocumentVault() {
               <div style={{ textAlign: 'center', padding: '4rem 1rem' }}>
                 <File size={48} style={{ margin: '0 auto 1rem', opacity: 0.2, color: 'var(--muted)', display: 'block' }} />
                 <p style={{ fontWeight: 700, color: 'var(--text)', fontSize: '1.125rem', marginBottom: '0.5rem' }}>No attached files</p>
-                <p style={{ fontSize: '0.9375rem', color: 'var(--muted)' }}>Tap the paperclip on any bill, income, or purchase to upload receipts and documents.</p>
+                <p style={{ fontSize: '0.9375rem', color: 'var(--muted)' }}>Tap the paperclip on any bill, income, purchase or list to upload receipts and documents.</p>
               </div>
             ) : (
               <>
-                <p style={{ fontSize: '0.75rem', color: 'var(--subtle)', marginBottom: '1rem' }}>{attachedCount} file{attachedCount !== 1 ? 's' : ''} attached to transactions</p>
+                <p style={{ fontSize: '0.75rem', color: 'var(--subtle)', marginBottom: '1rem' }}>{attachedCount} file{attachedCount !== 1 ? 's' : ''} attached to transactions and lists</p>
                 <AttachedSection icon={Receipt} title="Bill Receipts" color="#6366f1" items={billDocs} />
                 <AttachedSection icon={TrendingUp} title="Income Documents" color="#10b981" items={incomeDocs} />
                 <AttachedSection icon={ShoppingBag} title="Purchase Receipts" color="#f59e0b" items={purchaseDocs} />
+                <AttachedSection icon={ClipboardList} title="List Attachments" color="#8b5cf6" items={listDocs} />
               </>
             )}
           </>

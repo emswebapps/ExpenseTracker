@@ -54,10 +54,51 @@ if (!text) {
   ]);
 }
 
+// Before blaming the JSON, recognise the things people paste by mistake. All of
+// these fail to parse, and "invalid JSON" sends you looking for a typo in a
+// value that was never the right value to begin with.
+const wrongPastes = [
+  {
+    match: (t) => /\bapiKey\b/.test(t) && /\b(authDomain|messagingSenderId|appId)\b/.test(t),
+    what: 'the Firebase web app config (apiKey / authDomain / appId)',
+    fix: [
+      'That config identifies the app to browsers; it cannot deploy anything.',
+      'You want a service account key instead: Google Cloud console ->',
+      'IAM & Admin -> Service Accounts -> your deployer account -> Keys ->',
+      'Add key -> Create new key -> JSON. Paste that whole file.',
+      'See Backup/FUNCTIONS_DEPLOY_SETUP.md steps 1-4.',
+    ],
+  },
+  {
+    match: (t) => t.startsWith('-----BEGIN'),
+    what: 'just the private key (a bare PEM block)',
+    fix: [
+      'That is one field out of the key file. Paste the entire .json file,',
+      'not the private_key value from inside it.',
+    ],
+  },
+  {
+    // One unbroken run of token characters — no whitespace, no braces.
+    match: (t) => /^[\w./\-+=~]+$/.test(t),
+    what: 'a single token with no structure — probably a firebase-tools CI token',
+    fix: [
+      'This workflow authenticates with a service account key, not a CI token.',
+      'See Backup/FUNCTIONS_DEPLOY_SETUP.md steps 1-4.',
+    ],
+  },
+];
+
 let key;
 try {
   key = JSON.parse(text);
 } catch (e) {
+  const wrong = wrongPastes.find((c) => c.match(text));
+  if (wrong) {
+    fail(`The FIREBASE_SERVICE_ACCOUNT secret looks like ${wrong.what} — not a service account key.`, [
+      ...wrong.fix,
+      `(Secret is ${text.length} characters; a real key is usually ~2300.)`,
+    ]);
+  }
   fail(`The FIREBASE_SERVICE_ACCOUNT secret is not valid JSON: ${e.message}`, [
     'It is almost always a partial paste. The value must be the entire',
     'downloaded .json file, starting with { and ending with } — no',

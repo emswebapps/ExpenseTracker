@@ -214,3 +214,121 @@ test('task emails can be switched off without disabling email', () => {
   const off = { notifPrefs: { email: { enabled: true, tasks: false } } };
   assert.deepStrictEqual(collectTodoEmails(build([item({ dueAt })], off), {}, NOW), []);
 });
+
+// ── Reminders set on a list as a whole ───────────────────────────────────────
+// These fire independently of any item reminder, and every list type can carry
+// one — not just to-do and work lists.
+
+/** A data blob with one list carrying its own reminder, plus its items. */
+function listBuild(listOver = {}, items = []) {
+  return {
+    shoppingLists: [{ id: 'L9', name: 'Weekend shop', type: 'grocery', notifyEnabled: true, ...listOver }],
+    shoppingItems: items,
+  };
+}
+
+test('a reminder on the list itself fires at its due time', () => {
+  const msgs = collectTodoMessages(listBuild({ dueAt: NOW }, [
+    { id: 'A', listId: 'L9', name: 'Milk', checked: false },
+    { id: 'B', listId: 'L9', name: 'Eggs', checked: false },
+  ]), {}, NOW);
+  assert.strictEqual(msgs.length, 1);
+  assert.strictEqual(msgs[0].title, 'Due now: Weekend shop');
+  assert.strictEqual(msgs[0].body, '2 items left');
+  assert.strictEqual(msgs[0].tag, `list-due-L9-${NOW}`);
+});
+
+test('a list lead time fires early and names the due time', () => {
+  const dueAt = NOW + 45 * MIN;
+  const msgs = collectTodoMessages(
+    listBuild({ dueAt, remindOffsetMinutes: 45 }, [{ id: 'A', listId: 'L9', name: 'Milk', checked: false }]),
+    {}, NOW);
+  assert.strictEqual(msgs.length, 1);
+  assert.strictEqual(msgs[0].title, 'Coming up: Weekend shop');
+  assert.match(msgs[0].body, /^1 item left — due at 2:45/);
+});
+
+test('a list reminder is skipped once every item is done', () => {
+  const msgs = collectTodoMessages(listBuild({ dueAt: NOW }, [
+    { id: 'A', listId: 'L9', name: 'Milk', checked: true },
+    { id: 'B', listId: 'L9', name: 'Eggs', checked: true },
+  ]), {}, NOW);
+  assert.deepStrictEqual(msgs, []);
+});
+
+test('an empty list still gets its reminder', () => {
+  const msgs = collectTodoMessages(listBuild({ dueAt: NOW }, []), {}, NOW);
+  assert.strictEqual(msgs.length, 1);
+  assert.strictEqual(msgs[0].body, '0 items left');
+});
+
+test('task lists judge completion by status, not the checked flag', () => {
+  const done = collectTodoMessages(listBuild({ type: 'todo', dueAt: NOW }, [
+    { id: 'A', listId: 'L9', name: 'Call plumber', status: 'done' },
+  ]), {}, NOW);
+  assert.deepStrictEqual(done, []);
+
+  const blocked = collectTodoMessages(listBuild({ type: 'todo', dueAt: NOW }, [
+    { id: 'A', listId: 'L9', name: 'Call plumber', status: 'blocked' },
+  ]), {}, NOW);
+  assert.strictEqual(blocked.length, 1, 'blocked is not finished, so the list still fires');
+});
+
+test('a list with no reminder switched on never fires', () => {
+  const msgs = collectTodoMessages(listBuild({ dueAt: NOW, notifyEnabled: false }, []), {}, NOW);
+  assert.deepStrictEqual(msgs, []);
+});
+
+test('an archived list never fires', () => {
+  const msgs = collectTodoMessages(listBuild({ dueAt: NOW, archived: true }, []), {}, NOW);
+  assert.deepStrictEqual(msgs, []);
+});
+
+test('a list reminder is not resent once its key is recorded', () => {
+  const data = listBuild({ dueAt: NOW }, []);
+  const sent = { [`list-due-L9-${NOW}`]: NOW };
+  assert.deepStrictEqual(collectTodoMessages(data, sent, NOW), []);
+});
+
+test('a list reminder does not fire long after the window has passed', () => {
+  const msgs = collectTodoMessages(listBuild({ dueAt: NOW - 7 * 60 * MIN }, []), {}, NOW);
+  assert.deepStrictEqual(msgs, []);
+});
+
+test('list emails go out with the outstanding items', () => {
+  const data = {
+    ...listBuild({ dueAt: NOW }, [
+      { id: 'A', listId: 'L9', name: 'Milk', checked: false },
+      { id: 'B', listId: 'L9', name: 'Eggs', checked: true },
+    ]),
+    ...EMAIL_ON,
+  };
+  const emails = collectTodoEmails(data, {}, NOW);
+  assert.strictEqual(emails.length, 1);
+  assert.strictEqual(emails[0].subject, 'Coming up: Weekend shop');
+  assert.match(emails[0].lines[1], /^1 item is still outstanding:/);
+  assert.ok(emails[0].lines.includes('Milk'));
+  assert.ok(!emails[0].lines.includes('Eggs'), 'finished items are left out');
+});
+
+test('a list email uses the lead set on the list, not the global task lead', () => {
+  const dueAt = NOW + 120 * MIN;
+  const data = {
+    ...listBuild({ dueAt, remindOffsetMinutes: 120 }, []),
+    notifPrefs: { email: { enabled: true, taskLeadMinutes: 15 } },
+  };
+  const emails = collectTodoEmails(data, {}, NOW);
+  assert.strictEqual(emails.length, 1);
+  assert.match(emails[0].title, /due in about 2 hours/);
+  assert.strictEqual(emails[0].tag, `list-email-L9-${dueAt}-120`);
+});
+
+test('list emails stop when email is off', () => {
+  const data = { ...listBuild({ dueAt: NOW }, []), notifPrefs: { email: { enabled: false } } };
+  assert.deepStrictEqual(collectTodoEmails(data, {}, NOW), []);
+});
+
+test('list emails stop when task emails are switched off', () => {
+  const data = { ...listBuild({ dueAt: NOW }, []), notifPrefs: { email: { enabled: true, tasks: false } } };
+  assert.deepStrictEqual(collectTodoEmails(data, {}, NOW), []);
+});

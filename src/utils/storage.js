@@ -141,7 +141,7 @@ export const storage = {
     return {
       bills: { overdue: true, dayBefore: true, ...(saved.bills || {}) },
       commitments: { expiring: true, daysBefore: 3, ...(saved.commitments || {}) },
-      todos: { enabled: true, timers: true, defaultLeadMinutes: 0, ...(saved.todos || {}) },
+      todos: { enabled: true, defaultLeadMinutes: 0, ...(saved.todos || {}) },
       shifts: { reminder: false, reminderTime: '18:00', ...(saved.shifts || {}) },
       email: { enabled: false, address: '', ...(saved.email || {}) },
     };

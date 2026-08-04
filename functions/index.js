@@ -270,14 +270,17 @@ exports.dailyNotifications = onSchedule(
   }
 );
 
-// ── To-do due dates & timers ────────────────────────────────────────────────
-// Runs every minute so per-item due reminders and countdown timers reach the
-// phone even when the app is closed. Sent keys are recorded in
-// users/{uid}/data/notifState so a reminder is only ever delivered once.
+// ── To-do & work item due dates ─────────────────────────────────────────────
+// Runs every minute so per-item due reminders reach the phone even when the app
+// is closed. Sent keys are recorded in users/{uid}/data/notifState so a reminder
+// is only ever delivered once.
 
-const TIMER_GRACE_MS = 30 * 60 * 1000; // how late a timer push may still fire
-const DUE_GRACE_MS = 6 * 60 * 60 * 1000; // ditto for due-date reminders
+const DUE_GRACE_MS = 6 * 60 * 60 * 1000; // how late a due reminder may still fire
 const SENT_KEY_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+
+// List types whose items are tasks with a due date. Mirrors TASK_LIST_TYPES in
+// src/utils/helpers.js — keep the two in step.
+const TASK_LIST_TYPES = ['todo', 'work'];
 
 /** Offset (ms) between UTC and `tz` at the given instant. */
 function tzOffsetMs(date, tz) {
@@ -323,12 +326,12 @@ function todoDueAt(item, tz) {
  */
 function collectTodoMessages(data, sent, now) {
   const { shoppingLists = [], shoppingItems = [], notifPrefs, settings } = data;
-  const prefs = { enabled: true, timers: true, ...(notifPrefs?.todos || {}) };
-  if (!prefs.enabled && !prefs.timers) return [];
+  const prefs = { enabled: true, ...(notifPrefs?.todos || {}) };
+  if (!prefs.enabled) return [];
 
   const tz = settings?.timeZone || DEFAULT_TZ;
   const todoLists = new Map(
-    shoppingLists.filter((l) => l.type === 'todo' && !l.archived).map((l) => [l.id, l]),
+    shoppingLists.filter((l) => TASK_LIST_TYPES.includes(l.type) && !l.archived).map((l) => [l.id, l]),
   );
 
   const messages = [];
@@ -337,21 +340,8 @@ function collectTodoMessages(data, sent, now) {
     if (!list) continue;
     if (item.status && item.status !== 'pending') continue;
 
-    // Countdown timer elapsed
-    if (prefs.timers && typeof item.timerEndsAt === 'number') {
-      const key = `todo-timer-${item.id}-${item.timerEndsAt}`;
-      if (!sent[key] && item.timerEndsAt <= now && item.timerEndsAt > now - TIMER_GRACE_MS) {
-        messages.push({
-          title: `Timer done: ${item.name}`,
-          body: list.name,
-          tag: key,
-          requireInteraction: true,
-        });
-      }
-    }
-
     // Due-date reminder (optionally ahead of the due time)
-    if (prefs.enabled && item.notifyEnabled) {
+    if (item.notifyEnabled) {
       const dueAt = todoDueAt(item, tz);
       if (dueAt) {
         const lead = Number(item.remindOffsetMinutes) || 0;
@@ -393,7 +383,7 @@ function collectTodoEmails(data, sent, now) {
   const { shoppingLists = [], shoppingItems = [], settings } = data;
   const tz = settings?.timeZone || DEFAULT_TZ;
   const todoLists = new Map(
-    shoppingLists.filter((l) => l.type === 'todo' && !l.archived).map((l) => [l.id, l]),
+    shoppingLists.filter((l) => TASK_LIST_TYPES.includes(l.type) && !l.archived).map((l) => [l.id, l]),
   );
 
   const out = [];
@@ -450,7 +440,7 @@ exports.todoReminders = onSchedule(
 
         const statePatch = {};
 
-        // ── Push reminders (due-time + timers) ──
+        // ── Push reminders (due date + time) ──
         if (data.fcmToken) {
           const messages = collectTodoMessages(data, sent, now);
           if (messages.length > 0) {

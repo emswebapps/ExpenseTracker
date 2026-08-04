@@ -1,4 +1,4 @@
-// Unit tests for the to-do reminder / timer selection logic.
+// Unit tests for the to-do / work item due reminder selection logic.
 // Run with: npm test  (from the functions/ directory)
 const assert = require('node:assert');
 const { test } = require('node:test');
@@ -18,6 +18,7 @@ function build(items, extra = {}) {
       { id: 'L1', name: 'Errands', type: 'todo' },
       { id: 'L2', name: 'Old stuff', type: 'todo', archived: true },
       { id: 'L3', name: 'Groceries', type: 'grocery' },
+      { id: 'L4', name: 'Shift prep', type: 'work' },
     ],
     shoppingItems: items,
     ...extra,
@@ -75,34 +76,22 @@ test('notifyEnabled off means no due reminder', () => {
     collectTodoMessages(build([item({ notifyEnabled: false, dueAt: NOW })]), {}, NOW), []);
 });
 
-test('elapsed timer fires', () => {
-  const endsAt = NOW - 30 * 1000;
-  const msgs = collectTodoMessages(build([item({ timerEndsAt: endsAt })]), {}, NOW);
-  assert.strictEqual(msgs.length, 1);
-  assert.strictEqual(msgs[0].title, 'Timer done: Call plumber');
-  assert.strictEqual(msgs[0].requireInteraction, true);
-  assert.strictEqual(msgs[0].tag, `todo-timer-T1-${endsAt}`);
-});
-
-test('running timer does not fire yet', () => {
-  assert.deepStrictEqual(
-    collectTodoMessages(build([item({ timerEndsAt: NOW + 5 * MIN })]), {}, NOW), []);
-});
-
-test('timer stale beyond the grace window does not fire', () => {
-  assert.deepStrictEqual(
-    collectTodoMessages(build([item({ timerEndsAt: NOW - 45 * MIN })]), {}, NOW), []);
-});
-
 test('completed and blocked tasks are skipped', () => {
   for (const status of ['done', 'blocked']) {
     const msgs = collectTodoMessages(
-      build([item({ status, notifyEnabled: true, dueAt: NOW, timerEndsAt: NOW - MIN })]), {}, NOW);
+      build([item({ status, notifyEnabled: true, dueAt: NOW })]), {}, NOW);
     assert.deepStrictEqual(msgs, [], `status=${status}`);
   }
 });
 
-test('archived lists and non-todo lists are skipped', () => {
+test('work list items get due reminders too', () => {
+  const msgs = collectTodoMessages(
+    build([item({ listId: 'L4', notifyEnabled: true, dueAt: NOW })]), {}, NOW);
+  assert.strictEqual(msgs.length, 1);
+  assert.strictEqual(msgs[0].body, 'Shift prep');
+});
+
+test('archived lists and grocery lists are skipped', () => {
   const msgs = collectTodoMessages(build([
     item({ id: 'A', listId: 'L2', notifyEnabled: true, dueAt: NOW }),
     item({ id: 'B', listId: 'L3', notifyEnabled: true, dueAt: NOW }),
@@ -111,22 +100,11 @@ test('archived lists and non-todo lists are skipped', () => {
   assert.deepStrictEqual(msgs, []);
 });
 
-test('prefs can disable due reminders and timers independently', () => {
-  const items = [item({ notifyEnabled: true, dueAt: NOW, timerEndsAt: NOW - MIN })];
-  const bothOn = collectTodoMessages(build(items), {}, NOW);
-  assert.strictEqual(bothOn.length, 2);
-
-  const noTimers = collectTodoMessages(
-    build(items, { notifPrefs: { todos: { timers: false } } }), {}, NOW);
-  assert.deepStrictEqual(noTimers.map((m) => m.title), ['Due now: Call plumber']);
-
-  const noDue = collectTodoMessages(
-    build(items, { notifPrefs: { todos: { enabled: false } } }), {}, NOW);
-  assert.deepStrictEqual(noDue.map((m) => m.title), ['Timer done: Call plumber']);
-
-  const noneAtAll = collectTodoMessages(
-    build(items, { notifPrefs: { todos: { enabled: false, timers: false } } }), {}, NOW);
-  assert.deepStrictEqual(noneAtAll, []);
+test('prefs can disable due reminders entirely', () => {
+  const items = [item({ notifyEnabled: true, dueAt: NOW })];
+  assert.strictEqual(collectTodoMessages(build(items), {}, NOW).length, 1);
+  assert.deepStrictEqual(
+    collectTodoMessages(build(items, { notifPrefs: { todos: { enabled: false } } }), {}, NOW), []);
 });
 
 test('legacy items without dueAt resolve via the user time zone', () => {
@@ -186,4 +164,11 @@ test('email skips completed and blocked tasks', () => {
 test('email does not fire long after the window has passed', () => {
   const dueAt = NOW - 7 * 60 * MIN;
   assert.deepStrictEqual(collectTodoEmails(build([item({ dueAt })], EMAIL_ON), {}, NOW), []);
+});
+
+test('work list items are emailed too', () => {
+  const dueAt = NOW + 60 * MIN;
+  const emails = collectTodoEmails(build([item({ listId: 'L4', dueAt })], EMAIL_ON), {}, NOW);
+  assert.strictEqual(emails.length, 1);
+  assert.match(emails[0].lines[0], /Shift prep/);
 });

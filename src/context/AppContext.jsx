@@ -1,8 +1,8 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import { storage } from '../utils/storage';
 import { saveUserData, loadUserData, saveSharedView, saveFCMToken } from '../utils/firestoreSync';
-import { generateId, currentMonthKey, getBillStatus, nextBillStatus } from '../utils/helpers';
-import { notificationPermission, requestNotificationPermission, sendNotification, computeDueAt, todoReminderAt, formatTimerDuration, registerFCMToken, onForegroundMessage, scheduleShiftNotification, cancelShiftNotification } from '../utils/notifications';
+import { generateId, currentMonthKey, getBillStatus, nextBillStatus, isTaskList } from '../utils/helpers';
+import { notificationPermission, requestNotificationPermission, sendNotification, computeDueAt, todoReminderAt, registerFCMToken, onForegroundMessage, scheduleShiftNotification, cancelShiftNotification } from '../utils/notifications';
 
 const AppContext = createContext(null);
 
@@ -462,29 +462,9 @@ export function AppProvider({ children, uid }) {
       // Keep the due instant in sync whenever the date or time changes, so the
       // Cloud Function can schedule the push without guessing a time zone.
       if ('dueDate' in u || 'dueTime' in u) next.dueAt = computeDueAt(next.dueDate, next.dueTime);
-      // A task that's finished or blocked shouldn't keep counting down.
-      if (u.status && u.status !== 'pending' && next.timerEndsAt) {
-        next.timerEndsAt = null; next.timerDurationMinutes = null;
-      }
       return next;
     })
   ), [shoppingItems, persistShoppingItems]);
-
-  /** Start a countdown timer on a to-do item. */
-  const startTodoTimer = useCallback((id, minutes) => {
-    const mins = Number(minutes);
-    if (!mins || mins <= 0) return;
-    updateShoppingItem(id, {
-      timerEndsAt: Date.now() + mins * 60 * 1000,
-      timerDurationMinutes: mins,
-      status: 'pending',
-    });
-  }, [updateShoppingItem]);
-
-  /** Clear a running countdown timer. */
-  const cancelTodoTimer = useCallback((id) => {
-    updateShoppingItem(id, { timerEndsAt: null, timerDurationMinutes: null });
-  }, [updateShoppingItem]);
 
   const deleteShoppingItem = useCallback((id) => persistShoppingItems(
     shoppingItems.filter((i) => i.id !== id)
@@ -505,7 +485,6 @@ export function AppProvider({ children, uid }) {
       status: 'pending', notes: null,
       dueDate: listData.dueDate || null, dueTime: null, notifyEnabled: false,
       dueAt: computeDueAt(listData.dueDate, null), remindOffsetMinutes: 0,
-      timerEndsAt: null, timerDurationMinutes: null,
     }));
     const nextLists = [...shoppingLists, newList];
     const nextItems = [...shoppingItems, ...newItems];
@@ -745,7 +724,7 @@ export function AppProvider({ children, uid }) {
     const prefs = notifPrefs.todos || {};
     const timers = {};
     const now = Date.now();
-    const todoListIds = new Set(shoppingLists.filter((l) => l.type === 'todo' && !l.archived).map((l) => l.id));
+    const todoListIds = new Set(shoppingLists.filter((l) => isTaskList(l.type) && !l.archived).map((l) => l.id));
     const todoItems = shoppingItems.filter((i) =>
       todoListIds.has(i.listId) && (i.status === 'pending' || !i.status)
     );
@@ -769,17 +748,6 @@ export function AppProvider({ children, uid }) {
       const list = shoppingLists.find((l) => l.id === item.listId);
       const listLabel = list ? `List: ${list.name}` : 'To-do list';
 
-      if (prefs.timers !== false && item.timerEndsAt) {
-        at(item.timerEndsAt, `todo-timer-${item.id}-${item.timerEndsAt}`, () => {
-          const dur = item.timerDurationMinutes ? ` (${formatTimerDuration(item.timerDurationMinutes)})` : '';
-          sendNotification(`Timer done: ${item.name}`, {
-            body: `${listLabel}${dur}`,
-            tag: `todo-timer-${item.id}-${item.timerEndsAt}`,
-            requireInteraction: true,
-          });
-        });
-      }
-
       if (prefs.enabled !== false && item.notifyEnabled) {
         const fireAt = todoReminderAt(item);
         if (!fireAt) return;
@@ -802,7 +770,7 @@ export function AppProvider({ children, uid }) {
   useEffect(() => {
     if (notificationPermission() !== 'granted') return;
     const prefs = notifPrefs.todos || {};
-    const todoListIds = new Set(shoppingLists.filter((l) => l.type === 'todo').map((l) => l.id));
+    const todoListIds = new Set(shoppingLists.filter((l) => isTaskList(l.type)).map((l) => l.id));
     const incompleteCount = shoppingItems.filter((i) =>
       todoListIds.has(i.listId) && (i.status === 'pending' || !i.status)
     ).length;
@@ -1003,7 +971,6 @@ export function AppProvider({ children, uid }) {
       agreements, addAgreement, updateAgreement, deleteAgreement,
       shoppingLists, addShoppingList, updateShoppingList, deleteShoppingList,
       shoppingItems, addShoppingItem, updateShoppingItem, deleteShoppingItem, toggleShoppingItem, importList,
-      startTodoTimer, cancelTodoTimer,
       planningSettings, updatePlanningSettings,
       recurringTemplates, addRecurringTemplate, updateRecurringTemplate, deleteRecurringTemplate,
       paycheckActuals, addPaycheckActual, updatePaycheckActual, deletePaycheckActual,

@@ -6,8 +6,9 @@ mailbox (`notifications@emslearn.org`).
 
 Once configured, the app emails you:
 
-- **An hour before a timed to‑do is due** — but only if it still isn't marked
-  complete. (`todoReminders` Cloud Function, runs every minute.)
+- **An hour before a dated task is due** — on to‑do *and* work lists, but only
+  if it still isn't marked complete. (`todoReminders` Cloud Function, runs every
+  minute.)
 - **The day a bill is due** — plus overdue bills, bills due tomorrow, expiring
   commitments, goal target dates, project dates, and the work‑log reminder,
   bundled into one **daily digest** at 8:00 AM Eastern. (`dailyNotifications`

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { loadSharedView } from '../utils/firestoreSync';
-import { formatCurrency, monthKey, getBillStatus } from '../utils/helpers';
+import { formatCurrency, monthKey, getBillStatus, isTaskList } from '../utils/helpers';
 import {
   TrendingUp, Receipt, ShoppingBag, CreditCard, PiggyBank,
   CheckSquare, Square, ShoppingCart, X, ListChecks, Lock,
@@ -251,8 +251,8 @@ function ReadOnlyDashboard({ data }) {
   const totalSavings = savings.reduce((s, sv) => s + (sv.balance || 0), 0);
   const netWorth = totalSavings - totalDebt;
 
-  const todoLists = shoppingLists.filter((l) => l.type === 'todo');
-  const shoppingOnlyLists = shoppingLists.filter((l) => l.type !== 'todo');
+  const todoLists = shoppingLists.filter((l) => isTaskList(l.type));
+  const shoppingOnlyLists = shoppingLists.filter((l) => !isTaskList(l.type));
   const incompleteCount = shoppingItems.filter((i) => todoLists.some((l) => l.id === i.listId) && (i.status === 'pending' || !i.status)).length;
 
   const sharedAt = data.updatedAt
@@ -457,7 +457,7 @@ function ReadOnlyDashboard({ data }) {
         )}
         {shoppingLists.map((list) => {
           const items = shoppingItems.filter((i) => i.listId === list.id);
-          const isTodo = list.type === 'todo';
+          const isTodo = isTaskList(list.type);
           const done = isTodo
             ? items.filter((i) => i.status === 'done' || i.status === 'completed')
             : items.filter((i) => i.checked);

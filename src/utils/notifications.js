@@ -130,7 +130,7 @@ export function formatDueBadge(dueDate, dueTime) {
   return { label: due.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), color: 'var(--muted)' };
 }
 
-// ── To-do due dates, reminder lead times, and timers ───────────────────────
+// ── To-do due dates and reminder lead times ────────────────────────────────
 
 // Lead time between the reminder push and the item's due moment.
 export const REMINDER_LEAD_OPTIONS = [
@@ -142,9 +142,6 @@ export const REMINDER_LEAD_OPTIONS = [
   { minutes: 180, label: '3 hours before' },
   { minutes: 1440, label: '1 day before' },
 ];
-
-// Quick-start countdown timers, in minutes.
-export const TIMER_PRESETS = [5, 10, 15, 30, 60, 120];
 
 /** Today's date as a local "YYYY-MM-DD" string. */
 export function localTodayISO() {
@@ -175,30 +172,16 @@ export function todoReminderAt(item) {
   return dueAt - lead * 60 * 1000;
 }
 
-/** True when the item has a countdown timer that hasn't elapsed yet. */
-export function timerRunning(item) {
-  return !!item.timerEndsAt && item.timerEndsAt > Date.now();
-}
-
-/** "1h 12m" / "4m 30s" / "12s" — compact countdown label. */
-export function formatCountdown(ms) {
-  if (ms <= 0) return '0s';
-  const totalSec = Math.round(ms / 1000);
-  const h = Math.floor(totalSec / 3600);
-  const m = Math.floor((totalSec % 3600) / 60);
-  const s = totalSec % 60;
-  if (h > 0) return `${h}h ${m}m`;
-  if (m > 0) return `${m}m ${String(s).padStart(2, '0')}s`;
-  return `${s}s`;
-}
-
-/** "45 min" / "1 hr" / "2 hr 30 min" — label for a timer duration. */
-export function formatTimerDuration(minutes) {
-  const mins = Number(minutes) || 0;
-  if (mins < 60) return `${mins} min`;
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  return m === 0 ? `${h} hr` : `${h} hr ${m} min`;
+/** "Mon, Aug 4 at 2:30 PM" — the full due moment, for confirmation copy. */
+export function formatDueMoment(dueDate, dueTime) {
+  if (!dueDate && !dueTime) return null;
+  const at = computeDueAt(dueDate, dueTime);
+  if (!at) return null;
+  const d = new Date(at);
+  const day = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  // No time given means end of day — say so rather than showing "11:59 PM".
+  if (!dueTime) return `${day} (end of day)`;
+  return `${day} at ${d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
 }
 
 // ── Firebase Cloud Messaging (FCM) ──────────────────────────────────────────

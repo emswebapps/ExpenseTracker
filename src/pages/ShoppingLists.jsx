@@ -3,21 +3,40 @@ import {
   ShoppingCart, Plus, X, MoreVertical, Pencil, Trash2,
   Archive, ArchiveRestore, MessageSquare, Check, Store,
   ClipboardList, Bell, BellOff, CheckCircle2, Ban,
-  Circle, Clipboard, Calendar, Timer, TimerOff,
+  Circle, Clipboard, Calendar, CalendarClock, Briefcase,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import Modal from '../components/Modal';
+import { isTaskList } from '../utils/helpers';
 import {
   requestNotificationPermission, notificationPermission, formatDueBadge, getDueDateMs,
-  REMINDER_LEAD_OPTIONS, TIMER_PRESETS, timerRunning, formatCountdown, formatTimerDuration,
-  localTodayISO,
+  REMINDER_LEAD_OPTIONS, localTodayISO, formatDueMoment,
 } from '../utils/notifications';
 
 // ── List type config ─────────────────────────────────────────────────────────
+// 'todo' and 'work' are both task lists — same card, same due date/time and
+// reminder behaviour. They're split so work items can be filtered on their own.
 const LIST_TYPES = [
-  { key: 'grocery', label: 'Grocery / Shopping', Icon: ShoppingCart },
-  { key: 'todo', label: 'To-Do List', Icon: ClipboardList },
+  { key: 'grocery', short: 'Grocery', Icon: ShoppingCart },
+  { key: 'todo', short: 'To-Do', Icon: ClipboardList },
+  { key: 'work', short: 'Work', Icon: Briefcase },
 ];
+
+const listTypeMeta = (type) => LIST_TYPES.find((t) => t.key === type) || LIST_TYPES[0];
+
+/** Offsets for the quick due-date chips, in days from today. */
+const QUICK_DATES = [
+  { label: 'Today', days: 0 },
+  { label: 'Tomorrow', days: 1 },
+  { label: 'Next week', days: 7 },
+];
+
+/** "YYYY-MM-DD" for a date `days` from today, in local time. */
+function isoInDays(days) {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 
 // ── ListForm ──────────────────────────────────────────────────────────────────
 function ListForm({ initial = {}, onSave, onCancel }) {
@@ -40,21 +59,21 @@ function ListForm({ initial = {}, onSave, onCancel }) {
       <div>
         <label className="app-label">Type</label>
         <div style={{ display: 'flex', gap: '0.5rem' }}>
-          {LIST_TYPES.map(({ key, label, Icon }) => (
+          {LIST_TYPES.map(({ key, short, Icon }) => (
             <button
               key={key}
               type="button"
               onClick={() => setType(key)}
               style={{
-                flex: 1, padding: '0.625rem', borderRadius: '0.75rem', border: '2px solid',
+                flex: 1, minWidth: 0, padding: '0.625rem 0.375rem', borderRadius: '0.75rem', border: '2px solid',
                 borderColor: type === key ? 'var(--accent)' : 'var(--border)',
                 backgroundColor: type === key ? 'rgba(99,102,241,0.12)' : 'var(--surface2)',
                 color: type === key ? 'var(--accent-text)' : 'var(--muted)',
                 fontSize: '0.8125rem', fontWeight: '600', cursor: 'pointer',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.375rem',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3125rem',
               }}
             >
-              <Icon size={14} /> {key === 'grocery' ? 'Grocery' : 'To-Do'}
+              <Icon size={14} style={{ flexShrink: 0 }} /> {short}
             </button>
           ))}
         </div>
@@ -109,8 +128,10 @@ function GroceryItemForm({ initial = {}, onSave, onCancel }) {
   );
 }
 
-// ── TodoItemForm ──────────────────────────────────────────────────────────────
-function TodoItemForm({ initial = {}, defaultLeadMinutes = 0, onSave, onCancel }) {
+// ── TaskItemForm ──────────────────────────────────────────────────────────────
+// Used by both to-do and work lists. A task is due at an absolute moment — a
+// date and a clock time — never a countdown.
+function TaskItemForm({ initial = {}, defaultLeadMinutes = 0, onSave, onCancel }) {
   const [name, setName] = useState(initial.name || '');
   const [notes, setNotes] = useState(initial.notes || '');
   const [dueDate, setDueDate] = useState(initial.dueDate || '');
@@ -119,13 +140,6 @@ function TodoItemForm({ initial = {}, defaultLeadMinutes = 0, onSave, onCancel }
   const [remindOffset, setRemindOffset] = useState(
     initial.remindOffsetMinutes ?? defaultLeadMinutes ?? 0
   );
-  const [timerMinutes, setTimerMinutes] = useState(
-    timerRunning(initial) ? Math.max(1, Math.round((initial.timerEndsAt - Date.now()) / 60000)) : 0
-  );
-  const [customTimer, setCustomTimer] = useState('');
-  // Only rewrite the timer if the user actually touched these controls —
-  // otherwise editing a task's text would restart a running countdown.
-  const [timerTouched, setTimerTouched] = useState(false);
   const [permDenied, setPermDenied] = useState(false);
 
   const ensurePermission = async () => {
@@ -143,19 +157,9 @@ function TodoItemForm({ initial = {}, defaultLeadMinutes = 0, onSave, onCancel }
     if (await ensurePermission()) setNotifyEnabled(true);
   };
 
-  const pickTimer = async (mins) => {
-    setTimerTouched(true);
-    if (mins === timerMinutes) { setTimerMinutes(0); return; }
-    if (mins > 0 && !(await ensurePermission())) return;
-    setTimerMinutes(mins);
-    setCustomTimer('');
-  };
-
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!name.trim()) return;
-    const custom = parseInt(customTimer, 10);
-    const mins = customTimer !== '' && custom > 0 ? custom : timerMinutes;
 
     // A time with no date means "today at that time." No date and no time means
     // the task simply has no deadline.
@@ -170,10 +174,6 @@ function TodoItemForm({ initial = {}, defaultLeadMinutes = 0, onSave, onCancel }
       notifyEnabled: hasDeadline ? notifyEnabled : false,
       remindOffsetMinutes: hasDeadline && notifyEnabled ? Number(remindOffset) || 0 : 0,
       status: initial.status || 'pending',
-      ...(timerTouched ? {
-        timerEndsAt: mins > 0 ? Date.now() + mins * 60 * 1000 : null,
-        timerDurationMinutes: mins > 0 ? mins : null,
-      } : {}),
     });
   };
 
@@ -197,8 +197,44 @@ function TodoItemForm({ initial = {}, defaultLeadMinutes = 0, onSave, onCancel }
           <input className="app-input" type="time" value={dueTime} onChange={(e) => { setDueTime(e.target.value); if (!e.target.value && !dueDate) setNotifyEnabled(false); }} />
         </div>
       </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.375rem', marginTop: '-0.5rem' }}>
+        {QUICK_DATES.map(({ label, days }) => {
+          const iso = isoInDays(days);
+          const active = dueDate === iso;
+          return (
+            <button
+              key={label}
+              type="button"
+              onClick={() => setDueDate(active ? '' : iso)}
+              style={{
+                padding: '0.3125rem 0.625rem', borderRadius: '0.625rem', fontSize: '0.75rem', fontWeight: '600',
+                border: `1.5px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
+                backgroundColor: active ? 'rgba(99,102,241,0.12)' : 'var(--surface2)',
+                color: active ? 'var(--accent-text)' : 'var(--muted)', cursor: 'pointer',
+              }}
+            >
+              {label}
+            </button>
+          );
+        })}
+        {(dueDate || dueTime) && (
+          <button
+            type="button"
+            onClick={() => { setDueDate(''); setDueTime(''); setNotifyEnabled(false); }}
+            style={{
+              padding: '0.3125rem 0.625rem', borderRadius: '0.625rem', fontSize: '0.75rem', fontWeight: '600',
+              border: '1.5px solid var(--border)', backgroundColor: 'transparent',
+              color: 'var(--subtle)', cursor: 'pointer',
+            }}
+          >
+            Clear
+          </button>
+        )}
+      </div>
       <p style={{ fontSize: '0.75rem', color: 'var(--subtle)', marginTop: '-0.5rem' }}>
-        Set the exact date and time this task is due. Leave the date blank to use today (e.g. 2:00 PM today).
+        {formatDueMoment(dueDate, dueTime)
+          ? `Due ${formatDueMoment(dueDate, dueTime)}.`
+          : 'Set the exact date and time this task is due. Leave the date blank to use today (e.g. 2:00 PM today).'}
       </p>
       {(dueDate || dueTime) && (
         <div>
@@ -233,56 +269,6 @@ function TodoItemForm({ initial = {}, defaultLeadMinutes = 0, onSave, onCancel }
           )}
         </div>
       )}
-
-      {/* Countdown timer */}
-      <div>
-        <label className="app-label" style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
-          <Timer size={13} /> Timer <span style={{ color: 'var(--subtle)' }}>(optional)</span>
-        </label>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.375rem' }}>
-          {TIMER_PRESETS.map((mins) => {
-            const active = timerMinutes === mins && customTimer === '';
-            return (
-              <button
-                key={mins}
-                type="button"
-                onClick={() => pickTimer(mins)}
-                style={{
-                  padding: '0.375rem 0.625rem', borderRadius: '0.625rem', fontSize: '0.8125rem', fontWeight: '600',
-                  border: `1.5px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
-                  backgroundColor: active ? 'rgba(99,102,241,0.12)' : 'var(--surface2)',
-                  color: active ? 'var(--accent-text)' : 'var(--muted)', cursor: 'pointer',
-                }}
-              >
-                {formatTimerDuration(mins)}
-              </button>
-            );
-          })}
-          <input
-            className="app-input"
-            type="number" min="1" placeholder="Custom min"
-            value={customTimer}
-            onChange={(e) => { setTimerTouched(true); setCustomTimer(e.target.value); if (e.target.value) setTimerMinutes(0); }}
-            onFocus={ensurePermission}
-            style={{ width: '7rem', padding: '0.375rem 0.5rem', height: 'auto', fontSize: '0.8125rem' }}
-          />
-        </div>
-        {timerTouched && (timerMinutes > 0 || parseInt(customTimer, 10) > 0) && (
-          <p style={{ fontSize: '0.75rem', color: 'var(--subtle)', marginTop: '0.375rem' }}>
-            Pushes to your phone {formatTimerDuration(parseInt(customTimer, 10) > 0 ? parseInt(customTimer, 10) : timerMinutes)} after you save.
-          </p>
-        )}
-        {!timerTouched && timerRunning(initial) && (
-          <p style={{ fontSize: '0.75rem', color: 'var(--subtle)', marginTop: '0.375rem' }}>
-            Timer running — {formatCountdown(initial.timerEndsAt - Date.now())} left. Pick a length to restart it.
-          </p>
-        )}
-        {timerTouched && timerRunning(initial) && timerMinutes === 0 && !(parseInt(customTimer, 10) > 0) && (
-          <p style={{ fontSize: '0.75rem', color: 'var(--danger)', marginTop: '0.375rem' }}>
-            Saving will cancel the running timer.
-          </p>
-        )}
-      </div>
 
       {permDenied && (
         <p style={{ fontSize: '0.8125rem', color: 'var(--danger)' }}>
@@ -364,8 +350,12 @@ function parseListText(raw) {
   }
 
   const nameLower = listName.toLowerCase();
-  const type = (nameLower.includes('to do') || nameLower.includes('todo') ||
-    nameLower.includes('task') || nameLower.includes('errand')) ? 'todo' : 'grocery';
+  const type =
+    (nameLower.includes('work') || nameLower.includes('shift') ||
+      nameLower.includes('job') || nameLower.includes('meeting')) ? 'work'
+    : (nameLower.includes('to do') || nameLower.includes('todo') ||
+      nameLower.includes('task') || nameLower.includes('errand')) ? 'todo'
+    : 'grocery';
 
   const items = [];
   for (let i = 1; i < lines.length; i++) {
@@ -399,7 +389,7 @@ function PasteImportModal({ onImport, onCancel }) {
         <textarea
           className="app-input"
           style={{ minHeight: '9rem', resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.65, fontSize: '0.9375rem' }}
-          placeholder={'Grocery List - 06-24-26\n- Watermelon\n- Milk\n- Eggs\n\nTo Do List - 06-24-26\n- Go to Walmart'}
+          placeholder={'Grocery List - 06-24-26\n- Watermelon\n- Milk\n- Eggs\n\nWork Tasks - 06-24-26\n- Submit timesheet'}
           value={raw}
           onChange={(e) => setRaw(e.target.value)}
           autoFocus
@@ -417,7 +407,7 @@ function PasteImportModal({ onImport, onCancel }) {
               color: 'var(--accent-text)', backgroundColor: 'rgba(99,102,241,0.14)',
               padding: '0.15rem 0.5rem', borderRadius: '0.375rem',
             }}>
-              {parsed.type === 'todo' ? 'To-Do' : 'Grocery'}
+              {listTypeMeta(parsed.type).short}
             </span>
             <span style={{ fontWeight: '700', color: 'var(--text)', fontSize: '0.9375rem' }}>{parsed.name}</span>
             {parsed.dueDate && (
@@ -459,13 +449,15 @@ function PasteImportModal({ onImport, onCancel }) {
   );
 }
 
-// ── Live clock for countdown labels ───────────────────────────────────────────
-// Only ticks while something on screen is actually counting down.
+// ── Live clock for due-time badges ────────────────────────────────────────────
+// Due badges show minutes remaining inside the last hour, so they need to be
+// re-rendered as the clock moves. Only ticks while a card with dated tasks is
+// open, and only twice a minute — nothing here counts seconds.
 function useTicker(active) {
   const [, setTick] = useState(0);
   useEffect(() => {
     if (!active) return;
-    const id = setInterval(() => setTick((t) => t + 1), 1000);
+    const id = setInterval(() => setTick((t) => t + 1), 30000);
     return () => clearInterval(id);
   }, [active]);
 }
@@ -595,41 +587,76 @@ function GroceryListCard({
   );
 }
 
-// ── TodoListCard ──────────────────────────────────────────────────────────────
-function TodoListCard({
+// ── TaskListCard ──────────────────────────────────────────────────────────────
+// Renders both to-do and work lists. Every task is due at a real date and time;
+// the clock button on a row sets that moment without opening the full editor.
+function TaskListCard({
   list, listItems,
   onEditList, onDeleteList, onArchiveList,
   onAddTodoItem, onDeleteItem, onUpdateItem, onEditItem,
-  onStartTimer, onCancelTimer,
 }) {
   const [expanded, setExpanded] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [quickAdd, setQuickAdd] = useState('');
-  const [timerMenuFor, setTimerMenuFor] = useState(null);
+  const [dueMenuFor, setDueMenuFor] = useState(null);
+  const [dueDraft, setDueDraft] = useState({ date: '', time: '' });
 
-  const hasRunningTimer = listItems.some((i) => timerRunning(i));
-  useTicker(expanded && hasRunningTimer);
+  const { Icon: ListIcon } = listTypeMeta(list.type);
+  const today = localTodayISO();
 
-  const startTimer = async (itemId, mins) => {
-    const perm = notificationPermission();
-    if (perm === 'default') await requestNotificationPermission();
-    onStartTimer(itemId, mins);
-    setTimerMenuFor(null);
-  };
-
-  const pending = listItems.filter((i) => i.status !== 'done' && i.status !== 'blocked');
+  const isPending = (i) => i.status !== 'done' && i.status !== 'blocked';
   const done = listItems.filter((i) => i.status === 'done');
   const blocked = listItems.filter((i) => i.status === 'blocked');
-  const overdue = listItems.filter((i) => {
-    if (i.status !== 'pending' && !(!i.status)) return false;
-    if (!i.dueDate) return false;
-    return getDueDateMs(i.dueDate, i.dueTime) < Date.now();
-  });
+  const overdue = listItems.filter((i) =>
+    isPending(i) && i.dueDate && getDueDateMs(i.dueDate, i.dueTime) < Date.now()
+  );
+  const dueToday = listItems.filter((i) => isPending(i) && i.dueDate === today);
+
+  // Badges inside the last hour count down in minutes, so keep the clock live
+  // while the card is open and something still has a deadline.
+  useTicker(expanded && listItems.some((i) => isPending(i) && i.dueDate));
+
+  const openDueMenu = (item) => {
+    if (dueMenuFor === item.id) { setDueMenuFor(null); return; }
+    setDueDraft({ date: item.dueDate || '', time: item.dueTime || '' });
+    setDueMenuFor(item.id);
+  };
+
+  const saveDue = async (itemId) => {
+    // A time with no date means today, matching the full task editor.
+    const date = dueDraft.date || (dueDraft.time ? localTodayISO() : null);
+    let notify = false;
+    if (date) {
+      // Setting a deadline here implies you want telling about it — the full
+      // editor is where you'd turn the reminder back off. Never let an ignored
+      // permission prompt hold up saving the deadline itself.
+      if (notificationPermission() === 'default') {
+        const result = await Promise.race([
+          requestNotificationPermission(),
+          new Promise((resolve) => setTimeout(() => resolve('dismissed'), 5000)),
+        ]);
+        notify = result === 'granted';
+      } else {
+        notify = notificationPermission() === 'granted';
+      }
+    }
+    onUpdateItem(itemId, {
+      dueDate: date,
+      dueTime: date ? (dueDraft.time || null) : null,
+      notifyEnabled: notify,
+    });
+    setDueMenuFor(null);
+  };
+
+  const clearDue = (itemId) => {
+    onUpdateItem(itemId, { dueDate: null, dueTime: null, notifyEnabled: false, remindOffsetMinutes: 0 });
+    setDueMenuFor(null);
+  };
 
   const handleQuickAdd = () => {
     const trimmed = quickAdd.trim();
     if (!trimmed) return;
-    onAddTodoItem({ listId: list.id, name: trimmed, status: 'pending', notes: null, dueDate: null, dueTime: null, notifyEnabled: false, remindOffsetMinutes: 0, timerEndsAt: null, timerDurationMinutes: null });
+    onAddTodoItem({ listId: list.id, name: trimmed, status: 'pending', notes: null, dueDate: null, dueTime: null, notifyEnabled: false, remindOffsetMinutes: 0 });
     setQuickAdd('');
   };
 
@@ -653,7 +680,7 @@ function TodoListCard({
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '0.5rem' }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
-              <ClipboardList size={14} style={{ color: 'var(--accent-text)', flexShrink: 0 }} />
+              <ListIcon size={14} style={{ color: 'var(--accent-text)', flexShrink: 0 }} />
               <span style={{ fontWeight: '700', fontSize: '1rem', color: 'var(--text)' }}>{list.name}</span>
               {list.dueDate && (
                 <span style={{ display: 'flex', alignItems: 'center', gap: '0.2rem', fontSize: '0.75rem', color: 'var(--muted)' }}>
@@ -671,9 +698,9 @@ function TodoListCard({
                 <>
                   <span>{done.length}/{listItems.length} done</span>
                   {blocked.length > 0 && <span style={{ color: '#f59e0b' }}>{blocked.length} blocked</span>}
-                  {hasRunningTimer && (
+                  {dueToday.length > 0 && (
                     <span style={{ display: 'flex', alignItems: 'center', gap: '0.2rem', color: 'var(--accent-text)' }}>
-                      <Timer size={11} /> {listItems.filter(timerRunning).length} running
+                      <CalendarClock size={11} /> {dueToday.length} due today
                     </span>
                   )}
                 </>
@@ -699,18 +726,15 @@ function TodoListCard({
             listItems.map((item) => {
               const isDone = item.status === 'done';
               const isBlocked = item.status === 'blocked';
-              const isPending = !isDone && !isBlocked;
+              const pendingItem = !isDone && !isBlocked;
               const due = item.dueDate ? formatDueBadge(item.dueDate, item.dueTime) : null;
               const isOverdue = due?.label === 'Overdue';
-              const running = timerRunning(item);
-              const timerElapsed = !!item.timerEndsAt && !running;
-              const remaining = running ? item.timerEndsAt - Date.now() : 0;
 
               return (
                 <div key={item.id} style={{
                   padding: '0.75rem 1rem', borderBottom: '1px solid var(--border)',
                   opacity: (isDone || isBlocked) ? 0.55 : 1,
-                  backgroundColor: isOverdue && isPending ? 'rgba(244,63,94,0.04)' : 'transparent',
+                  backgroundColor: isOverdue && pendingItem ? 'rgba(244,63,94,0.04)' : 'transparent',
                 }}>
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
                     <button
@@ -721,40 +745,28 @@ function TodoListCard({
                     </button>
                     <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={() => onEditItem(item)}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-                        <span style={{ fontSize: '0.9375rem', color: isOverdue && isPending ? 'var(--danger)' : 'var(--text)', textDecoration: (isDone || isBlocked) ? 'line-through' : 'none', fontWeight: isOverdue && isPending ? '600' : '400' }}>
+                        <span style={{ fontSize: '0.9375rem', color: isOverdue && pendingItem ? 'var(--danger)' : 'var(--text)', textDecoration: (isDone || isBlocked) ? 'line-through' : 'none', fontWeight: isOverdue && pendingItem ? '600' : '400' }}>
                           {item.name}
                         </span>
-                        {due && isPending && (
+                        {due && pendingItem && (
                           <span style={{ fontSize: '0.75rem', fontWeight: '700', color: due.color, backgroundColor: `${due.color}18`, padding: '0.0625rem 0.375rem', borderRadius: '0.375rem' }}>
                             {due.label}
                           </span>
                         )}
-                        {running && isPending && (
-                          <span style={{ display: 'flex', alignItems: 'center', gap: '0.2rem', fontSize: '0.75rem', fontWeight: '700', color: 'var(--accent-text)', backgroundColor: 'rgba(99,102,241,0.14)', padding: '0.0625rem 0.375rem', borderRadius: '0.375rem', fontVariantNumeric: 'tabular-nums' }}>
-                            <Timer size={10} /> {formatCountdown(remaining)}
-                          </span>
-                        )}
-                        {timerElapsed && isPending && (
-                          <span style={{ fontSize: '0.75rem', fontWeight: '700', color: 'var(--danger)', backgroundColor: 'rgba(244,63,94,0.12)', padding: '0.0625rem 0.375rem', borderRadius: '0.375rem' }}>
-                            Timer done
-                          </span>
-                        )}
-                        {item.notifyEnabled && isPending && <Bell size={11} style={{ color: 'var(--muted)', flexShrink: 0 }} />}
+                        {item.notifyEnabled && pendingItem && <Bell size={11} style={{ color: 'var(--muted)', flexShrink: 0 }} />}
                       </div>
                       {item.notes && <p style={{ fontSize: '0.8125rem', color: 'var(--subtle)', marginTop: '0.125rem', margin: '0.125rem 0 0' }}>{item.notes}</p>}
                     </div>
-                    {isPending && (
+                    {pendingItem && (
                       <button
-                        onClick={() => (running || timerElapsed)
-                          ? onCancelTimer(item.id)
-                          : setTimerMenuFor(timerMenuFor === item.id ? null : item.id)}
-                        title={(running || timerElapsed) ? 'Clear timer' : 'Start a timer'}
-                        style={{ flexShrink: 0, padding: '0.375rem', color: running ? 'var(--accent-text)' : 'var(--subtle)', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', borderRadius: '0.5rem' }}
+                        onClick={() => openDueMenu(item)}
+                        title={item.dueDate ? 'Change due date & time' : 'Set a due date & time'}
+                        style={{ flexShrink: 0, padding: '0.375rem', color: item.dueDate ? 'var(--accent-text)' : 'var(--subtle)', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', borderRadius: '0.5rem' }}
                       >
-                        {(running || timerElapsed) ? <TimerOff size={14} /> : <Timer size={14} />}
+                        <CalendarClock size={14} />
                       </button>
                     )}
-                    {isPending && (
+                    {pendingItem && (
                       <button
                         onClick={() => markBlocked(item)}
                         title="Mark as can't complete"
@@ -768,18 +780,59 @@ function TodoListCard({
                     </button>
                   </div>
 
-                  {timerMenuFor === item.id && (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.375rem', marginTop: '0.625rem', paddingLeft: '1.8rem' }}>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--subtle)', alignSelf: 'center', marginRight: '0.125rem' }}>Notify in</span>
-                      {TIMER_PRESETS.map((mins) => (
+                  {dueMenuFor === item.id && (
+                    <div style={{ marginTop: '0.625rem', marginLeft: '1.8rem', padding: '0.75rem', borderRadius: '0.75rem', backgroundColor: 'var(--surface2)', border: '1px solid var(--border)' }}>
+                      <div style={{ display: 'flex', gap: '0.5rem' }}>
+                        <input
+                          className="app-input" type="date" value={dueDraft.date}
+                          onChange={(e) => setDueDraft((d) => ({ ...d, date: e.target.value }))}
+                          style={{ flex: 1, minWidth: 0, height: 'auto', padding: '0.4375rem 0.5rem', fontSize: '0.8125rem' }}
+                        />
+                        <input
+                          className="app-input" type="time" value={dueDraft.time}
+                          onChange={(e) => setDueDraft((d) => ({ ...d, time: e.target.value }))}
+                          style={{ flex: 1, minWidth: 0, height: 'auto', padding: '0.4375rem 0.5rem', fontSize: '0.8125rem' }}
+                        />
+                      </div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3125rem', marginTop: '0.5rem' }}>
+                        {QUICK_DATES.map(({ label, days }) => {
+                          const iso = isoInDays(days);
+                          const active = dueDraft.date === iso;
+                          return (
+                            <button
+                              key={label}
+                              onClick={() => setDueDraft((d) => ({ ...d, date: active ? '' : iso }))}
+                              style={{
+                                padding: '0.25rem 0.5rem', borderRadius: '0.5rem', fontSize: '0.75rem', fontWeight: '600',
+                                border: `1.5px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
+                                backgroundColor: active ? 'rgba(99,102,241,0.12)' : 'var(--surface)',
+                                color: active ? 'var(--accent-text)' : 'var(--muted)', cursor: 'pointer',
+                              }}
+                            >
+                              {label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <p style={{ fontSize: '0.6875rem', color: 'var(--subtle)', margin: '0.5rem 0 0' }}>
+                        {formatDueMoment(dueDraft.date, dueDraft.time)
+                          ? `Due ${formatDueMoment(dueDraft.date, dueDraft.time)}`
+                          : 'Pick a date and time. A time on its own means today.'}
+                      </p>
+                      <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.625rem' }}>
                         <button
-                          key={mins}
-                          onClick={() => startTimer(item.id, mins)}
-                          style={{ padding: '0.25rem 0.5rem', borderRadius: '0.5rem', fontSize: '0.75rem', fontWeight: '600', border: '1.5px solid var(--border)', backgroundColor: 'var(--surface2)', color: 'var(--muted)', cursor: 'pointer' }}
+                          onClick={() => (item.dueDate ? clearDue(item.id) : setDueMenuFor(null))}
+                          style={{ flex: 1, padding: '0.4375rem', borderRadius: '0.5rem', fontSize: '0.8125rem', fontWeight: '600', border: '1px solid var(--border)', backgroundColor: 'transparent', color: 'var(--muted)', cursor: 'pointer' }}
                         >
-                          {formatTimerDuration(mins)}
+                          {item.dueDate ? 'Clear due' : 'Cancel'}
                         </button>
-                      ))}
+                        <button
+                          onClick={() => saveDue(item.id)}
+                          style={{ flex: 1, padding: '0.4375rem', borderRadius: '0.5rem', fontSize: '0.8125rem', fontWeight: '700', border: 'none', backgroundColor: 'var(--accent)', color: '#fff', cursor: 'pointer' }}
+                        >
+                          Save
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -824,7 +877,7 @@ export default function ShoppingLists() {
   const {
     shoppingLists, addShoppingList, updateShoppingList, deleteShoppingList,
     shoppingItems, addShoppingItem, updateShoppingItem, deleteShoppingItem, toggleShoppingItem, importList,
-    startTodoTimer, cancelTodoTimer, notifPrefs,
+    notifPrefs,
   } = useApp();
 
   const [search, setSearch] = useState('');
@@ -858,8 +911,11 @@ export default function ShoppingLists() {
   const filteredActive = useMemo(() => filterLists(active), [active, typeFilter, search, shoppingItems]);
   const filteredArchived = useMemo(() => filterLists(archived), [archived, typeFilter, search]);
 
-  const groceryListsCount = active.filter((l) => (l.type || 'grocery') === 'grocery').length;
-  const todoListsCount = active.filter((l) => l.type === 'todo').length;
+  // Only worth showing the filter row once more than one kind of list exists.
+  const presentTypes = useMemo(
+    () => LIST_TYPES.filter(({ key }) => active.some((l) => (l.type || 'grocery') === key)),
+    [active]
+  );
 
   const handleEditItem = (item) => {
     const list = shoppingLists.find((l) => l.id === item.listId);
@@ -888,12 +944,10 @@ export default function ShoppingLists() {
     onExport: setExportList,
   });
 
-  const todoCardProps = (list) => ({
+  const taskCardProps = (list) => ({
     ...cardProps(list),
     onAddTodoItem: addShoppingItem,
     onUpdateItem: updateShoppingItem,
-    onStartTimer: startTodoTimer,
-    onCancelTimer: cancelTodoTimer,
   });
 
   const exportItems = exportList ? shoppingItems.filter((i) => i.listId === exportList.id) : [];
@@ -921,9 +975,9 @@ export default function ShoppingLists() {
         </div>
 
         {/* Type filter tabs */}
-        {shoppingLists.length > 0 && (groceryListsCount > 0 && todoListsCount > 0) && (
-          <div style={{ display: 'flex', gap: '0.375rem', marginBottom: '0.75rem' }}>
-            {[['all', 'All'], ['grocery', 'Grocery'], ['todo', 'To-Do']].map(([key, label]) => (
+        {presentTypes.length > 1 && (
+          <div style={{ display: 'flex', gap: '0.375rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
+            {[['all', 'All'], ...presentTypes.map((t) => [t.key, t.short])].map(([key, label]) => (
               <button
                 key={key}
                 onClick={() => setTypeFilter(key)}
@@ -958,7 +1012,7 @@ export default function ShoppingLists() {
           <div style={{ textAlign: 'center', padding: '4rem 1rem' }}>
             <ClipboardList size={48} style={{ margin: '0 auto 1rem', opacity: 0.2, color: 'var(--muted)', display: 'block' }} />
             <p style={{ fontWeight: '700', color: 'var(--text)', fontSize: '1.125rem', marginBottom: '0.5rem' }}>No lists yet</p>
-            <p style={{ fontSize: '0.9375rem', color: 'var(--muted)', marginBottom: '1.5rem' }}>Create a grocery list or to-do list to get started.</p>
+            <p style={{ fontSize: '0.9375rem', color: 'var(--muted)', marginBottom: '1.5rem' }}>Create a grocery, to-do, or work list to get started.</p>
             <button onClick={() => setShowNewList(true)} className="app-btn-primary" style={{ maxWidth: '14rem', margin: '0 auto' }}>
               <Plus size={18} /> New List
             </button>
@@ -969,8 +1023,8 @@ export default function ShoppingLists() {
               <p style={{ textAlign: 'center', padding: '2rem', color: 'var(--muted)', fontSize: '0.9375rem' }}>No lists match your filter.</p>
             ) : (
               filteredActive.map((list) =>
-                (list.type || 'grocery') === 'todo'
-                  ? <TodoListCard key={list.id} {...todoCardProps(list)} />
+                isTaskList(list.type)
+                  ? <TaskListCard key={list.id} {...taskCardProps(list)} />
                   : <GroceryListCard key={list.id} {...groceryCardProps(list)} />
               )
             )}
@@ -985,8 +1039,8 @@ export default function ShoppingLists() {
                 {showArchived && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '0.75rem', opacity: 0.7 }}>
                     {filteredArchived.map((list) =>
-                      (list.type || 'grocery') === 'todo'
-                        ? <TodoListCard key={list.id} {...todoCardProps(list)} />
+                      isTaskList(list.type)
+                        ? <TaskListCard key={list.id} {...taskCardProps(list)} />
                         : <GroceryListCard key={list.id} {...groceryCardProps(list)} />
                     )}
                   </div>
@@ -1019,14 +1073,14 @@ export default function ShoppingLists() {
           <ListForm initial={editList} onSave={(data) => { updateShoppingList(editList.id, data); setEditList(null); }} onCancel={() => setEditList(null)} />
         </Modal>
       )}
-      {editItem && editItemListType !== 'todo' && (
+      {editItem && !isTaskList(editItemListType) && (
         <Modal title="Edit Item" onClose={() => setEditItem(null)}>
           <GroceryItemForm initial={editItem} onSave={(data) => { updateShoppingItem(editItem.id, data); setEditItem(null); }} onCancel={() => setEditItem(null)} />
         </Modal>
       )}
-      {editItem && editItemListType === 'todo' && (
+      {editItem && isTaskList(editItemListType) && (
         <Modal title="Edit Task" onClose={() => setEditItem(null)}>
-          <TodoItemForm
+          <TaskItemForm
             initial={editItem}
             defaultLeadMinutes={notifPrefs?.todos?.defaultLeadMinutes ?? 0}
             onSave={(data) => { updateShoppingItem(editItem.id, data); setEditItem(null); }}

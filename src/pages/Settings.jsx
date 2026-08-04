@@ -467,7 +467,7 @@ export default function Settings() {
               )}
 
               <p style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--accent-text)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.25rem', marginTop: '1rem' }}>To-Do Lists</p>
-              <NotifRow label="Item due time reminders" sublabel="Uses the due date and time set on each to-do item" checked={!!notifPrefs.todos?.enabled} onChange={(v) => updatePref('todos', 'enabled', v)} />
+              <NotifRow label="Item due time reminders" sublabel="Uses the due date and time set on each to-do and work item" checked={!!notifPrefs.todos?.enabled} onChange={(v) => updatePref('todos', 'enabled', v)} />
               {!!notifPrefs.todos?.enabled && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.375rem 0 0 0.25rem' }}>
                   <span style={{ fontSize: '0.8125rem', color: 'var(--muted)' }}>Default lead time</span>
@@ -477,7 +477,6 @@ export default function Settings() {
                   </select>
                 </div>
               )}
-              <NotifRow label="Task timers" sublabel="Push when a countdown timer on a task runs out" checked={notifPrefs.todos?.timers !== false} onChange={(v) => updatePref('todos', 'timers', v)} />
               <NotifRow label="Morning reminder" sublabel="Push at set time if you have incomplete to-dos" checked={notifPrefs.todos?.morningEnabled !== false} onChange={(v) => updatePref('todos', 'morningEnabled', v)} />
               {notifPrefs.todos?.morningEnabled !== false && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.375rem 0 0 0.25rem' }}>
@@ -515,7 +514,7 @@ export default function Settings() {
             <span style={sectionLabelStyle}>Email Notifications</span>
           </div>
           <p style={{ fontSize: '0.8125rem', color: 'var(--muted)', marginBottom: '0.75rem' }}>
-            Also send your reminders to an inbox. You'll get an email an hour before a timed to-do is due
+            Also send your reminders to an inbox. You'll get an email an hour before a dated to-do or work task is due
             (if it isn't done yet), the day a bill is due, and for the same alerts that trigger in-app
             notifications. Works even when the app is closed and requires no browser permission.
           </p>

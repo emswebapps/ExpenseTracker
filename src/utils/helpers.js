@@ -1,3 +1,14 @@
+// ── List types ────────────────────────────────────────────────────────────
+// Grocery lists hold products — a checkbox, a quantity and a price. Task lists
+// hold things to be done: a due date and time, a status, and reminders. 'work'
+// behaves exactly like 'todo'; it's a separate bucket so work items can be
+// tracked and filtered apart from personal ones.
+export const TASK_LIST_TYPES = ['todo', 'work'];
+
+export function isTaskList(type) {
+  return TASK_LIST_TYPES.includes(type);
+}
+
 export function formatCurrency(amount) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount || 0);
 }
@@ -429,7 +440,7 @@ ${inc('budget') && budgetCategories.length ? (() => {
 })() : ''}
 
 ${inc('lists') && shoppingLists.length ? (() => {
-  const listBlocks = shoppingLists.filter((l) => l.type !== 'todo').map((list) => {
+  const listBlocks = shoppingLists.filter((l) => !isTaskList(l.type)).map((list) => {
     const items = shoppingItems.filter((i) => i.listId === list.id);
     const done = items.filter((i) => i.checked);
     const pending = items.filter((i) => !i.checked);

@@ -1,4 +1,5 @@
 const { onSchedule } = require('firebase-functions/v2/scheduler');
+const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const admin = require('firebase-admin');
 
 admin.initializeApp();
@@ -596,6 +597,65 @@ function collectTodoEmails(data, sent, now) {
 
   return out;
 }
+
+/**
+ * Send a test email to the address a user's reminders would go to.
+ *
+ * The point is to prove the whole chain before a real reminder depends on it:
+ * this resolves the recipient and enqueues through exactly the same functions
+ * the scheduled reminders use, so a test that lands means the address, the
+ * Trigger Email extension and the SMTP credentials are all good. The browser
+ * can't do this itself — Firestore rules deny clients any write to `mail`.
+ *
+ * Returns the address so the UI can say where it went, which catches the case
+ * where delivery works but the mail is going somewhere unexpected.
+ */
+exports.sendTestEmail = onCall(async (request) => {
+  const uid = request.auth && request.auth.uid;
+  if (!uid) throw new HttpsError('unauthenticated', 'Sign in to send a test email.');
+
+  const snap = await db.doc(`users/${uid}/data/app`).get();
+  const data = snap.exists ? snap.data() : {};
+
+  // resolveRecipient returns null when email is switched off, which is a
+  // different problem from having no address — say which one it is.
+  const pref = data.notifPrefs && data.notifPrefs.email;
+  if (!pref || !pref.enabled) {
+    throw new HttpsError('failed-precondition', 'Email notifications are switched off in Settings.');
+  }
+
+  const recipient = await resolveRecipient(uid, data);
+  if (!recipient) {
+    throw new HttpsError(
+      'failed-precondition',
+      'No email address to send to. Add one under Settings → Email Notifications.',
+    );
+  }
+
+  const when = new Date().toLocaleString('en-US', {
+    timeZone: (data.settings && data.settings.timeZone) || DEFAULT_TZ,
+    weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+  });
+
+  try {
+    await enqueueEmail(
+      recipient,
+      'ExpenseTracker test email',
+      'Your email notifications are working',
+      [
+        `This test was sent at ${when}.`,
+        'It travelled the same path a real reminder does: the Cloud Function queued it, '
+          + 'the Trigger Email extension delivered it, and it reached this inbox.',
+        'Bill summaries, task reminders and list reminders will arrive here.',
+      ],
+    );
+  } catch (e) {
+    console.error(`sendTestEmail: enqueue failed for ${uid}:`, e.message);
+    throw new HttpsError('internal', 'Could not queue the email. Check the Cloud Function logs.');
+  }
+
+  return { recipient };
+});
 
 exports.todoReminders = onSchedule(
   { schedule: 'every 1 minutes', timeZone: DEFAULT_TZ },

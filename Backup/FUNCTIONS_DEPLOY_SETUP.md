@@ -38,8 +38,36 @@ through the deploy.
 | **Cloud Scheduler Admin** | Both functions are scheduled, so jobs get created |
 | **Eventarc Admin** | Wiring the schedule to the function |
 | **Storage Admin** | Build staging bucket |
+| **Service Usage Admin** | Turns on any of the APIs below that aren't on yet |
 
 Click **Done**.
+
+> **Reusing the Firebase Admin SDK key instead?** Firebase Console → Project
+> settings → Service accounts → *Generate new private key* hands you a valid
+> service account key in one click, and the workflow accepts it. But that
+> account only carries the Admin SDK's own role, so you still have to grant it
+> everything in the table above under **IAM & Admin → IAM** — find
+> `firebase-adminsdk-…@billtracker-256ef.iam.gserviceaccount.com`, click the
+> pencil, and add them. Skipping this fails mid-deploy, not at the credential
+> check.
+
+## 2b. Enable the APIs the deploy touches
+
+A deploy calls several Google APIs, and an account without **Service Usage
+Admin** cannot switch them on for you — it fails with *"Permissions denied
+enabling …"* rather than enabling it and moving on. Granting that role is
+enough; turning them on by hand also works, and is quicker than another
+round trip through a failed deploy.
+
+Open each and click **Enable** (already-enabled ones say *Manage* instead):
+
+- [Cloud Scheduler](https://console.cloud.google.com/apis/library/cloudscheduler.googleapis.com?project=billtracker-256ef)
+- [Cloud Functions](https://console.cloud.google.com/apis/library/cloudfunctions.googleapis.com?project=billtracker-256ef)
+- [Cloud Build](https://console.cloud.google.com/apis/library/cloudbuild.googleapis.com?project=billtracker-256ef)
+- [Artifact Registry](https://console.cloud.google.com/apis/library/artifactregistry.googleapis.com?project=billtracker-256ef)
+- [Eventarc](https://console.cloud.google.com/apis/library/eventarc.googleapis.com?project=billtracker-256ef)
+- [Cloud Run](https://console.cloud.google.com/apis/library/run.googleapis.com?project=billtracker-256ef)
+- [Pub/Sub](https://console.cloud.google.com/apis/library/pubsub.googleapis.com?project=billtracker-256ef)
 
 ## 3. Download a key
 
@@ -89,6 +117,7 @@ wrong with the secret.
 | `key belongs to project "…"` | The service account was created in the wrong Google Cloud project |
 | `Failed to authenticate, have you run firebase login?` | The key is well-formed but Google rejected it — the key was deleted or disabled, or its service account was removed. Create a new key (steps 1–4) |
 | `Permission denied` / `caller does not have permission` | A role from step 2 is missing — the message names the service |
+| `Permissions denied enabling <api>` | The key is fine; the account can't switch that API on. Enable it from the step 2b list, or grant **Service Usage Admin** |
 | `API has not been used in project…` | Enable the named API under **APIs & Services → Library**, then re-run |
 | Billing errors | Cloud Functions need the **Blaze** plan |
 

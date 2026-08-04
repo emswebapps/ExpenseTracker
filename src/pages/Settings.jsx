@@ -6,6 +6,8 @@ import { useAuth } from '../context/AuthContext';
 import Modal from '../components/Modal';
 import { formatCurrency, exportAllData, exportAsHTML, exportJobScheduleHTML, getMonthBounds } from '../utils/helpers';
 import { notificationPermission, sendNotification, pushKeyConfigured, REMINDER_LEAD_OPTIONS } from '../utils/notifications';
+import { httpsCallable } from 'firebase/functions';
+import { functions } from '../firebase';
 
 const ALL_EXPORT_CATS = [
   { key: 'bills', label: 'Bills' },
@@ -42,6 +44,64 @@ const EMAIL_DIGEST_CATEGORIES = [
   { key: 'projects', label: 'Projects', sublabel: 'Review and due dates' },
   { key: 'workLog', label: 'Work log reminder', sublabel: 'Nudge to log your hours' },
 ];
+
+/**
+ * Sends a real test email through the same path a reminder takes — the Cloud
+ * Function queues it, the Trigger Email extension delivers it. That makes it a
+ * genuine end-to-end check of the address, the extension and the SMTP
+ * credentials, rather than a simulation, so it can be trusted before a timed
+ * reminder depends on it.
+ *
+ * The address it reports back is the one the server resolved, which is the
+ * thing worth seeing: delivery can succeed while going somewhere unexpected.
+ */
+function TestEmailButton() {
+  const [state, setState] = useState({ status: 'idle', message: '' });
+
+  const send = async () => {
+    setState({ status: 'sending', message: '' });
+    try {
+      const call = httpsCallable(functions, 'sendTestEmail');
+      const { data } = await call();
+      setState({ status: 'sent', message: `Sent to ${data.recipient}. Give it a minute, and check spam if it doesn't appear.` });
+    } catch (e) {
+      // failed-precondition is the user's own setup (email off, no address) and
+      // its message is worth showing as-is. Anything else is ours to explain.
+      const message = e.code === 'functions/failed-precondition'
+        ? e.message
+        : e.code === 'functions/not-found' || e.code === 'functions/internal'
+          ? "Couldn't reach the email function. It may not be deployed yet — see Backup/FUNCTIONS_DEPLOY_SETUP.md."
+          : e.message || 'Something went wrong sending the test.';
+      setState({ status: 'error', message });
+    }
+  };
+
+  return (
+    <div style={{ paddingTop: '0.75rem' }}>
+      <button
+        type="button"
+        onClick={send}
+        disabled={state.status === 'sending'}
+        className="app-btn-secondary"
+        style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
+          width: '100%', opacity: state.status === 'sending' ? 0.6 : 1,
+        }}
+      >
+        <Mail size={14} />
+        {state.status === 'sending' ? 'Sending…' : 'Send test email'}
+      </button>
+      <p style={{
+        fontSize: '0.75rem', marginTop: '0.375rem',
+        color: state.status === 'error' ? 'var(--danger)'
+          : state.status === 'sent' ? 'var(--accent-text)' : 'var(--subtle)',
+      }}>
+        {state.message
+          || 'Checks the whole chain end to end before a real reminder relies on it.'}
+      </p>
+    </div>
+  );
+}
 
 function NotifRow({ label, sublabel, checked, onChange }) {
   return (
@@ -574,6 +634,8 @@ export default function Settings() {
                   Leave blank to use your account email ({user?.email || 'not set'}).
                 </p>
               </div>
+
+              <TestEmailButton />
 
               <p style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--accent-text)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.25rem', marginTop: '1rem' }}>Task Due Emails</p>
               <NotifRow

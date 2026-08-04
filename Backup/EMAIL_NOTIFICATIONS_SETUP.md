@@ -151,7 +151,15 @@ No billing surprises: these all sit inside the Blaze free tier for this app.
 
 ## 5. Deploy the updated Cloud Functions
 
-The email logic lives in `functions/index.js`. Deploy it:
+The email logic lives in `functions/index.js`, and none of it exists on the
+server until it's deployed.
+
+**Preferred — from the browser.** Set up the deploy credential once, following
+`FUNCTIONS_DEPLOY_SETUP.md`, then run the **Deploy Cloud Functions** workflow
+from the repository's **Actions** tab. After that it deploys itself whenever
+`functions/` changes on `main`, and no terminal is ever needed again.
+
+**Or from a terminal**, if you'd rather not set up the credential:
 
 ```bash
 cd /path/to/ExpenseTracker/functions
@@ -159,6 +167,10 @@ npm install
 cd ..
 firebase deploy --only functions
 ```
+
+No local machine? **Google Cloud Shell** (the terminal icon in the Cloud
+console) is a browser terminal that's already signed in as you and has the
+Firebase CLI installed — the same commands work there, minus `firebase login`.
 
 Verify in **Firebase console → Functions** that `dailyNotifications` and
 `todoReminders` are listed and healthy.

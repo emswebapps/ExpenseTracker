@@ -1,0 +1,77 @@
+name: Deploy Cloud Functions
+
+# The web app deploys itself to Pages, but the reminder logic lives in Cloud
+# Functions, which used to need a local Firebase CLI. This does that deploy on
+# merge instead — and can be run by hand from the Actions tab, which is how you
+# trigger the very first deploy without pushing anything.
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'functions/**'
+      - 'firebase.json'
+      - '.firebaserc'
+      - '.github/workflows/deploy-functions.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Never let two deploys of the same functions overlap.
+concurrency:
+  group: functions-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install function dependencies
+        working-directory: functions
+        run: npm install
+
+      # A broken reminder is worse than a late one, so the unit tests gate the
+      # deploy rather than running alongside it.
+      - name: Run tests
+        working-directory: functions
+        run: npm test
+
+      - name: Check the deploy credential exists
+        env:
+          KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          if [ -z "$KEY" ]; then
+            echo "::error::Repository secret FIREBASE_SERVICE_ACCOUNT is not set."
+            echo "::error::See Backup/FUNCTIONS_DEPLOY_SETUP.md for how to create it."
+            exit 1
+          fi
+
+      - name: Write the service account key
+        env:
+          KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          printf '%s' "$KEY" > "$RUNNER_TEMP/gcp-key.json"
+
+      - name: Deploy functions
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/gcp-key.json
+        run: |
+          npx --yes firebase-tools deploy \
+            --only functions \
+            --project billtracker-256ef \
+            --non-interactive \
+            --force
+
+      # The key is a real credential — don't leave it on the runner disk even
+      # though the runner is discarded, and remove it even if the deploy failed.
+      - name: Shred the key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/gcp-key.json"

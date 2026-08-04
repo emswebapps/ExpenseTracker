@@ -4,10 +4,11 @@ import {
   Archive, ArchiveRestore, MessageSquare, Check, Store,
   ClipboardList, Bell, BellOff, CheckCircle2, Ban,
   Circle, Clipboard, Calendar, CalendarClock, Briefcase,
+  Gift, Link2, ExternalLink, User,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import Modal from '../components/Modal';
-import { isTaskList } from '../utils/helpers';
+import { isTaskList, isWishlist, safeExternalUrl, linkHost, formatCurrency } from '../utils/helpers';
 import {
   requestNotificationPermission, notificationPermission, formatDueBadge, getDueDateMs,
   REMINDER_LEAD_OPTIONS, localTodayISO, formatDueMoment,
@@ -20,6 +21,7 @@ const LIST_TYPES = [
   { key: 'grocery', short: 'Grocery', Icon: ShoppingCart },
   { key: 'todo', short: 'To-Do', Icon: ClipboardList },
   { key: 'work', short: 'Work', Icon: Briefcase },
+  { key: 'wishlist', short: 'Wishlist', Icon: Gift },
 ];
 
 const listTypeMeta = (type) => LIST_TYPES.find((t) => t.key === type) || LIST_TYPES[0];
@@ -43,11 +45,17 @@ function ListForm({ initial = {}, onSave, onCancel }) {
   const [name, setName] = useState(initial.name || '');
   const [type, setType] = useState(initial.type || 'grocery');
   const [store, setStore] = useState(initial.store || '');
+  const [forPerson, setForPerson] = useState(initial.forPerson || '');
 
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!name.trim()) return;
-    onSave({ name: name.trim(), type, store: type === 'grocery' ? (store.trim() || null) : null });
+    onSave({
+      name: name.trim(),
+      type,
+      store: type === 'grocery' ? (store.trim() || null) : null,
+      forPerson: isWishlist(type) ? (forPerson.trim() || null) : null,
+    });
   };
 
   return (
@@ -82,6 +90,12 @@ function ListForm({ initial = {}, onSave, onCancel }) {
         <div>
           <label className="app-label">Store <span style={{ color: 'var(--subtle)' }}>(optional)</span></label>
           <input className="app-input" placeholder="e.g. Walmart, Costco, Target…" value={store} onChange={(e) => setStore(e.target.value)} />
+        </div>
+      )}
+      {isWishlist(type) && (
+        <div>
+          <label className="app-label">Who it's for <span style={{ color: 'var(--subtle)' }}>(optional)</span></label>
+          <input className="app-input" placeholder="Leave blank for yourself — or a name, e.g. Mom" value={forPerson} onChange={(e) => setForPerson(e.target.value)} />
         </div>
       )}
       <div style={{ display: 'flex', gap: '0.75rem', paddingTop: '0.25rem' }}>
@@ -123,6 +137,59 @@ function GroceryItemForm({ initial = {}, onSave, onCancel }) {
       <div style={{ display: 'flex', gap: '0.75rem', paddingTop: '0.25rem' }}>
         <button type="button" onClick={onCancel} className="app-btn-secondary" style={{ flex: 1 }}>Cancel</button>
         <button type="submit" className="app-btn-primary" style={{ flex: 1 }}>Save Item</button>
+      </div>
+    </form>
+  );
+}
+
+// ── WishlistItemForm ──────────────────────────────────────────────────────────
+// A thing you'd like to buy later: what it is, roughly what it costs, and where
+// to find it again.
+function WishlistItemForm({ initial = {}, onSave, onCancel }) {
+  const [name, setName] = useState(initial.name || '');
+  const [url, setUrl] = useState(initial.url || '');
+  const [price, setPrice] = useState(initial.price != null ? String(initial.price) : '');
+  const [notes, setNotes] = useState(initial.notes || '');
+
+  const badLink = url.trim() !== '' && !safeExternalUrl(url);
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!name.trim() || badLink) return;
+    onSave({
+      name: name.trim(),
+      url: safeExternalUrl(url),
+      price: price !== '' ? parseFloat(price) : null,
+      notes: notes.trim() || null,
+    });
+  };
+
+  return (
+    <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+      <div>
+        <label className="app-label">Item *</label>
+        <input className="app-input" placeholder="e.g. Noise-cancelling headphones" value={name} onChange={(e) => setName(e.target.value)} autoFocus required />
+      </div>
+      <div>
+        <label className="app-label">Link <span style={{ color: 'var(--subtle)' }}>(optional)</span></label>
+        <input className="app-input" type="url" inputMode="url" placeholder="Paste the product page" value={url} onChange={(e) => setUrl(e.target.value)} />
+        {badLink && (
+          <p style={{ fontSize: '0.75rem', color: 'var(--danger)', marginTop: '0.375rem' }}>
+            That doesn't look like a web address.
+          </p>
+        )}
+      </div>
+      <div>
+        <label className="app-label">Price <span style={{ color: 'var(--subtle)' }}>(optional)</span></label>
+        <input className="app-input" type="number" step="0.01" min="0" placeholder="0.00" value={price} onChange={(e) => setPrice(e.target.value)} />
+      </div>
+      <div>
+        <label className="app-label">Notes <span style={{ color: 'var(--subtle)' }}>(optional)</span></label>
+        <input className="app-input" placeholder="e.g. size medium, black one" value={notes} onChange={(e) => setNotes(e.target.value)} />
+      </div>
+      <div style={{ display: 'flex', gap: '0.75rem', paddingTop: '0.25rem' }}>
+        <button type="button" onClick={onCancel} className="app-btn-secondary" style={{ flex: 1 }}>Cancel</button>
+        <button type="submit" className="app-btn-primary" style={{ flex: 1 }} disabled={badLink}>Save Item</button>
       </div>
     </form>
   );
@@ -351,7 +418,10 @@ function parseListText(raw) {
 
   const nameLower = listName.toLowerCase();
   const type =
-    (nameLower.includes('work') || nameLower.includes('shift') ||
+    (nameLower.includes('wish') || nameLower.includes('gift') ||
+      nameLower.includes('want') || nameLower.includes('birthday') ||
+      nameLower.includes('christmas')) ? 'wishlist'
+    : (nameLower.includes('work') || nameLower.includes('shift') ||
       nameLower.includes('job') || nameLower.includes('meeting')) ? 'work'
     : (nameLower.includes('to do') || nameLower.includes('todo') ||
       nameLower.includes('task') || nameLower.includes('errand')) ? 'todo'
@@ -574,6 +644,130 @@ function GroceryListCard({
           <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => setMenuOpen(false)} />
           <div style={{ position: 'absolute', right: '0.75rem', top: '3rem', zIndex: 50, backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '0.75rem', overflow: 'hidden', minWidth: '11rem', boxShadow: '0 8px 32px rgba(0,0,0,0.3)' }}>
             <button onClick={() => { onExport(list); setMenuOpen(false); }} style={MENU_BTN}><MessageSquare size={14} /> Share as text</button>
+            <button onClick={() => { onEditList(list); setMenuOpen(false); }} style={MENU_BTN}><Pencil size={14} /> Edit list</button>
+            <button onClick={() => { onArchiveList(list.id); setMenuOpen(false); }} style={MENU_BTN}>
+              {list.archived ? <ArchiveRestore size={14} /> : <Archive size={14} />}
+              {list.archived ? 'Unarchive' : 'Archive'}
+            </button>
+            <button onClick={() => { onDeleteList(list.id); setMenuOpen(false); }} style={{ ...MENU_BTN, color: 'var(--danger)' }}><Trash2 size={14} /> Delete list</button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── WishlistCard ──────────────────────────────────────────────────────────────
+function WishlistCard({
+  list, listItems,
+  onEditList, onDeleteList, onArchiveList,
+  onAddItem, onDeleteItem, onToggleItem, onEditItem,
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [quickAdd, setQuickAdd] = useState('');
+
+  const bought = listItems.filter((i) => i.checked);
+  const wanted = listItems.filter((i) => !i.checked);
+  const remaining = wanted.reduce((sum, i) => sum + (i.price ?? 0), 0);
+  const progress = listItems.length > 0 ? bought.length / listItems.length : 0;
+
+  const handleQuickAdd = () => {
+    const trimmed = quickAdd.trim();
+    if (!trimmed) return;
+    // A pasted link on its own becomes an item named after its site.
+    const asLink = safeExternalUrl(trimmed);
+    const looksLikeUrl = asLink && /^(https?:\/\/|www\.)/i.test(trimmed);
+    onAddItem({
+      listId: list.id,
+      name: looksLikeUrl ? (linkHost(trimmed) || trimmed) : trimmed,
+      url: looksLikeUrl ? asLink : null,
+      price: null, notes: null, qty: null, checked: false,
+    });
+    setQuickAdd('');
+  };
+
+  return (
+    <div style={{ position: 'relative', backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '1rem', overflow: 'hidden' }}>
+      <div style={{ padding: '1rem', cursor: 'pointer' }} onClick={() => setExpanded((v) => !v)}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '0.5rem' }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem', flexWrap: 'wrap' }}>
+              <Gift size={14} style={{ color: 'var(--accent-text)', flexShrink: 0 }} />
+              <span style={{ fontWeight: '700', fontSize: '1rem', color: 'var(--text)' }}>{list.name}</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '0.2rem', fontSize: '0.6875rem', fontWeight: 700, color: 'var(--accent-text)', backgroundColor: 'rgba(99,102,241,0.14)', padding: '0.125rem 0.4375rem', borderRadius: '0.375rem' }}>
+                <User size={10} /> {list.forPerson || 'Me'}
+              </span>
+            </div>
+            <div style={{ fontSize: '0.8125rem', color: 'var(--muted)', display: 'flex', gap: '0.625rem', flexWrap: 'wrap' }}>
+              <span>{listItems.length === 0 ? 'Nothing saved yet' : `${bought.length}/${listItems.length} bought`}</span>
+              {remaining > 0 && <span>{formatCurrency(remaining)} to go</span>}
+            </div>
+            {listItems.length > 0 && (
+              <div style={{ marginTop: '0.5rem', height: '3px', backgroundColor: 'var(--border)', borderRadius: '2px', overflow: 'hidden' }}>
+                <div style={{ height: '100%', width: `${progress * 100}%`, backgroundColor: progress === 1 ? 'var(--positive)' : 'var(--accent)', borderRadius: '2px', transition: 'width 0.3s ease' }} />
+              </div>
+            )}
+          </div>
+          <button onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v); }} style={{ flexShrink: 0, padding: '0.375rem', color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer', borderRadius: '0.5rem' }}>
+            <MoreVertical size={16} />
+          </button>
+        </div>
+      </div>
+
+      {expanded && (
+        <div style={{ borderTop: '1px solid var(--border)' }}>
+          {listItems.length === 0 ? (
+            <div style={{ padding: '1rem', textAlign: 'center', color: 'var(--subtle)', fontSize: '0.875rem' }}>
+              Nothing here yet — add something below, or paste a link.
+            </div>
+          ) : (
+            listItems.map((item) => {
+              const href = safeExternalUrl(item.url);
+              const host = linkHost(item.url);
+              return (
+                <div key={item.id} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem', padding: '0.6875rem 1rem', borderBottom: '1px solid var(--border)', opacity: item.checked ? 0.5 : 1 }}>
+                  <button onClick={() => onToggleItem(item.id)} title={item.checked ? 'Not bought after all' : 'Mark as bought'}
+                    style={{ flexShrink: 0, marginTop: '0.125rem', color: item.checked ? 'var(--positive)' : 'var(--border)', background: 'none', border: 'none', cursor: 'pointer', padding: '0.125rem', display: 'flex' }}>
+                    {item.checked ? <CheckCircle2 size={20} /> : <Circle size={20} />}
+                  </button>
+                  <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={() => onEditItem(item)}>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.375rem', flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: '0.9375rem', color: 'var(--text)', textDecoration: item.checked ? 'line-through' : 'none' }}>{item.name}</span>
+                      {item.price != null && <span style={{ fontSize: '0.8125rem', fontWeight: 700, color: 'var(--accent-text)' }}>{formatCurrency(item.price)}</span>}
+                    </div>
+                    {item.notes && <p style={{ fontSize: '0.8125rem', color: 'var(--subtle)', margin: '0.125rem 0 0' }}>{item.notes}</p>}
+                    {host && <p style={{ fontSize: '0.75rem', color: 'var(--subtle)', margin: '0.125rem 0 0', display: 'flex', alignItems: 'center', gap: '0.25rem' }}><Link2 size={10} /> {host}</p>}
+                  </div>
+                  {href && (
+                    <a href={href} target="_blank" rel="noopener noreferrer" title="Open link"
+                      onClick={(e) => e.stopPropagation()}
+                      style={{ flexShrink: 0, color: 'var(--accent-text)', padding: '0.375rem', display: 'flex', borderRadius: '0.5rem' }}>
+                      <ExternalLink size={15} />
+                    </a>
+                  )}
+                  <button onClick={() => onDeleteItem(item.id)} style={{ flexShrink: 0, color: 'var(--subtle)', background: 'none', border: 'none', cursor: 'pointer', padding: '0.375rem', display: 'flex' }}>
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              );
+            })
+          )}
+          <div style={{ padding: '0.75rem 1rem', display: 'flex', gap: '0.5rem' }}>
+            <input className="app-input" style={{ flex: 1 }} placeholder="Add an item or paste a link…" value={quickAdd}
+              onChange={(e) => setQuickAdd(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleQuickAdd()} />
+            <button onClick={handleQuickAdd} disabled={!quickAdd.trim()}
+              style={{ flexShrink: 0, padding: '0 1rem', borderRadius: '0.75rem', height: '2.75rem', backgroundColor: quickAdd.trim() ? 'var(--accent)' : 'var(--surface2)', color: quickAdd.trim() ? '#fff' : 'var(--subtle)', border: 'none', cursor: quickAdd.trim() ? 'pointer' : 'default', display: 'flex', alignItems: 'center', gap: '0.25rem', fontWeight: '600', fontSize: '0.875rem' }}>
+              <Plus size={16} /> Add
+            </button>
+          </div>
+        </div>
+      )}
+
+      {menuOpen && (
+        <>
+          <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => setMenuOpen(false)} />
+          <div style={{ position: 'absolute', right: '0.75rem', top: '3rem', zIndex: 50, backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '0.75rem', overflow: 'hidden', minWidth: '11rem', boxShadow: '0 8px 32px rgba(0,0,0,0.3)' }}>
             <button onClick={() => { onEditList(list); setMenuOpen(false); }} style={MENU_BTN}><Pencil size={14} /> Edit list</button>
             <button onClick={() => { onArchiveList(list.id); setMenuOpen(false); }} style={MENU_BTN}>
               {list.archived ? <ArchiveRestore size={14} /> : <Archive size={14} />}
@@ -950,6 +1144,18 @@ export default function ShoppingLists() {
     onUpdateItem: updateShoppingItem,
   });
 
+  const wishlistCardProps = (list) => ({
+    ...cardProps(list),
+    onAddItem: addShoppingItem,
+    onToggleItem: toggleShoppingItem,
+  });
+
+  const renderCard = (list) => {
+    if (isTaskList(list.type)) return <TaskListCard key={list.id} {...taskCardProps(list)} />;
+    if (isWishlist(list.type)) return <WishlistCard key={list.id} {...wishlistCardProps(list)} />;
+    return <GroceryListCard key={list.id} {...groceryCardProps(list)} />;
+  };
+
   const exportItems = exportList ? shoppingItems.filter((i) => i.listId === exportList.id) : [];
 
   return (
@@ -1012,7 +1218,7 @@ export default function ShoppingLists() {
           <div style={{ textAlign: 'center', padding: '4rem 1rem' }}>
             <ClipboardList size={48} style={{ margin: '0 auto 1rem', opacity: 0.2, color: 'var(--muted)', display: 'block' }} />
             <p style={{ fontWeight: '700', color: 'var(--text)', fontSize: '1.125rem', marginBottom: '0.5rem' }}>No lists yet</p>
-            <p style={{ fontSize: '0.9375rem', color: 'var(--muted)', marginBottom: '1.5rem' }}>Create a grocery, to-do, or work list to get started.</p>
+            <p style={{ fontSize: '0.9375rem', color: 'var(--muted)', marginBottom: '1.5rem' }}>Create a grocery, to-do, work, or wish list to get started.</p>
             <button onClick={() => setShowNewList(true)} className="app-btn-primary" style={{ maxWidth: '14rem', margin: '0 auto' }}>
               <Plus size={18} /> New List
             </button>
@@ -1022,11 +1228,7 @@ export default function ShoppingLists() {
             {filteredActive.length === 0 && (search || typeFilter !== 'all') ? (
               <p style={{ textAlign: 'center', padding: '2rem', color: 'var(--muted)', fontSize: '0.9375rem' }}>No lists match your filter.</p>
             ) : (
-              filteredActive.map((list) =>
-                isTaskList(list.type)
-                  ? <TaskListCard key={list.id} {...taskCardProps(list)} />
-                  : <GroceryListCard key={list.id} {...groceryCardProps(list)} />
-              )
+              filteredActive.map(renderCard)
             )}
 
             {archived.length > 0 && (
@@ -1038,11 +1240,7 @@ export default function ShoppingLists() {
                 </button>
                 {showArchived && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '0.75rem', opacity: 0.7 }}>
-                    {filteredArchived.map((list) =>
-                      isTaskList(list.type)
-                        ? <TaskListCard key={list.id} {...taskCardProps(list)} />
-                        : <GroceryListCard key={list.id} {...groceryCardProps(list)} />
-                    )}
+                    {filteredArchived.map(renderCard)}
                   </div>
                 )}
               </div>
@@ -1073,9 +1271,14 @@ export default function ShoppingLists() {
           <ListForm initial={editList} onSave={(data) => { updateShoppingList(editList.id, data); setEditList(null); }} onCancel={() => setEditList(null)} />
         </Modal>
       )}
-      {editItem && !isTaskList(editItemListType) && (
+      {editItem && !isTaskList(editItemListType) && !isWishlist(editItemListType) && (
         <Modal title="Edit Item" onClose={() => setEditItem(null)}>
           <GroceryItemForm initial={editItem} onSave={(data) => { updateShoppingItem(editItem.id, data); setEditItem(null); }} onCancel={() => setEditItem(null)} />
+        </Modal>
+      )}
+      {editItem && isWishlist(editItemListType) && (
+        <Modal title="Edit Item" onClose={() => setEditItem(null)}>
+          <WishlistItemForm initial={editItem} onSave={(data) => { updateShoppingItem(editItem.id, data); setEditItem(null); }} onCancel={() => setEditItem(null)} />
         </Modal>
       )}
       {editItem && isTaskList(editItemListType) && (

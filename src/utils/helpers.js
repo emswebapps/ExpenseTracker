@@ -9,6 +9,39 @@ export function isTaskList(type) {
   return TASK_LIST_TYPES.includes(type);
 }
 
+/** Wishlists hold things to buy later — priced and linkable, not yet bought. */
+export function isWishlist(type) {
+  return type === 'wishlist';
+}
+
+/**
+ * A link safe to hand to an <a href>. Bare hosts get https://, and anything
+ * that isn't http(s) — javascript:, data: — is rejected outright, since these
+ * URLs are typed by hand and pasted from anywhere.
+ */
+export function safeExternalUrl(raw) {
+  const trimmed = String(raw || '').trim();
+  if (!trimmed) return null;
+  const withScheme = /^[a-z][a-z0-9+.-]*:/i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  try {
+    const url = new URL(withScheme);
+    return (url.protocol === 'http:' || url.protocol === 'https:') ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
+/** "amazon.com" — the bit of a link worth showing on a crowded row. */
+export function linkHost(raw) {
+  const safe = safeExternalUrl(raw);
+  if (!safe) return null;
+  try {
+    return new URL(safe).hostname.replace(/^www\./, '');
+  } catch {
+    return null;
+  }
+}
+
 export function formatCurrency(amount) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount || 0);
 }

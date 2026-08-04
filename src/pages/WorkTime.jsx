@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import {
   Briefcase, Clock, ChevronLeft, ChevronRight, Plus, Pencil, Trash2,
-  MoreVertical, Check, Calculator, Save, Info, Share2,
+  MoreVertical, Check, Calculator, Save, Info, Share2, Copy,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { formatCurrency, monthKey } from '../utils/helpers';
@@ -540,7 +540,7 @@ function PayBreakdown({ result }) {
 
 // ── Shift Calendar View ───────────────────────────────────────────────────────
 
-function ShiftCalendarView({ jobs, shifts, onAddShift, onEditShift, onDeleteShift }) {
+function ShiftCalendarView({ jobs, shifts, onAddShift, onEditShift, onDeleteShift, onCopyShift }) {
   const now = new Date();
   const [calYear, setCalYear] = useState(now.getFullYear());
   const [calMonth, setCalMonth] = useState(now.getMonth());
@@ -671,6 +671,7 @@ function ShiftCalendarView({ jobs, shifts, onAddShift, onEditShift, onDeleteShif
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
                     <span style={{ fontSize: '0.875rem', fontWeight: 700, color: 'var(--accent-text)', marginRight: '0.25rem' }}>{sh.hoursWorked}h</span>
+                    {onCopyShift && <button onClick={() => onCopyShift(sh)} title="Copy to other days" style={{ padding: '0.25rem', color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer', borderRadius: '0.375rem' }}><Copy size={13} /></button>}
                     {onEditShift && <button onClick={() => onEditShift(sh)} style={{ padding: '0.25rem', color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer', borderRadius: '0.375rem' }}><Pencil size={13} /></button>}
                     {onDeleteShift && <button onClick={() => onDeleteShift(sh.id)} style={{ padding: '0.25rem', color: 'var(--danger)', background: 'none', border: 'none', cursor: 'pointer', borderRadius: '0.375rem' }}><Trash2 size={13} /></button>}
                   </div>
@@ -879,6 +880,216 @@ function JobCard({ job, onEdit, onDelete, shifts, onAddShift }) {
   );
 }
 
+// ── Repeat Shift Form ─────────────────────────────────────────────────────────
+// Takes one already-logged shift and stamps a copy of it onto whichever days
+// you pick. Everything about the shift carries over — times, hours, location,
+// OT exemption, reminder, notes — so a repeating rota is a few taps.
+
+/** "YYYY-MM-DD" for a Date, in local time (toISOString would shift the day). */
+function toISO(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function RepeatShiftForm({ source, jobs, shifts, onSave, onCancel }) {
+  const [selected, setSelected] = useState(() => new Set());
+  const [{ year, month }, setCursor] = useState(() => {
+    const d = new Date(source.date + 'T12:00:00');
+    return { year: d.getFullYear(), month: d.getMonth() };
+  });
+
+  const job = jobs.find((j) => j.id === source.jobId);
+  const grid = useMemo(() => getCalendarGrid(year, month), [year, month]);
+  const monthDates = useMemo(() => grid.filter((g) => g.cur).map((g) => toISO(g.date)), [grid]);
+
+  // Days that already hold a shift for this job — picking one replaces it.
+  const takenByJob = useMemo(() => {
+    const map = {};
+    for (const s of shifts) {
+      if (s.jobId === source.jobId && s.id !== source.id) map[s.date] = s.id;
+    }
+    return map;
+  }, [shifts, source.jobId, source.id]);
+
+  const toggle = (ds) => setSelected((prev) => {
+    const next = new Set(prev);
+    if (next.has(ds)) next.delete(ds); else next.add(ds);
+    return next;
+  });
+
+  const addDates = (list) => setSelected((prev) => {
+    const next = new Set(prev);
+    // Tapping a set that's already fully chosen clears it again.
+    const allOn = list.length > 0 && list.every((d) => next.has(d));
+    list.forEach((d) => (allOn ? next.delete(d) : next.add(d)));
+    return next;
+  });
+
+  const nextNDays = (n) => addDates(
+    Array.from({ length: n }, (_, i) => addDays(source.date, i + 1))
+  );
+
+  const everyDow = (dow) => addDates(
+    monthDates.filter((ds) => new Date(ds + 'T12:00:00').getDay() === dow && ds !== source.date)
+  );
+
+  const navMonth = (dir) => setCursor(({ year: y, month: m }) => {
+    const d = new Date(y, m + dir, 1);
+    return { year: d.getFullYear(), month: d.getMonth() };
+  });
+
+  const chosen = [...selected].sort();
+  const replacing = chosen.filter((d) => takenByJob[d]).length;
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (chosen.length === 0) return;
+    onSave(chosen.map((date) => ({
+      date,
+      jobId: source.jobId,
+      hoursWorked: source.hoursWorked,
+      startTime: source.startTime || '',
+      endTime: source.endTime || '',
+      location: source.location || null,
+      otExempt: !!source.otExempt,
+      notes: source.notes || '',
+      notificationEnabled: !!source.notificationEnabled,
+      notificationOffsetMinutes: source.notificationOffsetMinutes || 30,
+      // Overwrite whatever this job already had on the day, rather than
+      // stacking a second shift on top of it.
+      existingId: takenByJob[date] || null,
+    })));
+  };
+
+  const chipStyle = (active) => ({
+    padding: '0.375rem 0.625rem', borderRadius: '0.625rem', fontSize: '0.75rem', fontWeight: 600,
+    cursor: 'pointer', border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
+    backgroundColor: active ? 'var(--accent-soft)' : 'var(--surface2)',
+    color: active ? 'var(--accent-text)' : 'var(--muted)',
+  });
+
+  return (
+    <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+      {/* What's being copied */}
+      <div style={{ backgroundColor: 'var(--accent-soft)', border: '1px solid var(--accent)', borderRadius: '0.875rem', padding: '0.75rem 0.875rem' }}>
+        <p style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--accent-text)', fontWeight: 700, marginBottom: '0.25rem' }}>
+          Copying
+        </p>
+        <p style={{ fontSize: '0.9375rem', fontWeight: 700, color: 'var(--text)' }}>
+          {job?.name || 'Shift'} · {source.hoursWorked}h
+        </p>
+        <p style={{ fontSize: '0.8125rem', color: 'var(--muted)', marginTop: '0.125rem' }}>
+          {fmt(source.date)}
+          {source.startTime && source.endTime ? ` · ${source.startTime}–${source.endTime}` : ''}
+          {source.location ? ` · ${source.location}` : ''}
+          {source.otExempt ? ' · OT exempt' : ''}
+        </p>
+      </div>
+
+      {/* Quick picks */}
+      <div>
+        <Label>Quick pick</Label>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.375rem' }}>
+          <button type="button" style={chipStyle(false)} onClick={() => nextNDays(6)}>Next 6 days</button>
+          <button type="button" style={chipStyle(false)} onClick={() => nextNDays(13)}>Next 2 weeks</button>
+          <button
+            type="button"
+            style={chipStyle(false)}
+            onClick={() => addDates(monthDates.filter((ds) => {
+              const dow = new Date(ds + 'T12:00:00').getDay();
+              return dow >= 1 && dow <= 5 && ds !== source.date;
+            }))}
+          >
+            Weekdays this month
+          </button>
+        </div>
+        <div style={{ display: 'flex', gap: '0.25rem', marginTop: '0.5rem' }}>
+          {DOW_LABELS.map((lbl, dow) => (
+            <button key={lbl} type="button" onClick={() => everyDow(dow)}
+              title={`Every ${lbl} in ${new Date(year, month, 1).toLocaleDateString('en-US', { month: 'long' })}`}
+              style={{ ...chipStyle(false), flex: 1, padding: '0.375rem 0' }}>
+              {lbl[0]}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Month grid */}
+      <div style={{ border: '1px solid var(--border)', borderRadius: '0.875rem', padding: '0.625rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+          <button type="button" onClick={() => navMonth(-1)} style={{ padding: '0.25rem', background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer' }}><ChevronLeft size={18} /></button>
+          <p style={{ fontSize: '0.875rem', fontWeight: 700, color: 'var(--text)' }}>
+            {new Date(year, month, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+          </p>
+          <button type="button" onClick={() => navMonth(1)} style={{ padding: '0.25rem', background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer' }}><ChevronRight size={18} /></button>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '0.125rem', marginBottom: '0.25rem' }}>
+          {DOW_LABELS.map((l) => (
+            <p key={l} style={{ fontSize: '0.6rem', textAlign: 'center', color: 'var(--subtle)', fontWeight: 700 }}>{l[0]}</p>
+          ))}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '0.125rem' }}>
+          {grid.map(({ date, cur }, i) => {
+            const ds = toISO(date);
+            const isSource = ds === source.date;
+            const isOn = selected.has(ds);
+            const taken = !!takenByJob[ds];
+            return (
+              <button
+                key={i}
+                type="button"
+                disabled={!cur || isSource}
+                onClick={() => toggle(ds)}
+                title={taken ? 'Already has a shift — will be replaced' : undefined}
+                style={{
+                  aspectRatio: '1', borderRadius: '0.5rem', fontSize: '0.8125rem', fontWeight: isOn ? 700 : 500,
+                  cursor: !cur || isSource ? 'default' : 'pointer', position: 'relative',
+                  border: `1px solid ${isOn ? 'var(--accent)' : isSource ? 'var(--accent)' : 'transparent'}`,
+                  backgroundColor: isOn ? 'var(--accent)' : isSource ? 'var(--accent-soft)' : 'transparent',
+                  color: isOn ? '#fff' : !cur ? 'var(--border2)' : isSource ? 'var(--accent-text)' : 'var(--text)',
+                  opacity: cur ? 1 : 0.35,
+                }}
+              >
+                {date.getDate()}
+                {taken && !isOn && cur && (
+                  <span style={{ position: 'absolute', bottom: '3px', left: '50%', transform: 'translateX(-50%)', width: '4px', height: '4px', borderRadius: '9999px', backgroundColor: 'var(--warn)' }} />
+                )}
+              </button>
+            );
+          })}
+        </div>
+        <p style={{ fontSize: '0.7rem', color: 'var(--subtle)', textAlign: 'center', marginTop: '0.5rem' }}>
+          Tap days to copy this shift onto. The original day is locked.
+        </p>
+      </div>
+
+      {chosen.length > 0 && (
+        <div style={{ backgroundColor: 'var(--surface2)', borderRadius: '0.75rem', padding: '0.625rem 0.75rem' }}>
+          <p style={{ fontSize: '0.8125rem', color: 'var(--text)', fontWeight: 600 }}>
+            {chosen.length} day{chosen.length !== 1 ? 's' : ''} selected · {(chosen.length * source.hoursWorked).toFixed(2).replace(/\.00$/, '')}h total
+          </p>
+          {replacing > 0 && (
+            <p style={{ fontSize: '0.75rem', color: 'var(--warn)', marginTop: '0.25rem' }}>
+              {replacing} already {replacing === 1 ? 'has a' : 'have'} shift for this job and will be replaced.
+            </p>
+          )}
+          <button type="button" onClick={() => setSelected(new Set())}
+            style={{ marginTop: '0.375rem', fontSize: '0.75rem', color: 'var(--muted)', background: 'none', border: 'none', padding: 0, cursor: 'pointer', textDecoration: 'underline' }}>
+            Clear selection
+          </button>
+        </div>
+      )}
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', paddingTop: '0.25rem' }}>
+        <button type="button" onClick={onCancel} className="app-btn-secondary">Cancel</button>
+        <button type="submit" className="app-btn-primary" disabled={chosen.length === 0}>
+          <Copy size={15} />
+          {chosen.length === 0 ? 'Pick days' : `Copy to ${chosen.length} day${chosen.length !== 1 ? 's' : ''}`}
+        </button>
+      </div>
+    </form>
+  );
+}
+
 // ── Bulk Shift Form ───────────────────────────────────────────────────────────
 
 function BulkShiftForm({ jobs, shifts, onSave, onCancel }) {
@@ -935,6 +1146,28 @@ function BulkShiftForm({ jobs, shifts, onSave, onCancel }) {
 
   const filledCount = dates.filter((d) => rows[d]?.hours && parseFloat(rows[d].hours) > 0).length;
 
+  // ── Quick fill ──
+  // Typing the same number into fourteen boxes is the slow part of bulk entry.
+  const [fillHours, setFillHours] = useState('');
+  const applyFill = (which) => {
+    const value = fillHours || String(job?.normalShiftHours || 8);
+    setRows((r) => {
+      const next = { ...r };
+      for (const d of dates) {
+        const dow = new Date(d + 'T12:00:00').getDay();
+        if (which === 'weekdays' && (dow === 0 || dow === 6)) continue;
+        if (which === 'empty' && next[d]?.hours) continue;
+        next[d] = { ...next[d], hours: value };
+      }
+      return next;
+    });
+  };
+  const clearAll = () => setRows((r) => {
+    const next = { ...r };
+    for (const d of dates) next[d] = { ...next[d], hours: '' };
+    return next;
+  });
+
   const handleSubmit = (e) => {
     e.preventDefault();
     const toSave = dates
@@ -988,6 +1221,28 @@ function BulkShiftForm({ jobs, shifts, onSave, onCancel }) {
           {range.start && range.end ? periodLabel(range.start, range.end) : ''}
         </p>
       </div>
+
+      {dates.length > 0 && (
+        <div style={{ backgroundColor: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '0.875rem', padding: '0.625rem 0.75rem' }}>
+          <Label>Fill every day with</Label>
+          <div style={{ display: 'flex', gap: '0.375rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            <input
+              type="number" min="0" max="24" step="0.25"
+              placeholder={String(job?.normalShiftHours || 8)}
+              value={fillHours}
+              onChange={(e) => setFillHours(e.target.value)}
+              style={{ width: '4.5rem', textAlign: 'center', padding: '0.375rem 0.25rem', borderRadius: '0.5rem', border: '1px solid var(--border)', backgroundColor: 'var(--surface)', color: 'var(--text)', fontSize: '0.875rem', fontWeight: 700 }}
+            />
+            <span style={{ fontSize: '0.8125rem', color: 'var(--subtle)' }}>h on</span>
+            <button type="button" onClick={() => applyFill('weekdays')} className="app-btn-secondary" style={{ padding: '0.375rem 0.625rem', fontSize: '0.75rem', width: 'auto' }}>Mon–Fri</button>
+            <button type="button" onClick={() => applyFill('all')} className="app-btn-secondary" style={{ padding: '0.375rem 0.625rem', fontSize: '0.75rem', width: 'auto' }}>Every day</button>
+            <button type="button" onClick={() => applyFill('empty')} className="app-btn-secondary" style={{ padding: '0.375rem 0.625rem', fontSize: '0.75rem', width: 'auto' }}>Blanks only</button>
+            {filledCount > 0 && (
+              <button type="button" onClick={clearAll} style={{ fontSize: '0.75rem', color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>Clear</button>
+            )}
+          </div>
+        </div>
+      )}
 
       {dates.length > 0 && (
         <div style={{ border: '1px solid var(--border)', borderRadius: '0.875rem', overflow: 'hidden' }}>
@@ -1085,6 +1340,7 @@ function HoursTab({ jobs, shifts, addShift, updateShift, deleteShift, bulkSaveSh
   const [showShiftForm, setShowShiftForm] = useState(false);
   const [showBulkForm, setShowBulkForm] = useState(false);
   const [editShift, setEditShift] = useState(null);
+  const [repeatShift, setRepeatShift] = useState(null);
   const [calView, setCalView] = useState(true);
   const [periodOffset, setPeriodOffset] = useState(0);
   const previousLocations = useMemo(() => {
@@ -1146,6 +1402,7 @@ function HoursTab({ jobs, shifts, addShift, updateShift, deleteShift, bulkSaveSh
             onAddShift={(date) => { setLogDate(date); setShowShiftForm(true); }}
             onEditShift={setEditShift}
             onDeleteShift={deleteShift}
+            onCopyShift={setRepeatShift}
           />
           {/* Pay period earnings summary */}
           {(() => {
@@ -1272,6 +1529,7 @@ function HoursTab({ jobs, shifts, addShift, updateShift, deleteShift, bulkSaveSh
 </p>
             </div>
             <div style={{ display: 'flex', gap: '0.25rem' }}>
+              <button onClick={() => setRepeatShift(sh)} title="Copy to other days" style={{ padding: '0.375rem', color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer', borderRadius: '0.5rem' }}><Copy size={15} /></button>
               <button onClick={() => setEditShift(sh)} style={{ padding: '0.375rem', color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer', borderRadius: '0.5rem' }}><Pencil size={15} /></button>
               <button onClick={() => deleteShift(sh.id)} style={{ padding: '0.375rem', color: 'var(--danger)', background: 'none', border: 'none', cursor: 'pointer', borderRadius: '0.5rem' }}><Trash2 size={15} /></button>
             </div>
@@ -1340,6 +1598,7 @@ function HoursTab({ jobs, shifts, addShift, updateShift, deleteShift, bulkSaveSh
 </p>
                   </div>
                   <div style={{ display: 'flex', gap: '0.25rem' }}>
+                    <button onClick={() => setRepeatShift(sh)} title="Copy to other days" style={{ padding: '0.375rem', color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer' }}><Copy size={14} /></button>
                     <button onClick={() => setEditShift(sh)} style={{ padding: '0.375rem', color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer' }}><Pencil size={14} /></button>
                     <button onClick={() => deleteShift(sh.id)} style={{ padding: '0.375rem', color: 'var(--danger)', background: 'none', border: 'none', cursor: 'pointer' }}><Trash2 size={14} /></button>
                   </div>
@@ -1378,6 +1637,17 @@ function HoursTab({ jobs, shifts, addShift, updateShift, deleteShift, bulkSaveSh
           <ShiftForm initial={editShift} jobs={jobs} previousLocations={previousLocations}
             onSave={(d) => { updateShift(editShift.id, d); setEditShift(null); }}
             onCancel={() => setEditShift(null)} />
+        </Modal>
+      )}
+      {repeatShift && (
+        <Modal title="Copy Shift to Other Days" onClose={() => setRepeatShift(null)}>
+          <RepeatShiftForm
+            source={repeatShift}
+            jobs={jobs}
+            shifts={shifts}
+            onSave={(entries) => { bulkSaveShifts(entries); setRepeatShift(null); }}
+            onCancel={() => setRepeatShift(null)}
+          />
         </Modal>
       )}
     </div>

@@ -392,15 +392,28 @@ export function AppProvider({ children, uid }) {
   }, [shifts, persistShifts]);
   const bulkSaveShifts = useCallback((entries) => {
     let updated = [...shifts];
+    const touched = [];
     for (const { existingId, ...data } of entries) {
       if (existingId) {
-        updated = updated.map((s) => s.id === existingId ? { ...s, ...data } : s);
+        const merged = { ...updated.find((s) => s.id === existingId), ...data };
+        updated = updated.map((s) => s.id === existingId ? merged : s);
+        touched.push(merged);
       } else {
-        updated = [{ ...data, id: generateId(), createdAt: new Date().toISOString() }, ...updated];
+        const created = { ...data, id: generateId(), createdAt: new Date().toISOString() };
+        updated = [created, ...updated];
+        touched.push(created);
       }
     }
     persistShifts(updated);
-  }, [shifts, persistShifts]);
+    // Copied shifts can carry a reminder, so they need scheduling the same way
+    // a singly-added one does.
+    for (const sh of touched) {
+      cancelShiftNotification(sh.id);
+      if (sh.notificationEnabled) {
+        scheduleShiftNotification(sh, jobs.find((j) => j.id === sh.jobId));
+      }
+    }
+  }, [shifts, jobs, persistShifts]);
 
   // ── Planned Expenses ──
   const addPlannedExpense = useCallback((pe) => persistPlannedExpenses([...plannedExpenses, { ...pe, id: generateId(), status: 'planned', createdAt: new Date().toISOString() }]), [plannedExpenses, persistPlannedExpenses]);

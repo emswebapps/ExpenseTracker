@@ -2,7 +2,7 @@
 
 This guide turns on **email notifications** using Firebase's official
 **Trigger Email from Firestore** extension, sending through your **IONOS**
-mailbox (`notifications@emslearn.org`).
+mailbox (`eliascaldwell@emslearn.org`).
 
 Once configured, the app emails you:
 
@@ -48,7 +48,7 @@ Cloud Function  ──writes──▶  Firestore `mail` collection  ──▶  T
 
 - **Firebase Blaze (pay‑as‑you‑go) plan** — required for Cloud Functions and for
   installing extensions. The free tiers are generous; this app's volume is tiny.
-- Access to the **IONOS mailbox** `notifications@emslearn.org` and its password.
+- Access to the **IONOS mailbox** `eliascaldwell@emslearn.org` and its password.
 - Firebase project: **`billtracker-256ef`** (the live project).
 
 ---
@@ -63,25 +63,33 @@ Use these values wherever an SMTP server is requested.
 | Port (recommended) | `465` (implicit SSL/TLS)                           |
 | Alt. port          | `587` (STARTTLS)                                    |
 | Security           | SSL/TLS on 465, STARTTLS on 587                    |
-| Username           | `notifications@emslearn.org` (the **full** address)|
+| Username           | `eliascaldwell@emslearn.org` (the **full** address)|
 | Password           | your IONOS mailbox password                        |
-| From address       | `notifications@emslearn.org`                       |
+| From address       | `eliascaldwell@emslearn.org`                       |
 
 > IONOS requires the **From** address to match the authenticated mailbox, so
-> keep the default From as `notifications@emslearn.org`. Our code does not set a
-> custom From — it relies on the extension's default.
+> keep the default From as `eliascaldwell@emslearn.org`. Our code does not set a
+> custom From — it relies on the extension's default. That's also why changing
+> the sending mailbox means changing three things together: the URI username,
+> the password secret, and the Default FROM.
+
+> **Sender vs recipient.** This whole section is about the mailbox reminders are
+> sent *from* — the "from" line in your inbox. Where they *arrive* is a separate
+> setting inside the app (**Settings → Email Notifications → Send emails to**),
+> and it can be any address at all. The two don't have to match, and changing
+> where mail lands never requires touching Firebase.
 
 **SMTP connection URI** (note the `@` in the username is URL‑encoded as `%40`):
 
 ```
-smtps://notifications%40emslearn.org@smtp.ionos.com:465
+smtps://eliascaldwell%40emslearn.org@smtp.ionos.com:465
 ```
 
 Leave the password **out** of the URI — you'll supply it as a separate secret
 (next step). If you prefer STARTTLS on port 587 instead, use:
 
 ```
-smtp://notifications%40emslearn.org@smtp.ionos.com:587
+smtp://eliascaldwell%40emslearn.org@smtp.ionos.com:587
 ```
 
 ---
@@ -95,11 +103,11 @@ smtp://notifications%40emslearn.org@smtp.ionos.com:587
 
 | Parameter                              | Value                                                   |
 |----------------------------------------|---------------------------------------------------------|
-| **SMTP connection URI**                | `smtps://notifications%40emslearn.org@smtp.ionos.com:465` |
+| **SMTP connection URI**                | `smtps://eliascaldwell%40emslearn.org@smtp.ionos.com:465` |
 | **SMTP password** (secret)             | your IONOS mailbox password                             |
 | **Email documents collection**         | `mail`                                                   |
-| **Default FROM address**               | `notifications@emslearn.org`                             |
-| **Default REPLY‑TO address** (optional)| `notifications@emslearn.org`                             |
+| **Default FROM address**               | `eliascaldwell@emslearn.org`                             |
+| **Default REPLY‑TO address** (optional)| `eliascaldwell@emslearn.org`                             |
 | **Users collection** (optional)        | *leave blank*                                            |
 | **Templates collection** (optional)    | *leave blank*                                            |
 | Cloud Functions location               | same region as Firestore (`us‑central1`)                |
@@ -234,7 +242,7 @@ explains why.
 | Symptom                                  | Fix                                                                 |
 |------------------------------------------|---------------------------------------------------------------------|
 | `delivery.state = ERROR`, auth failed    | Check the SMTP password secret and that the username is the full address |
-| `ERROR`, "from address not allowed"      | Default FROM must be `notifications@emslearn.org` (the IONOS mailbox) |
+| `ERROR`, "from address not allowed"      | Default FROM must be `eliascaldwell@emslearn.org` (the IONOS mailbox) |
 | Connection timeout                       | Try port `587` with the `smtp://…:587` URI (STARTTLS)               |
 | No `delivery` field ever appears         | Collection name mismatch — extension and code must both use `mail`  |
 | No emails from the functions             | Confirm email is toggled on in Settings and a recipient resolves     |
@@ -252,9 +260,9 @@ Extension:        Trigger Email from Firestore (firebase/firestore-send-email)
 Mail collection:  mail
 SMTP host:        smtp.ionos.com
 SMTP port:        465 (SSL)  |  587 (STARTTLS)
-SMTP user:        notifications@emslearn.org
-Default FROM:     notifications@emslearn.org
-Connection URI:   smtps://notifications%40emslearn.org@smtp.ionos.com:465
+SMTP user:        eliascaldwell@emslearn.org
+Default FROM:     eliascaldwell@emslearn.org
+Connection URI:   smtps://eliascaldwell%40emslearn.org@smtp.ionos.com:465
 Functions:        dailyNotifications (digest, every 15 min, per-user send time)
                   todoReminders (task due emails, every minute)
 Toggle:           Settings → Email Notifications

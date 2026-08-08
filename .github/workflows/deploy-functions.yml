@@ -69,6 +69,16 @@ jobs:
           node .github/scripts/validate-service-account.mjs \
             "$RUNNER_TEMP/gcp-key.json" billtracker-256ef
 
+      # The key can be perfectly valid and the deploy still fail, because a role
+      # is missing or an API the deploy needs is switched off. Those surface
+      # deep into the deploy, phrased as whichever Google service noticed
+      # first. Ask Google up front instead, so the log names every missing
+      # piece at once — with the link to fix each — before anything is built.
+      - name: Preflight the project
+        run: |
+          node .github/scripts/preflight-deploy.mjs \
+            "$RUNNER_TEMP/gcp-key.json" billtracker-256ef
+
       # --debug so that a failure Google *does* reject (revoked key, missing
       # role, disabled API) prints its real cause instead of the same vague
       # line. It does not log the auth header, so the credential stays out of

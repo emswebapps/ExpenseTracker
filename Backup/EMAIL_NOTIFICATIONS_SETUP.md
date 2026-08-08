@@ -223,6 +223,32 @@ let anyone queue outbound email.)
 
 ## 8. Test & troubleshoot
 
+### Nothing is arriving — which half is broken?
+
+Email needs two independent pieces, installed in two different places. Either
+one missing means silence, and the symptom is identical, so find out which half
+you have before changing anything:
+
+1. **The sender** — the Cloud Functions (`dailyNotifications`, `todoReminders`,
+   `sendTestEmail`) that write documents into the `mail` collection.
+   Check: **Firebase console → Functions**. If those three are not listed, they
+   are not deployed, and no reminder can ever be queued. Fix it in
+   `FUNCTIONS_DEPLOY_SETUP.md` — and check the **Deploy Cloud Functions** run in
+   the repo's Actions tab, because a red run there is the usual reason they are
+   missing.
+2. **The deliverer** — the Trigger Email extension, which watches `mail` and
+   sends over SMTP. Check: **Firebase console → Extensions**.
+
+The quick test below isolates the deliverer on its own: it puts a document in
+`mail` by hand, so it passes whenever the extension works — *even when no
+function is deployed*. That is the point of it. A passing manual test plus no
+reminders means the sender is the missing half.
+
+The **Send test email** button in Settings → Email Notifications tests the whole
+chain instead, because it goes through the deployed function. If it reports that
+it couldn't reach the function, that is the sender half being absent, stated
+plainly.
+
 **Quick end‑to‑end test** — in the Firestore console, manually add a document to
 the `mail` collection:
 
@@ -245,6 +271,7 @@ explains why.
 | `ERROR`, "from address not allowed"      | Default FROM must be `eliascaldwell@emslearn.org` (the IONOS mailbox) |
 | Connection timeout                       | Try port `587` with the `smtp://…:587` URI (STARTTLS)               |
 | No `delivery` field ever appears         | Collection name mismatch — extension and code must both use `mail`  |
+| Manual `mail` doc sends, but reminders never do | The functions aren't deployed — see "which half is broken?" above |
 | No emails from the functions             | Confirm email is toggled on in Settings and a recipient resolves     |
 | To‑do email never arrives                | It only sends while the item is still **pending** an hour before due |
 

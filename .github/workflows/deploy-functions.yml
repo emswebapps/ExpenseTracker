@@ -14,6 +14,9 @@ on:
       - 'firebase.json'
       - '.firebaserc'
       - '.github/workflows/deploy-functions.yml'
+      # The checks that gate this deploy live here, so a change to one of them
+      # is a change to the deploy and should re-run it.
+      - '.github/scripts/**'
   workflow_dispatch:
 
 permissions:

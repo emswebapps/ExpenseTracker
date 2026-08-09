@@ -104,9 +104,24 @@ After this, any change to the reminder logic deploys itself on merge to `main`.
 
 ## If the deploy fails
 
-The workflow checks the key before it deploys, so most credential problems are
-named outright in the log. Read the first `::error::` line — it says what is
-wrong with the secret.
+The workflow checks two things before it deploys anything, so most failures are
+named outright at the top of the log. Read the first `::error::` line.
+
+- **The key itself** — shape, project, whether the private key loads. Catches a
+  bad paste without a network call.
+- **The project** — a *Preflight the project* step asks Google which of the APIs
+  above are switched on and which of the roles in step 2 the account actually
+  holds. It prints an `ok`/`X` line per item and, when something is missing,
+  the link to fix it. This runs before the source is built, so a project that
+  isn't ready fails in seconds with a list rather than part-way through a deploy
+  with one service's complaint.
+
+  A disabled API is only fatal when the account also lacks **Service Usage
+  Admin**; with that role the deploy switches the API on itself, and the
+  preflight says so instead of failing.
+
+If the preflight can't reach Google it warns and lets the deploy proceed — it
+will never be the reason a working deploy is blocked.
 
 | Error | Fix |
 |-------|-----|

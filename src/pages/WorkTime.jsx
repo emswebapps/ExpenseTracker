@@ -31,6 +31,14 @@ function periodLabel(start, end) {
   return `${s.toLocaleDateString('en-US', opts)} – ${e.toLocaleDateString('en-US', { ...opts, year: 'numeric' })}`;
 }
 
+/** How far a pay period sits from the one we're in right now, in words. */
+function periodOffsetLabel(offset) {
+  if (offset === 0) return 'Current pay period';
+  if (offset === 1) return 'Next pay period';
+  if (offset === -1) return 'Last pay period';
+  return offset > 0 ? `${offset} periods ahead` : `${Math.abs(offset)} periods back`;
+}
+
 function getLastNDaysEnd(n) {
   const end = today();
   const start = addDays(end, -(n - 1));
@@ -328,8 +336,14 @@ const NOTIF_OFFSETS = [
   { label: '2 hours before', value: '120' },
 ];
 
-function ShiftForm({ initial = {}, jobs, onSave, onCancel, previousLocations = [] }) {
-  const [form, setForm] = useState({
+// A shift that has already been saved comes back with nulls in it — an empty
+// location is stored as null — and a null lands in a controlled input as
+// "uncontrolled", then blows up on submit when we call .trim() on it. That
+// threw before onSave ever ran, which is why editing logged hours silently
+// refused to save. Everything the form binds to gets coerced to a string here.
+function shiftFormState(initial, jobs) {
+  const { id, jobName, createdAt, ...rest } = initial || {};
+  const f = {
     date: today(),
     jobId: jobs[0]?.id || '',
     hoursWorked: '',
@@ -340,10 +354,29 @@ function ShiftForm({ initial = {}, jobs, onSave, onCancel, previousLocations = [
     notificationOffsetMinutes: '30',
     notes: '',
     otExempt: false,
-    ...initial,
-  });
+    ...rest,
+  };
+  return {
+    ...f,
+    date: f.date || today(),
+    jobId: f.jobId || jobs[0]?.id || '',
+    hoursWorked: f.hoursWorked == null ? '' : String(f.hoursWorked),
+    startTime: f.startTime || '',
+    endTime: f.endTime || '',
+    location: f.location || '',
+    notes: f.notes || '',
+    notificationOffsetMinutes: String(f.notificationOffsetMinutes || '30'),
+    notificationEnabled: !!f.notificationEnabled,
+    otExempt: !!f.otExempt,
+  };
+}
+
+function ShiftForm({ initial = {}, jobs, onSave, onCancel, previousLocations = [] }) {
+  const [form, setForm] = useState(() => shiftFormState(initial, jobs));
+  const [error, setError] = useState('');
 
   const set = (k, v) => setForm((f) => {
+    setError('');
     const next = { ...f, [k]: v };
     if (k === 'startTime' || k === 'endTime') {
       const s = k === 'startTime' ? v : f.startTime;
@@ -363,12 +396,17 @@ function ShiftForm({ initial = {}, jobs, onSave, onCancel, previousLocations = [
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (!form.jobId || !form.hoursWorked) return;
+    const hours = parseFloat(form.hoursWorked);
+    if (!form.jobId) { setError('Pick a job for this shift.'); return; }
+    if (!Number.isFinite(hours) || hours <= 0) { setError('Enter the hours you worked.'); return; }
+    if (hours > 72) { setError('That is over 72 hours — check the number.'); return; }
+    setError('');
     onSave({
       ...form,
-      hoursWorked: parseFloat(form.hoursWorked),
-      location: form.location.trim() || null,
-      notificationOffsetMinutes: parseInt(form.notificationOffsetMinutes) || 30,
+      hoursWorked: hours,
+      location: (form.location || '').trim() || null,
+      notes: (form.notes || '').trim(),
+      notificationOffsetMinutes: parseInt(form.notificationOffsetMinutes, 10) || 30,
     });
   };
 
@@ -405,8 +443,8 @@ function ShiftForm({ initial = {}, jobs, onSave, onCancel, previousLocations = [
           {selectedJob && <span style={{ color: 'var(--subtle)', marginLeft: '0.25rem', fontSize: '0.75rem' }}>(normal: {selectedJob.normalShiftHours}h)</span>}
           {form.startTime && form.endTime && <span style={{ color: 'var(--accent-text)', marginLeft: '0.25rem', fontSize: '0.75rem' }}>auto-calculated</span>}
         </Label>
-        <Input type="number" min="0" max="72" step="0.25" placeholder="8.0" value={form.hoursWorked}
-          onChange={(e) => set('hoursWorked', e.target.value)} required
+        <Input type="number" min="0" max="72" step="any" inputMode="decimal" placeholder="8.0" value={form.hoursWorked}
+          onChange={(e) => set('hoursWorked', e.target.value)}
           style={{ fontSize: '1.5rem', textAlign: 'center', fontWeight: '700' }} />
       </div>
 
@@ -466,6 +504,12 @@ function ShiftForm({ initial = {}, jobs, onSave, onCancel, previousLocations = [
         <Input placeholder="e.g. PTO, covered a shift, short day" value={form.notes}
           onChange={(e) => set('notes', e.target.value)} />
       </div>
+
+      {error && (
+        <p style={{ fontSize: '0.8125rem', color: 'var(--danger)', backgroundColor: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '0.625rem', padding: '0.625rem 0.75rem', fontWeight: 600 }}>
+          {error}
+        </p>
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', paddingTop: '0.5rem' }}>
         <button type="button" onClick={onCancel} className="app-btn-secondary">Cancel</button>
@@ -1092,34 +1136,46 @@ function RepeatShiftForm({ source, jobs, shifts, onSave, onCancel }) {
 
 // ── Bulk Shift Form ───────────────────────────────────────────────────────────
 
-function BulkShiftForm({ jobs, shifts, onSave, onCancel }) {
-  const [jobId, setJobId] = useState(jobs[0]?.id || '');
-  const [preset, setPreset] = useState('current');
+function BulkShiftForm({ jobs, shifts, onSave, onCancel, initialJobId = null, initialPeriodOffset = 0 }) {
+  const [jobId, setJobId] = useState(
+    (initialJobId && jobs.some((j) => j.id === initialJobId) ? initialJobId : jobs[0]?.id) || ''
+  );
+  const startJob = jobs.find((j) => j.id === jobId);
+  const [preset, setPreset] = useState(startJob?.payPeriodStartDate ? 'period' : '14d');
+  // Which pay period we're filling in: 0 = current, -1 = last, +1 = next, …
+  const [periodOffset, setPeriodOffset] = useState(initialPeriodOffset);
   const [range, setRange] = useState(() => {
-    const j = jobs[0];
-    if (j) { const pp = getPayPeriodBounds(j); if (pp) return pp.current; }
-    return getLastNDaysEnd(14);
+    const p = startJob && getPayPeriodAtOffset(startJob, initialPeriodOffset);
+    return p || getLastNDaysEnd(14);
   });
   const [rows, setRows] = useState({});
 
   const job = jobs.find((j) => j.id === jobId);
-  const payPeriods = job ? getPayPeriodBounds(job) : null;
+  const hasCycle = !!job?.payPeriodStartDate;
 
   const PRESETS = [
-    ...(payPeriods
-      ? [{ label: 'Current Period', key: 'current' }, { label: 'Prev Period', key: 'previous' }]
+    ...(hasCycle
+      ? [{ label: 'Pay Period', key: 'period' }]
       : [{ label: 'Last 7 days', key: '7d' }, { label: 'Last 14 days', key: '14d' }]),
     { label: 'This Week', key: 'week' },
     { label: 'Custom', key: 'custom' },
   ];
 
+  // Switching to a job with no pay cycle leaves the period preset with nothing
+  // to resolve against, so fall back to a plain date window.
   useEffect(() => {
-    if (preset === 'current' && payPeriods) setRange(payPeriods.current);
-    else if (preset === 'previous' && payPeriods) setRange(payPeriods.previous);
+    if (preset === 'period' && !hasCycle) setPreset('14d');
+  }, [preset, hasCycle]);
+
+  useEffect(() => {
+    if (preset === 'period') {
+      const p = job && getPayPeriodAtOffset(job, periodOffset);
+      if (p) setRange(p);
+    }
     else if (preset === '7d') setRange(getLastNDaysEnd(7));
     else if (preset === '14d') setRange(getLastNDaysEnd(14));
     else if (preset === 'week') setRange(getThisWeekRange());
-  }, [preset, jobId]);
+  }, [preset, jobId, periodOffset]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const dates = useMemo(() => {
     if (!range.start || !range.end) return [];
@@ -1144,7 +1200,10 @@ function BulkShiftForm({ jobs, shifts, onSave, onCancel }) {
 
   const setRow = (date, key, val) => setRows((r) => ({ ...r, [date]: { ...r[date], [key]: val } }));
 
-  const filledCount = dates.filter((d) => rows[d]?.hours && parseFloat(rows[d].hours) > 0).length;
+  const filledDates = dates.filter((d) => rows[d]?.hours && parseFloat(rows[d].hours) > 0);
+  const filledCount = filledDates.length;
+  const existingCount = filledDates.filter((d) => rows[d]?.existingId).length;
+  const totalHours = Math.round(filledDates.reduce((s, d) => s + parseFloat(rows[d].hours), 0) * 100) / 100;
 
   // ── Quick fill ──
   // Typing the same number into fourteen boxes is the slow part of bulk entry.
@@ -1195,7 +1254,7 @@ function BulkShiftForm({ jobs, shifts, onSave, onCancel }) {
 
       <div>
         <Label>Pay Period</Label>
-        {payPeriods && (
+        {hasCycle && (
           <p style={{ fontSize: '0.7rem', color: 'var(--positive-text)', fontWeight: 600, marginBottom: '0.375rem' }}>
             Auto-calculated from saved pay cycle
           </p>
@@ -1211,6 +1270,25 @@ function BulkShiftForm({ jobs, shifts, onSave, onCancel }) {
             </button>
           ))}
         </div>
+        {preset === 'period' && hasCycle && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+            <button type="button" onClick={() => setPeriodOffset((o) => o - 1)} aria-label="Previous pay period"
+              style={{ padding: '0.375rem', borderRadius: '0.625rem', color: 'var(--muted)', background: 'none', border: '1px solid var(--border)', cursor: 'pointer' }}>
+              <ChevronLeft size={16} />
+            </button>
+            <button type="button" onClick={() => setPeriodOffset(0)} disabled={periodOffset === 0}
+              title={periodOffset === 0 ? undefined : 'Back to the current pay period'}
+              style={{ flex: 1, fontSize: '0.8125rem', fontWeight: 700, textAlign: 'center', background: 'none', border: 'none', padding: '0.25rem',
+                color: periodOffset === 0 ? 'var(--positive-text)' : 'var(--accent-text)',
+                cursor: periodOffset === 0 ? 'default' : 'pointer' }}>
+              {periodOffsetLabel(periodOffset)}
+            </button>
+            <button type="button" onClick={() => setPeriodOffset((o) => o + 1)} aria-label="Next pay period"
+              style={{ padding: '0.375rem', borderRadius: '0.625rem', color: 'var(--muted)', background: 'none', border: '1px solid var(--border)', cursor: 'pointer' }}>
+              <ChevronRight size={16} />
+            </button>
+          </div>
+        )}
         {preset === 'custom' && (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginBottom: '0.5rem' }}>
             <div><Label>Start</Label><Input type="date" value={range.start} onChange={(e) => setRange((r) => ({ ...r, start: e.target.value }))} /></div>
@@ -1282,10 +1360,20 @@ function BulkShiftForm({ jobs, shifts, onSave, onCancel }) {
         </div>
       )}
 
+      {filledCount > 0 && (
+        <div style={{ backgroundColor: 'var(--surface2)', borderRadius: '0.75rem', padding: '0.625rem 0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontSize: '0.8125rem', color: 'var(--muted)' }}>
+            {filledCount} day{filledCount !== 1 ? 's' : ''}
+            {existingCount > 0 ? ` · ${existingCount} already logged` : ''}
+          </span>
+          <span style={{ fontSize: '0.9375rem', fontWeight: 800, color: 'var(--text)' }}>{totalHours}h</span>
+        </div>
+      )}
+
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', paddingTop: '0.25rem' }}>
         <button type="button" onClick={onCancel} className="app-btn-secondary">Cancel</button>
         <button type="submit" className="app-btn-primary" disabled={filledCount === 0}>
-          <Plus size={15} /> Log {filledCount > 0 ? `${filledCount} Shift${filledCount !== 1 ? 's' : ''}` : 'Shifts'}
+          <Plus size={15} /> Save {filledCount > 0 ? `${filledCount} Day${filledCount !== 1 ? 's' : ''}` : 'Shifts'}
         </button>
       </div>
     </form>
@@ -1338,7 +1426,8 @@ function ActualPayPrompt({ jobId, periodStart, periodEnd, onSave }) {
 function HoursTab({ jobs, shifts, addShift, updateShift, deleteShift, bulkSaveShifts, paycheckActuals, addPaycheckActual }) {
   const [logDate, setLogDate] = useState(today());
   const [showShiftForm, setShowShiftForm] = useState(false);
-  const [showBulkForm, setShowBulkForm] = useState(false);
+  // null = closed; otherwise { jobId, periodOffset } to open the bulk sheet on.
+  const [bulkSeed, setBulkSeed] = useState(null);
   const [editShift, setEditShift] = useState(null);
   const [repeatShift, setRepeatShift] = useState(null);
   const [calView, setCalView] = useState(true);
@@ -1404,6 +1493,17 @@ function HoursTab({ jobs, shifts, addShift, updateShift, deleteShift, bulkSaveSh
             onDeleteShift={deleteShift}
             onCopyShift={setRepeatShift}
           />
+
+          {/* Same entry points the list view has — the calendar had no way in. */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginTop: '0.875rem' }}>
+            <button onClick={() => { setLogDate(today()); setShowShiftForm(true); }} className="app-btn-primary">
+              <Plus size={16} /> Log Shift
+            </button>
+            <button onClick={() => setBulkSeed({ jobId: null, periodOffset: 0 })} className="app-btn-secondary">
+              <Plus size={16} /> Bulk Log
+            </button>
+          </div>
+
           {/* Pay period earnings summary */}
           {(() => {
             const summaries = jobs.map((job) => {
@@ -1411,8 +1511,6 @@ function HoursTab({ jobs, shifts, addShift, updateShift, deleteShift, bulkSaveSh
               if (!period) return null;
               const { start, end } = period;
               const periodShifts = shifts.filter((s) => s.jobId === job.id && s.date >= start && s.date <= end);
-              // Preserve existing behavior: hide current-period jobs with no shifts logged
-              if (periodOffset === 0 && periodShifts.length === 0) return null;
               const hasShifts = periodShifts.length > 0;
               const { regularHours, overtimeHours } = hasShifts ? calcHoursFromShifts(periodShifts, job) : { regularHours: 0, overtimeHours: 0 };
               const result = hasShifts ? calcPaycheck({ job, regularHours, overtimeHours }) : null;
@@ -1420,7 +1518,10 @@ function HoursTab({ jobs, shifts, addShift, updateShift, deleteShift, bulkSaveSh
               return { job, result, start, end, actual, hasShifts };
             }).filter(Boolean);
             if (summaries.length === 0) return null;
+            // Nothing logged anywhere yet — the estimate block has nothing to say.
+            if (shifts.length === 0) return null;
             const isCurrentPeriod = periodOffset === 0;
+            const isFuture = periodOffset > 0;
             return (
               <div style={{ marginTop: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', padding: '0 0.125rem' }}>
@@ -1431,14 +1532,22 @@ function HoursTab({ jobs, shifts, addShift, updateShift, deleteShift, bulkSaveSh
                   >
                     <ChevronLeft size={15} />
                   </button>
-                  <p style={{ flex: 1, textAlign: 'center', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--subtle)' }}>
-                    {isCurrentPeriod ? 'Current Pay Period Estimate' : 'Pay Period Estimate'}
-                  </p>
+                  {/* Tapping the label snaps back to the period we're actually in. */}
+                  <button
+                    onClick={() => setPeriodOffset(0)}
+                    disabled={isCurrentPeriod}
+                    title={isCurrentPeriod ? undefined : 'Back to the current pay period'}
+                    style={{ flex: 1, textAlign: 'center', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.08em', background: 'none', border: 'none', padding: '0.25rem',
+                      color: isCurrentPeriod ? 'var(--subtle)' : 'var(--accent-text)',
+                      fontWeight: isCurrentPeriod ? 400 : 700,
+                      cursor: isCurrentPeriod ? 'default' : 'pointer' }}
+                  >
+                    {periodOffsetLabel(periodOffset)} Estimate
+                  </button>
                   <button
                     onClick={() => setPeriodOffset((o) => o + 1)}
                     aria-label="Next pay period"
-                    disabled={periodOffset >= 0}
-                    style={{ padding: '0.25rem', borderRadius: '0.5rem', color: periodOffset >= 0 ? 'var(--border)' : 'var(--muted)', background: 'none', border: 'none', cursor: periodOffset >= 0 ? 'default' : 'pointer', flexShrink: 0 }}
+                    style={{ padding: '0.25rem', borderRadius: '0.5rem', color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer', flexShrink: 0 }}
                   >
                     <ChevronRight size={15} />
                   </button>
@@ -1447,9 +1556,16 @@ function HoursTab({ jobs, shifts, addShift, updateShift, deleteShift, bulkSaveSh
                   const delta = actual && result ? actual.amount - result.netPay : null;
                   return (
                     <div key={job.id} style={{ backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '0.875rem', padding: '0.875rem' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.625rem' }}>
-                        <span style={{ fontSize: '0.875rem', fontWeight: 700, color: 'var(--text)' }}>{job.name}</span>
-                        <span style={{ fontSize: '0.6875rem', color: 'var(--subtle)' }}>{periodLabel(start, end)}</span>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.625rem', gap: '0.5rem' }}>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', minWidth: 0 }}>
+                          <span style={{ fontSize: '0.875rem', fontWeight: 700, color: 'var(--text)' }}>{job.name}</span>
+                          {isFuture && (
+                            <span style={{ fontSize: '0.6rem', fontWeight: 700, color: 'var(--accent-text)', backgroundColor: 'var(--accent-soft)', padding: '0.125rem 0.375rem', borderRadius: '0.375rem', whiteSpace: 'nowrap' }}>
+                              Upcoming
+                            </span>
+                          )}
+                        </span>
+                        <span style={{ fontSize: '0.6875rem', color: 'var(--subtle)', whiteSpace: 'nowrap' }}>{periodLabel(start, end)}</span>
                       </div>
                       {hasShifts ? (
                         <>
@@ -1482,7 +1598,7 @@ function HoursTab({ jobs, shifts, addShift, updateShift, deleteShift, bulkSaveSh
                                 </p>
                               </div>
                             </div>
-                          ) : addPaycheckActual && isCurrentPeriod ? (
+                          ) : addPaycheckActual && !isFuture ? (
                             <ActualPayPrompt jobId={job.id} periodStart={start} periodEnd={end} onSave={addPaycheckActual} />
                           ) : null}
                         </>
@@ -1491,6 +1607,13 @@ function HoursTab({ jobs, shifts, addShift, updateShift, deleteShift, bulkSaveSh
                           No shifts logged for this period
                         </p>
                       )}
+                      {/* Fill this exact period in one pass, whichever way you've scrolled. */}
+                      <button
+                        onClick={() => setBulkSeed({ jobId: job.id, periodOffset })}
+                        style={{ marginTop: '0.5rem', width: '100%', padding: '0.5rem', borderRadius: '0.625rem', border: '1px dashed var(--border)', backgroundColor: 'transparent', color: 'var(--muted)', fontSize: '0.8125rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.375rem' }}
+                      >
+                        <Plus size={13} /> {hasShifts ? 'Add or edit hours for this period' : 'Bulk add shifts for this period'}
+                      </button>
                     </div>
                   );
                 })}
@@ -1573,7 +1696,7 @@ function HoursTab({ jobs, shifts, addShift, updateShift, deleteShift, bulkSaveSh
         <button onClick={() => setShowShiftForm(true)} className="app-btn-primary">
           <Plus size={16} /> Log Shift
         </button>
-        <button onClick={() => setShowBulkForm(true)} className="app-btn-secondary">
+        <button onClick={() => setBulkSeed({ jobId: null, periodOffset: 0 })} className="app-btn-secondary">
           <Plus size={16} /> Bulk Log
         </button>
       </div>
@@ -1619,16 +1742,18 @@ function HoursTab({ jobs, shifts, addShift, updateShift, deleteShift, bulkSaveSh
             onCancel={() => setShowShiftForm(false)} />
         </Modal>
       )}
-      {showBulkForm && (
-        <Modal title="Bulk Log Shifts" onClose={() => setShowBulkForm(false)}>
+      {bulkSeed && (
+        <Modal title="Bulk Log Shifts" onClose={() => setBulkSeed(null)}>
           <BulkShiftForm
             jobs={jobs}
             shifts={shifts}
+            initialJobId={bulkSeed.jobId}
+            initialPeriodOffset={bulkSeed.periodOffset}
             onSave={(entries) => {
               bulkSaveShifts(entries);
-              setShowBulkForm(false);
+              setBulkSeed(null);
             }}
-            onCancel={() => setShowBulkForm(false)}
+            onCancel={() => setBulkSeed(null)}
           />
         </Modal>
       )}
@@ -1820,9 +1945,13 @@ function EstimateTab({ jobs, shifts, addIncome }) {
               style={{ padding: '0.375rem', borderRadius: '0.625rem', color: 'var(--muted)', background: 'none', border: '1px solid var(--border)', cursor: 'pointer' }}>
               <ChevronLeft size={16} />
             </button>
-            <p style={{ flex: 1, fontSize: '0.75rem', color: 'var(--positive-text)', fontWeight: '600', textAlign: 'center' }}>
-              {periodOffset === 0 ? 'Current pay period' : periodOffset > 0 ? `+${periodOffset} period${periodOffset !== 1 ? 's' : ''}` : `${periodOffset} period${periodOffset !== -1 ? 's' : ''}`}
-            </p>
+            <button type="button" onClick={() => { setPeriodOffset(0); setSaved(false); }} disabled={periodOffset === 0}
+              title={periodOffset === 0 ? undefined : 'Back to the current pay period'}
+              style={{ flex: 1, fontSize: '0.75rem', fontWeight: '600', textAlign: 'center', background: 'none', border: 'none', padding: '0.25rem',
+                color: periodOffset === 0 ? 'var(--positive-text)' : 'var(--accent-text)',
+                cursor: periodOffset === 0 ? 'default' : 'pointer' }}>
+              {periodOffsetLabel(periodOffset)}
+            </button>
             <button type="button" onClick={() => { setPeriodOffset((o) => o + 1); setSaved(false); }}
               style={{ padding: '0.375rem', borderRadius: '0.625rem', color: 'var(--muted)', background: 'none', border: '1px solid var(--border)', cursor: 'pointer' }}>
               <ChevronRight size={16} />

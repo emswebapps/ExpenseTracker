@@ -1,7 +1,9 @@
 import { useState, useMemo } from 'react';
-import { Search, X, ShoppingBag, Receipt, TrendingUp, NotebookPen, CreditCard } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Search, X, ShoppingBag, Receipt, TrendingUp, NotebookPen, CreditCard, ClipboardList } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { formatCurrency, formatDate } from '../utils/helpers';
+import { formatCurrency, formatDate, isTaskList } from '../utils/helpers';
+import { formatDueMoment } from '../utils/dueDates';
 
 const TYPE_ICON = {
   purchase: ShoppingBag,
@@ -9,6 +11,7 @@ const TYPE_ICON = {
   income: TrendingUp,
   note: NotebookPen,
   debt: CreditCard,
+  task: ClipboardList,
 };
 
 const TYPE_COLOR = {
@@ -17,6 +20,7 @@ const TYPE_COLOR = {
   income: 'var(--positive-text)',
   note: 'var(--muted)',
   debt: 'var(--danger)',
+  task: 'var(--accent-text)',
 };
 
 const TYPE_LABEL = {
@@ -25,11 +29,13 @@ const TYPE_LABEL = {
   income: 'Income',
   note: 'Note',
   debt: 'Debt',
+  task: 'Task',
 };
 
 export default function SearchPage() {
-  const { purchases, bills, income, notes, debts, settings } = useApp();
+  const { purchases, bills, income, notes, debts, settings, shoppingLists, shoppingItems } = useApp();
   const [q, setQ] = useState('');
+  const navigate = useNavigate();
 
   const results = useMemo(() => {
     const query = q.trim().toLowerCase();
@@ -66,8 +72,26 @@ export default function SearchPage() {
       }
     });
 
+    // Tasks live on to-do and work lists; the sub-line says which list and when
+    // it's due, and the hit opens that list.
+    const taskLists = new Map(
+      shoppingLists.filter((l) => isTaskList(l.type)).map((l) => [l.id, l])
+    );
+    shoppingItems.forEach((i) => {
+      const list = taskLists.get(i.listId);
+      if (!list) return;
+      if (![i.name, i.notes, i.address].some((s) => s?.toLowerCase().includes(query))) return;
+      const due = formatDueMoment(i.dueDate, i.dueTime);
+      hits.push({
+        type: 'task', id: i.id, title: i.name,
+        sub: [list.name, due, i.status === 'done' ? 'done' : null].filter(Boolean).join(' · '),
+        to: `/lists?list=${list.id}`,
+        dim: i.status === 'done',
+      });
+    });
+
     return hits.slice(0, 50);
-  }, [q, purchases, bills, income, notes, debts]);
+  }, [q, purchases, bills, income, notes, debts, shoppingLists, shoppingItems]);
 
   return (
     <div style={{ paddingBottom: '7rem', backgroundColor: 'var(--bg)', minHeight: '100svh' }}>
@@ -80,7 +104,7 @@ export default function SearchPage() {
             autoFocus
             className="app-input"
             style={{ paddingLeft: '2.5rem', paddingRight: q ? '2.5rem' : '0.875rem' }}
-            placeholder="Bills, spending, income, notes…"
+            placeholder="Bills, spending, income, tasks, notes…"
             value={q}
             onChange={(e) => setQ(e.target.value)}
           />
@@ -97,7 +121,7 @@ export default function SearchPage() {
           <div style={{ textAlign: 'center', padding: '4rem 1rem' }}>
             <Search size={48} style={{ margin: '0 auto 1rem', opacity: 0.15, color: 'var(--muted)', display: 'block' }} />
             <p style={{ fontWeight: 700, color: 'var(--text)', fontSize: '1.125rem', marginBottom: '0.5rem' }}>Search everything</p>
-            <p style={{ fontSize: '0.9375rem', color: 'var(--muted)' }}>Bills, spending, income, notes, and debts</p>
+            <p style={{ fontSize: '0.9375rem', color: 'var(--muted)' }}>Bills, spending, income, tasks, notes, and debts</p>
           </div>
         )}
 
@@ -115,10 +139,16 @@ export default function SearchPage() {
               {results.map((r, i) => {
                 const Icon = TYPE_ICON[r.type];
                 return (
-                  <div key={`${r.type}-${r.id}`} style={{
-                    display: 'flex', alignItems: 'center', gap: '0.875rem', padding: '0.875rem 1rem',
-                    borderBottom: i < results.length - 1 ? '1px solid var(--border)' : 'none',
-                  }}>
+                  <div
+                    key={`${r.type}-${r.id}`}
+                    onClick={r.to ? () => navigate(r.to) : undefined}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '0.875rem', padding: '0.875rem 1rem',
+                      borderBottom: i < results.length - 1 ? '1px solid var(--border)' : 'none',
+                      cursor: r.to ? 'pointer' : 'default',
+                      opacity: r.dim ? 0.55 : 1,
+                    }}
+                  >
                     <div style={{ width: '2rem', height: '2rem', borderRadius: '0.625rem', backgroundColor: 'var(--surface2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                       <Icon size={15} style={{ color: TYPE_COLOR[r.type] }} />
                     </div>

@@ -11,8 +11,9 @@ export function GroceryListCard({
   list, listItems,
   onEditList, onDeleteList, onArchiveList,
   onAddItem, onAddItems, onDeleteItem, onToggleItem, onEditItem, onExport,
+  defaultExpanded = false,
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(defaultExpanded);
   const [menuOpen, setMenuOpen] = useState(false);
   const [quickAdd, setQuickAdd] = useState('');
 

@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Plus, X, Archive, ClipboardList, Clipboard } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
@@ -29,6 +30,9 @@ export default function ShoppingLists() {
     notifPrefs,
   } = useApp();
   const { user } = useAuth();
+  // A search hit links to /lists?list=<id>; that list opens on arrival.
+  const [searchParams] = useSearchParams();
+  const focusListId = searchParams.get('list');
 
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
@@ -145,6 +149,7 @@ export default function ShoppingLists() {
 
   const cardProps = (list) => ({
     list,
+    defaultExpanded: list.id === focusListId,
     listItems: shoppingItems.filter((i) => i.listId === list.id),
     onEditList: setEditList,
     onDeleteList: handleDeleteList,

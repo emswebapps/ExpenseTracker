@@ -18,8 +18,9 @@ export function TaskListCard({
   onEditList, onDeleteList, onArchiveList,
   onAddTodoItem, onAddTodoItems, onDeleteItem, onUpdateItem, onEditItem, onExport,
   onOpenAttachment, onToggleStatus, onSetBlocked, onAddTaskDetailed,
+  defaultExpanded = false,
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(defaultExpanded);
   const [menuOpen, setMenuOpen] = useState(false);
   const [quickAdd, setQuickAdd] = useState('');
 

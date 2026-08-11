@@ -4,11 +4,18 @@ import {
   Archive, ArchiveRestore, MessageSquare, Check, Store,
   ClipboardList, Bell, BellOff, CheckCircle2, Ban,
   Circle, Clipboard, Calendar, CalendarClock, Briefcase,
-  Gift, Link2, ExternalLink, User,
+  Gift, Link2, ExternalLink, User, MapPin, Paperclip,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { useAuth } from '../context/AuthContext';
 import Modal from '../components/Modal';
-import { isTaskList, isWishlist, safeExternalUrl, linkHost, formatCurrency } from '../utils/helpers';
+import PhotoUpload from '../components/PhotoUpload';
+import ImageLightbox from '../components/ImageLightbox';
+import { deleteFile, fileCategory } from '../utils/storageUtils';
+import {
+  isTaskList, isWishlist, safeExternalUrl, linkHost, formatCurrency,
+  mapsHref, mapsAppName,
+} from '../utils/helpers';
 import {
   requestNotificationPermission, notificationPermission, formatDueBadge, getDueDateMs,
   REMINDER_LEAD_OPTIONS, localTodayISO, formatDueMoment,
@@ -381,10 +388,19 @@ function WishlistItemForm({ initial = {}, onSave, onCancel }) {
 // ── TaskItemForm ──────────────────────────────────────────────────────────────
 // Used by both to-do and work lists. A task is due at an absolute moment — a
 // date and a clock time — never a countdown.
-function TaskItemForm({ initial = {}, defaultLeadMinutes = 0, onSave, onCancel }) {
+function TaskItemForm({
+  initial = {}, defaultLeadMinutes = 0, onSave, onCancel,
+  storagePath, attachments = [], onAttachmentsChange, onOpenAttachment,
+}) {
   const [name, setName] = useState(initial.name || '');
   const [notes, setNotes] = useState(initial.notes || '');
+  const [address, setAddress] = useState(initial.address || '');
   const due = useDueReminder(initial, defaultLeadMinutes);
+
+  // Photos are saved to the task the moment they finish uploading, so the
+  // section only makes sense once the task exists to hang them off.
+  const canAttach = !!storagePath;
+  const addressLink = mapsHref(address);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -392,6 +408,7 @@ function TaskItemForm({ initial = {}, defaultLeadMinutes = 0, onSave, onCancel }
     onSave({
       name: name.trim(),
       notes: notes.trim() || null,
+      address: address.trim() || null,
       ...due.dueFields(),
       status: initial.status || 'pending',
     });
@@ -407,6 +424,46 @@ function TaskItemForm({ initial = {}, defaultLeadMinutes = 0, onSave, onCancel }
         <label className="app-label">Notes <span style={{ color: 'var(--subtle)' }}>(optional)</span></label>
         <input className="app-input" placeholder="Additional details…" value={notes} onChange={(e) => setNotes(e.target.value)} />
       </div>
+      <div>
+        <label className="app-label">Address <span style={{ color: 'var(--subtle)' }}>(optional)</span></label>
+        <input
+          className="app-input"
+          placeholder="e.g. 123 Main St, Springfield IL"
+          value={address}
+          onChange={(e) => setAddress(e.target.value)}
+          autoComplete="street-address"
+        />
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', marginTop: '0.375rem' }}>
+          <p style={{ fontSize: '0.75rem', color: 'var(--subtle)' }}>
+            Tap the address on the task to open it in {mapsAppName()}.
+          </p>
+          {addressLink && (
+            <a
+              href={addressLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.75rem', fontWeight: 700, color: 'var(--accent-text)', flexShrink: 0, textDecoration: 'none' }}
+            >
+              <MapPin size={11} /> Preview
+            </a>
+          )}
+        </div>
+      </div>
+
+      {canAttach && (
+        <div>
+          <label className="app-label">Photos <span style={{ color: 'var(--subtle)' }}>(optional)</span></label>
+          <PhotoUpload
+            storagePath={storagePath}
+            attachments={attachments}
+            onChange={onAttachmentsChange}
+            onOpen={onOpenAttachment}
+          />
+          <p style={{ fontSize: '0.75rem', color: 'var(--subtle)', marginTop: '0.5rem' }}>
+            Receipts, screenshots, a photo of the part you need — saved as soon as they upload.
+          </p>
+        </div>
+      )}
 
       <DueReminderFields
         due={due}
@@ -449,6 +506,7 @@ function buildShareText(list, items) {
       if (item.price != null) line += ` - $${Number(item.price).toFixed(2)}`;
     }
     if (item.notes) line += `\n    ${item.notes}`;
+    if (taskList && item.address) line += `\n    📍 ${item.address}`;
     if (wishlist && item.url) line += `\n    ${item.url}`;
     return line;
   };
@@ -948,6 +1006,75 @@ function WishlistCard({
   );
 }
 
+// ── Task address & photos ─────────────────────────────────────────────────────
+/**
+ * The address on a task row. Tapping it hands off to the Maps app rather than
+ * opening the task editor, so `stopPropagation` matters here.
+ */
+function TaskAddressLink({ address }) {
+  const href = mapsHref(address);
+  if (!href) return null;
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={(e) => e.stopPropagation()}
+      title={`Open in ${mapsAppName()}`}
+      style={{
+        display: 'inline-flex', alignItems: 'flex-start', gap: '0.25rem',
+        marginTop: '0.25rem', fontSize: '0.8125rem', fontWeight: 600,
+        color: 'var(--accent-text)', textDecoration: 'none',
+      }}
+    >
+      <MapPin size={12} style={{ flexShrink: 0, marginTop: '0.15rem' }} />
+      <span>{address}</span>
+    </a>
+  );
+}
+
+/** Thumbnails of whatever is attached to a task — tap one to open the viewer. */
+function TaskPhotoStrip({ attachments = [], onOpen }) {
+  if (!attachments || attachments.length === 0) return null;
+  const shown = attachments.slice(0, 4);
+  const extra = attachments.length - shown.length;
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', marginTop: '0.375rem', flexWrap: 'wrap' }}>
+      {shown.map((att) => (
+        <button
+          key={att.id}
+          onClick={(e) => { e.stopPropagation(); onOpen?.(att); }}
+          title={att.name}
+          style={{
+            width: '2.75rem', height: '2.75rem', padding: 0, flexShrink: 0,
+            borderRadius: '0.5rem', overflow: 'hidden', cursor: 'pointer',
+            border: '1px solid var(--border)', backgroundColor: 'var(--surface2)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}
+        >
+          {fileCategory(att.type) === 'image'
+            ? <img src={att.url} alt={att.name} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            : <Paperclip size={14} style={{ color: 'var(--muted)' }} />}
+        </button>
+      ))}
+      {extra > 0 && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onOpen?.(attachments[shown.length]); }}
+          style={{
+            height: '2.75rem', padding: '0 0.5rem', flexShrink: 0,
+            borderRadius: '0.5rem', cursor: 'pointer',
+            border: '1px solid var(--border)', backgroundColor: 'var(--surface2)',
+            color: 'var(--muted)', fontSize: '0.75rem', fontWeight: 700,
+          }}
+        >
+          +{extra}
+        </button>
+      )}
+    </div>
+  );
+}
+
 // ── TaskListCard ──────────────────────────────────────────────────────────────
 // Renders both to-do and work lists. Every task is due at a real date and time;
 // the clock button on a row sets that moment without opening the full editor.
@@ -955,6 +1082,7 @@ function TaskListCard({
   list, listItems,
   onEditList, onDeleteList, onArchiveList,
   onAddTodoItem, onAddTodoItems, onDeleteItem, onUpdateItem, onEditItem, onExport,
+  onOpenAttachment,
 }) {
   const [expanded, setExpanded] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -1015,7 +1143,7 @@ function TaskListCard({
   };
 
   const makeItem = (name) => ({
-    listId: list.id, name, status: 'pending', notes: null,
+    listId: list.id, name, status: 'pending', notes: null, address: null,
     dueDate: null, dueTime: null, notifyEnabled: false, remindOffsetMinutes: 0,
   });
 
@@ -1127,6 +1255,11 @@ function TaskListCard({
                         {item.notifyEnabled && pendingItem && <Bell size={11} style={{ color: 'var(--muted)', flexShrink: 0 }} />}
                       </div>
                       {item.notes && <p style={{ fontSize: '0.8125rem', color: 'var(--subtle)', marginTop: '0.125rem', margin: '0.125rem 0 0' }}>{item.notes}</p>}
+                      <TaskAddressLink address={item.address} />
+                      <TaskPhotoStrip
+                        attachments={item.attachments}
+                        onOpen={(att) => onOpenAttachment?.(item, att)}
+                      />
                     </div>
                     {pendingItem && (
                       <button
@@ -1252,6 +1385,7 @@ export default function ShoppingLists() {
     shoppingItems, addShoppingItem, addShoppingItems, updateShoppingItem, deleteShoppingItem, toggleShoppingItem, importList,
     notifPrefs,
   } = useApp();
+  const { user } = useAuth();
 
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
@@ -1263,6 +1397,7 @@ export default function ShoppingLists() {
   const [addItemToList, setAddItemToList] = useState(null);
   const [exportList, setExportList] = useState(null);
   const [showArchived, setShowArchived] = useState(false);
+  const [viewer, setViewer] = useState(null); // { itemId, attId }
 
   const active = useMemo(() => shoppingLists.filter((l) => !l.archived), [shoppingLists]);
   const archived = useMemo(() => shoppingLists.filter((l) => l.archived), [shoppingLists]);
@@ -1275,7 +1410,9 @@ export default function ShoppingLists() {
       result = result.filter((l) =>
         l.name.toLowerCase().includes(q) ||
         l.store?.toLowerCase().includes(q) ||
-        shoppingItems.some((i) => i.listId === l.id && i.name.toLowerCase().includes(q))
+        shoppingItems.some((i) => i.listId === l.id && (
+          i.name.toLowerCase().includes(q) || i.address?.toLowerCase().includes(q)
+        ))
       );
     }
     return result;
@@ -1300,14 +1437,34 @@ export default function ShoppingLists() {
     setAddItemToList(list);
   };
 
+  // Uploaded photos outlive the row that pointed at them unless they're cleaned
+  // up here — the item is gone from state either way, so failures are ignored.
+  const removeAttachmentFiles = (items) => {
+    items.flatMap((i) => i.attachments || []).forEach((att) => {
+      deleteFile(att.url).catch(() => {});
+    });
+  };
+
+  const handleDeleteItem = (id) => {
+    const item = shoppingItems.find((i) => i.id === id);
+    deleteShoppingItem(id);
+    if (item) removeAttachmentFiles([item]);
+  };
+
+  const handleDeleteList = (id) => {
+    const items = shoppingItems.filter((i) => i.listId === id);
+    deleteShoppingList(id);
+    removeAttachmentFiles(items);
+  };
+
   const cardProps = (list) => ({
     list,
     listItems: shoppingItems.filter((i) => i.listId === list.id),
     onEditList: setEditList,
-    onDeleteList: deleteShoppingList,
+    onDeleteList: handleDeleteList,
     onArchiveList: (id) => updateShoppingList(id, { archived: !shoppingLists.find((l) => l.id === id)?.archived }),
     onEditItem: handleEditItem,
-    onDeleteItem: deleteShoppingItem,
+    onDeleteItem: handleDeleteItem,
   });
 
   const groceryCardProps = (list) => ({
@@ -1324,6 +1481,7 @@ export default function ShoppingLists() {
     onAddTodoItems: addShoppingItems,
     onExport: setExportList,
     onUpdateItem: updateShoppingItem,
+    onOpenAttachment: (item, att) => setViewer({ itemId: item.id, attId: att.id }),
   });
 
   const wishlistCardProps = (list) => ({
@@ -1465,21 +1623,43 @@ export default function ShoppingLists() {
           <WishlistItemForm initial={editItem} onSave={(data) => { updateShoppingItem(editItem.id, data); setEditItem(null); }} onCancel={() => setEditItem(null)} />
         </Modal>
       )}
-      {editItem && isTaskList(editItemListType) && (
-        <Modal title="Edit Task" onClose={() => setEditItem(null)}>
-          <TaskItemForm
-            initial={editItem}
-            defaultLeadMinutes={notifPrefs?.todos?.defaultLeadMinutes ?? 0}
-            onSave={(data) => { updateShoppingItem(editItem.id, data); setEditItem(null); }}
-            onCancel={() => setEditItem(null)}
-          />
-        </Modal>
-      )}
+      {editItem && isTaskList(editItemListType) && (() => {
+        // Photos save as they upload, so the form reads the live task rather
+        // than the snapshot taken when the modal opened.
+        const live = shoppingItems.find((i) => i.id === editItem.id) || editItem;
+        return (
+          <Modal title="Edit Task" onClose={() => setEditItem(null)}>
+            <TaskItemForm
+              initial={live}
+              defaultLeadMinutes={notifPrefs?.todos?.defaultLeadMinutes ?? 0}
+              storagePath={user?.uid ? `users/${user.uid}/todos/${live.id}` : null}
+              attachments={live.attachments || []}
+              onAttachmentsChange={(atts) => updateShoppingItem(live.id, { attachments: atts })}
+              onOpenAttachment={(att) => setViewer({ itemId: live.id, attId: att.id })}
+              onSave={(data) => { updateShoppingItem(live.id, data); setEditItem(null); }}
+              onCancel={() => setEditItem(null)}
+            />
+          </Modal>
+        );
+      })()}
       {exportList && (
         <Modal title="Share List" onClose={() => setExportList(null)}>
           <ExportModal list={exportList} items={exportItems} onClose={() => setExportList(null)} />
         </Modal>
       )}
+      {viewer && (() => {
+        const item = shoppingItems.find((i) => i.id === viewer.itemId);
+        const atts = item?.attachments || [];
+        if (atts.length === 0) return null;
+        return (
+          <ImageLightbox
+            attachments={atts}
+            startId={viewer.attId}
+            title={item.name}
+            onClose={() => setViewer(null)}
+          />
+        );
+      })()}
     </div>
   );
 }

@@ -96,6 +96,22 @@ export default function ShoppingLists() {
     removeAttachmentFiles(items);
   };
 
+  // Completing a task is the one place that has to do more than patch a field:
+  // it stamps when it happened, which is what lets finished tasks sort by
+  // "most recently ticked off" instead of by creation.
+  const handleToggleStatus = (item) => {
+    if (item.status === 'done' || item.status === 'blocked') {
+      updateShoppingItem(item.id, { status: 'pending', completedAt: null });
+      return;
+    }
+    updateShoppingItem(item.id, { status: 'done', completedAt: new Date().toISOString() });
+  };
+
+  const handleSetBlocked = (item) => {
+    const unblocking = item.status === 'blocked';
+    updateShoppingItem(item.id, { status: unblocking ? 'pending' : 'blocked', completedAt: null });
+  };
+
   const cardProps = (list) => ({
     list,
     listItems: shoppingItems.filter((i) => i.listId === list.id),
@@ -121,6 +137,8 @@ export default function ShoppingLists() {
     onExport: setExportList,
     onUpdateItem: updateShoppingItem,
     onOpenAttachment: (item, att) => setViewer({ itemId: item.id, attId: att.id }),
+    onToggleStatus: handleToggleStatus,
+    onSetBlocked: handleSetBlocked,
   });
 
   const wishlistCardProps = (list) => ({

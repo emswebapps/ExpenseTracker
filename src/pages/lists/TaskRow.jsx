@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  MapPin, Paperclip, Bell, Ban, Circle, CheckCircle2, CalendarClock, Trash2,
+  MapPin, Paperclip, Bell, Ban, Circle, CheckCircle2, CalendarClock, Trash2, Star,
 } from 'lucide-react';
 import { mapsHref, mapsAppName } from '../../utils/helpers';
 import { fileCategory } from '../../utils/storageUtils';
@@ -184,6 +184,15 @@ export default function TaskRow({
             onOpen={(att) => onOpenAttachment?.(item, att)}
           />
         </div>
+        {pendingItem && (
+          <button
+            onClick={() => onUpdate(item.id, { flagged: !item.flagged })}
+            title={item.flagged ? 'Remove star' : 'Star as important'}
+            style={{ flexShrink: 0, padding: '0.375rem', color: item.flagged ? '#f59e0b' : 'var(--subtle)', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', borderRadius: '0.5rem' }}
+          >
+            <Star size={14} fill={item.flagged ? '#f59e0b' : 'none'} />
+          </button>
+        )}
         {pendingItem && (
           <button
             onClick={openDueMenu}

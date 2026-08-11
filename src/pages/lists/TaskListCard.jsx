@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
   Plus, MoreVertical, Pencil, Trash2, Archive, ArchiveRestore, MessageSquare,
   Calendar, CalendarClock,
 } from 'lucide-react';
 import { getDueDateMs, localTodayISO } from '../../utils/notifications';
 import { listTypeMeta, ListDueBadge, fmtDate, MENU_BTN, useTicker } from './listMeta';
+import { sortTasks } from './taskSort';
 import { pasteAsItems } from './pasteImport';
 import TaskRow from './TaskRow';
 
@@ -15,7 +16,7 @@ export function TaskListCard({
   list, listItems,
   onEditList, onDeleteList, onArchiveList,
   onAddTodoItem, onAddTodoItems, onDeleteItem, onUpdateItem, onEditItem, onExport,
-  onOpenAttachment,
+  onOpenAttachment, onToggleStatus, onSetBlocked,
 }) {
   const [expanded, setExpanded] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -23,6 +24,7 @@ export function TaskListCard({
 
   const { Icon: ListIcon } = listTypeMeta(list.type);
   const today = localTodayISO();
+  const sortedItems = useMemo(() => sortTasks(listItems), [listItems]);
 
   const isPending = (i) => i.status !== 'done' && i.status !== 'blocked';
   const done = listItems.filter((i) => i.status === 'done');
@@ -39,6 +41,7 @@ export function TaskListCard({
   const makeItem = (name) => ({
     listId: list.id, name, status: 'pending', notes: null, address: null,
     dueDate: null, dueTime: null, notifyEnabled: false, remindOffsetMinutes: 0,
+    flagged: false, completedAt: null,
   });
 
   const handleQuickAdd = () => {
@@ -51,18 +54,6 @@ export function TaskListCard({
   const handlePaste = (e) => pasteAsItems(e, {
     current: quickAdd, setCurrent: setQuickAdd, makeItem, addItems: onAddTodoItems,
   });
-
-  const cycleStatus = (item) => {
-    if (item.status === 'done' || item.status === 'blocked') {
-      onUpdateItem(item.id, { status: 'pending' });
-    } else {
-      onUpdateItem(item.id, { status: 'done' });
-    }
-  };
-
-  const markBlocked = (item) => {
-    onUpdateItem(item.id, { status: item.status === 'blocked' ? 'pending' : 'blocked' });
-  };
 
   const progress = listItems.length > 0 ? done.length / listItems.length : 0;
 
@@ -116,15 +107,15 @@ export function TaskListCard({
           {listItems.length === 0 ? (
             <div style={{ padding: '1rem', textAlign: 'center', color: 'var(--subtle)', fontSize: '0.875rem' }}>No tasks yet — add one below.</div>
           ) : (
-            listItems.map((item) => (
+            sortedItems.map((item) => (
               <TaskRow
                 key={item.id}
                 item={item}
                 onEdit={onEditItem}
                 onUpdate={onUpdateItem}
                 onDelete={onDeleteItem}
-                onToggleStatus={cycleStatus}
-                onSetBlocked={markBlocked}
+                onToggleStatus={onToggleStatus}
+                onSetBlocked={onSetBlocked}
                 onOpenAttachment={onOpenAttachment}
               />
             ))

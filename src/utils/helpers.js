@@ -31,6 +31,34 @@ export function safeExternalUrl(raw) {
   }
 }
 
+/**
+ * True on iPhone, iPad and Mac, where maps.apple.com hands off to the Maps app.
+ * iPadOS reports itself as "Macintosh", which is why that string is in here too
+ * — an Apple Maps link is right for it either way.
+ */
+export function prefersAppleMaps() {
+  if (typeof navigator === 'undefined') return false;
+  return /iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent || '');
+}
+
+/**
+ * A tappable link to an address. On Apple devices this opens the Maps app
+ * directly; everywhere else it lands on Google Maps in the browser.
+ */
+export function mapsHref(address) {
+  const query = String(address || '').trim();
+  if (!query) return null;
+  const q = encodeURIComponent(query);
+  return prefersAppleMaps()
+    ? `https://maps.apple.com/?q=${q}`
+    : `https://www.google.com/maps/search/?api=1&query=${q}`;
+}
+
+/** What to call the app an address will open in, for buttons and hint text. */
+export function mapsAppName() {
+  return prefersAppleMaps() ? 'Apple Maps' : 'Google Maps';
+}
+
 /** "amazon.com" — the bit of a link worth showing on a crowded row. */
 export function linkHost(raw) {
   const safe = safeExternalUrl(raw);

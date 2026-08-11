@@ -30,6 +30,26 @@ minute and sends through FCM. In-app timers cover the case where the app is
 already open; both use the same notification tag, so the phone only ever shows
 one alert per reminder.
 
+## Addresses & photos on to-do items
+
+Tap a task on a to-do or work list to open it — alongside notes and the due
+date there's now an **Address** and a **Photos** section.
+
+- **Address** — type or paste where the task happens. It shows on the task row
+  under a 📍 pin; tapping it hands off to **Apple Maps** on iPhone, iPad and
+  Mac, and to Google Maps everywhere else. The address also travels with the
+  list when you share it as a text message, and shows on a shared view link.
+- **Photos** — attach receipts, screenshots, a picture of the part you need.
+  *Camera* goes straight to the phone camera, *Choose* picks from the photo
+  library (several at once). Uploads save to the task as soon as they finish,
+  so nothing is lost if you close the editor.
+- Thumbnails appear right on the task row — tap one for a full-screen viewer
+  with swipe-through arrows and a link to the original. Deleting a task (or its
+  list) removes its photos from storage too.
+
+Files live in Firebase Storage under `users/<uid>/todos/<taskId>/`, so the same
+10 MB per-file limit and owner-only access rules apply as everywhere else.
+
 ## Push notification setup
 
 Background push needs two things configured:

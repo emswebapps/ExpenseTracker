@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { loadSharedView } from '../utils/firestoreSync';
-import { formatCurrency, monthKey, getBillStatus, isTaskList } from '../utils/helpers';
+import { formatCurrency, monthKey, getBillStatus, isTaskList, mapsHref } from '../utils/helpers';
 import {
   TrendingUp, Receipt, ShoppingBag, CreditCard, PiggyBank,
-  CheckSquare, Square, ShoppingCart, X, ListChecks, Lock,
+  CheckSquare, Square, ShoppingCart, X, ListChecks, Lock, MapPin,
 } from 'lucide-react';
 
 /* ─── tiny helpers ─────────────────────────────────────────────────── */
@@ -22,6 +22,22 @@ function Row({ left, right, sub, dim }) {
       </div>
       <p style={{ fontSize: '0.95rem', fontWeight: 700, color: dim ? '#444' : '#f0f0f2', flexShrink: 0, marginLeft: '1rem' }}>{right}</p>
     </div>
+  );
+}
+
+/** A task's address, tappable straight through to the viewer's maps app. */
+function SharedAddress({ address }) {
+  const href = mapsHref(address);
+  if (!href) return null;
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      style={{ display: 'inline-flex', alignItems: 'flex-start', gap: '0.25rem', marginTop: '0.15rem', fontSize: '0.75rem', color: '#a78bfa', textDecoration: 'none' }}
+    >
+      <MapPin size={11} style={{ flexShrink: 0, marginTop: '0.1rem' }} /> {address}
+    </a>
   );
 }
 
@@ -483,9 +499,12 @@ function ReadOnlyDashboard({ data }) {
                 </div>
               )}
               {pending.map((item, i) => (
-                <div key={item.id || i} style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', padding: '0.4rem 0', borderBottom: '1px solid #1e1e28' }}>
-                  <Square size={14} style={{ color: '#444', flexShrink: 0 }} />
-                  <p style={{ fontSize: '0.875rem', color: '#f0f0f2', flex: 1 }}>{item.name}{item.qty ? ` ×${item.qty}` : ''}</p>
+                <div key={item.id || i} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.625rem', padding: '0.4rem 0', borderBottom: '1px solid #1e1e28' }}>
+                  <Square size={14} style={{ color: '#444', flexShrink: 0, marginTop: '0.15rem' }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ fontSize: '0.875rem', color: '#f0f0f2' }}>{item.name}{item.qty ? ` ×${item.qty}` : ''}</p>
+                    <SharedAddress address={item.address} />
+                  </div>
                   {item.price != null && <p style={{ fontSize: '0.8rem', color: '#a78bfa', fontWeight: 600 }}>{formatCurrency(item.price)}</p>}
                 </div>
               ))}

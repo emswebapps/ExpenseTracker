@@ -516,6 +516,34 @@ export function AppProvider({ children, uid }) {
     })
   ), [shoppingItems, persistShoppingItems]);
 
+  /**
+   * Patch one item and append another in a single write — completing a
+   * repeating task marks it done *and* creates its next occurrence.
+   *
+   * This can't be updateShoppingItem followed by addShoppingItem: both close
+   * over the same `shoppingItems` array, so the second call would be built
+   * from a list that never had the first change in it, and one of the two
+   * would be lost.
+   */
+  const completeAndRepeatShoppingItem = useCallback((id, patch, newItem) => {
+    const now = new Date().toISOString();
+    const patched = shoppingItems.map((i) => {
+      if (i.id !== id) return i;
+      const next = { ...i, ...patch };
+      if ('dueDate' in patch || 'dueTime' in patch) next.dueAt = computeDueAt(next.dueDate, next.dueTime);
+      return next;
+    });
+    persistShoppingItems([
+      ...patched,
+      {
+        ...newItem,
+        id: newItem.id ?? generateId(),
+        createdAt: now,
+        dueAt: newItem.dueAt ?? computeDueAt(newItem.dueDate, newItem.dueTime),
+      },
+    ]);
+  }, [shoppingItems, persistShoppingItems]);
+
   const deleteShoppingItem = useCallback((id) => persistShoppingItems(
     shoppingItems.filter((i) => i.id !== id)
   ), [shoppingItems, persistShoppingItems]);
@@ -1024,6 +1052,7 @@ export function AppProvider({ children, uid }) {
       agreements, addAgreement, updateAgreement, deleteAgreement,
       shoppingLists, addShoppingList, updateShoppingList, deleteShoppingList,
       shoppingItems, addShoppingItem, addShoppingItems, updateShoppingItem, deleteShoppingItem, toggleShoppingItem, importList,
+      completeAndRepeatShoppingItem,
       planningSettings, updatePlanningSettings,
       recurringTemplates, addRecurringTemplate, updateRecurringTemplate, deleteRecurringTemplate,
       paycheckActuals, addPaycheckActual, updatePaycheckActual, deletePaycheckActual,

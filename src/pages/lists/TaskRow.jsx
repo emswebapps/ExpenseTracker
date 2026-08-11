@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  MapPin, Paperclip, Bell, Ban, Circle, CheckCircle2, CalendarClock, Trash2, Star,
+  MapPin, Paperclip, Bell, Ban, Circle, CheckCircle2, CalendarClock, Trash2, Star, Repeat,
 } from 'lucide-react';
 import { mapsHref, mapsAppName } from '../../utils/helpers';
 import { fileCategory } from '../../utils/storageUtils';
@@ -9,6 +9,7 @@ import {
   notificationPermission, requestNotificationPermission,
 } from '../../utils/notifications';
 import { QUICK_DATES, isoInDays } from './listMeta';
+import { repeatLabel } from './recurrence.js';
 
 // ── Task address & photos ─────────────────────────────────────────────────────
 /**
@@ -109,6 +110,7 @@ export default function TaskRow({
   const pendingItem = !isDone && !isBlocked;
   const due = item.dueDate ? formatDueBadge(item.dueDate, item.dueTime) : null;
   const isOverdue = due?.label === 'Overdue';
+  const repeats = repeatLabel(item.repeat);
 
   const openDueMenu = () => {
     if (dueOpen) { setDueOpen(false); return; }
@@ -171,6 +173,11 @@ export default function TaskRow({
               </span>
             )}
             {item.notifyEnabled && pendingItem && <Bell size={11} style={{ color: 'var(--muted)', flexShrink: 0 }} />}
+            {repeats && pendingItem && (
+              <span title={repeats} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.1875rem', fontSize: '0.6875rem', fontWeight: 700, color: 'var(--muted)', flexShrink: 0 }}>
+                <Repeat size={10} /> {repeats.replace('Repeats ', '')}
+              </span>
+            )}
             {listLabel && (
               <span style={{ fontSize: '0.6875rem', fontWeight: '700', color: 'var(--muted)', backgroundColor: 'var(--surface2)', border: '1px solid var(--border)', padding: '0.0625rem 0.375rem', borderRadius: '0.375rem' }}>
                 {listLabel}

@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { MapPin } from 'lucide-react';
+import { MapPin, Repeat } from 'lucide-react';
 import { mapsHref, mapsAppName } from '../../../utils/helpers';
 import PhotoUpload from '../../../components/PhotoUpload';
 import { useDueReminder, DueReminderFields } from '../useDueReminder';
+import { REPEAT_OPTIONS } from '../recurrence.js';
 
 // ── TaskItemForm ──────────────────────────────────────────────────────────────
 // Used by both to-do and work lists. A task is due at an absolute moment — a
@@ -15,6 +16,8 @@ export function TaskItemForm({
   const [name, setName] = useState(initial.name || '');
   const [notes, setNotes] = useState(initial.notes || '');
   const [address, setAddress] = useState(initial.address || '');
+  const [repeatFreq, setRepeatFreq] = useState(initial.repeat?.freq || '');
+  const [repeatInterval, setRepeatInterval] = useState(Math.max(1, Number(initial.repeat?.interval) || 1));
   const due = useDueReminder(initial, defaultLeadMinutes);
 
   // Photos are saved to the task the moment they finish uploading, so the
@@ -30,6 +33,11 @@ export function TaskItemForm({
       notes: notes.trim() || null,
       address: address.trim() || null,
       ...due.dueFields(),
+      // A repeat needs a date to step from — without one there's nothing to
+      // roll forward, so the setting is dropped rather than saved dormant.
+      repeat: (repeatFreq && due.dueFields().dueDate)
+        ? { freq: repeatFreq, interval: Math.max(1, Number(repeatInterval) || 1) }
+        : null,
       status: initial.status || 'pending',
     });
   };
@@ -84,6 +92,40 @@ export function TaskItemForm({
           </p>
         </div>
       )}
+
+      <div>
+        <label className="app-label">
+          <Repeat size={12} style={{ display: 'inline', verticalAlign: '-1px', marginRight: '0.25rem' }} />
+          Repeat <span style={{ color: 'var(--subtle)' }}>(optional)</span>
+        </label>
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <select
+            className="app-input"
+            style={{ flex: 1 }}
+            value={repeatFreq}
+            onChange={(e) => setRepeatFreq(e.target.value)}
+          >
+            {REPEAT_OPTIONS.map((o) => (
+              <option key={o.freq ?? 'none'} value={o.freq ?? ''}>{o.label}</option>
+            ))}
+          </select>
+          {repeatFreq && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', flexShrink: 0 }}>
+              <span style={{ fontSize: '0.8125rem', color: 'var(--muted)' }}>every</span>
+              <input
+                className="app-input" type="number" min="1" max="99" style={{ width: '4rem' }}
+                value={repeatInterval}
+                onChange={(e) => setRepeatInterval(e.target.value)}
+              />
+            </div>
+          )}
+        </div>
+        {repeatFreq && (
+          <p style={{ fontSize: '0.75rem', color: 'var(--subtle)', marginTop: '0.375rem' }}>
+            Needs a due date. Ticking this off creates the next one automatically.
+          </p>
+        )}
+      </div>
 
       <DueReminderFields
         due={due}

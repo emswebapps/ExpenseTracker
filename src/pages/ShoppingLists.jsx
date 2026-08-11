@@ -9,6 +9,7 @@ import { isTaskList, isWishlist, generateId } from '../utils/helpers';
 import { LIST_TYPES } from './lists/listMeta';
 import TodayView from './lists/TodayView';
 import { collectAgenda } from './lists/agenda';
+import { buildNextOccurrence } from './lists/recurrence.js';
 import { ExportModal } from './lists/shareText';
 import { PasteImportModal } from './lists/pasteImport';
 import { GroceryListCard } from './lists/GroceryListCard';
@@ -24,6 +25,7 @@ export default function ShoppingLists() {
   const {
     shoppingLists, addShoppingList, updateShoppingList, deleteShoppingList,
     shoppingItems, addShoppingItem, addShoppingItems, updateShoppingItem, deleteShoppingItem, toggleShoppingItem, importList,
+    completeAndRepeatShoppingItem,
     notifPrefs,
   } = useApp();
   const { user } = useAuth();
@@ -115,14 +117,25 @@ export default function ShoppingLists() {
   };
 
   // Completing a task is the one place that has to do more than patch a field:
-  // it stamps when it happened, which is what lets finished tasks sort by
-  // "most recently ticked off" instead of by creation.
+  // it stamps when it happened, and for a repeating task it puts the next
+  // occurrence on the list.
   const handleToggleStatus = (item) => {
     if (item.status === 'done' || item.status === 'blocked') {
       updateShoppingItem(item.id, { status: 'pending', completedAt: null });
       return;
     }
-    updateShoppingItem(item.id, { status: 'done', completedAt: new Date().toISOString() });
+
+    // `spawnedNextId` is the guard: un-completing and re-completing a repeating
+    // task must not keep minting occurrences.
+    const nextId = generateId();
+    const next = item.spawnedNextId ? null : buildNextOccurrence(item, nextId);
+
+    const donePatch = { status: 'done', completedAt: new Date().toISOString() };
+    if (next) {
+      completeAndRepeatShoppingItem(item.id, { ...donePatch, spawnedNextId: nextId }, next);
+    } else {
+      updateShoppingItem(item.id, donePatch);
+    }
   };
 
   const handleSetBlocked = (item) => {

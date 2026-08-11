@@ -5,10 +5,18 @@ import {
 } from 'lucide-react';
 import { getDueDateMs, localTodayISO, notificationPermission } from '../../utils/notifications';
 import { listTypeMeta, ListDueBadge, fmtDate, MENU_BTN, useTicker } from './listMeta';
-import { sortTasks } from './taskSort';
+import { groupTasks } from './taskGroups';
 import { parseTaskInput } from '../../utils/parseTaskInput.js';
 import { pasteAsItems } from './pasteImport';
 import TaskRow from './TaskRow';
+
+// Heading colour per bucket — the same red/amber/violet ladder the due badges
+// already use, so a heading and the badges under it never disagree.
+const GROUP_COLOR = {
+  overdue: 'var(--danger)',
+  today: 'var(--accent-text)',
+  tomorrow: '#f59e0b',
+};
 
 // ── TaskListCard ──────────────────────────────────────────────────────────────
 // Renders both to-do and work lists. Every task is due at a real date and time;
@@ -23,10 +31,12 @@ export function TaskListCard({
   const [expanded, setExpanded] = useState(defaultExpanded);
   const [menuOpen, setMenuOpen] = useState(false);
   const [quickAdd, setQuickAdd] = useState('');
+  // Finished work is context, not the job in hand — it opens collapsed.
+  const [showDone, setShowDone] = useState(false);
 
   const { Icon: ListIcon } = listTypeMeta(list.type);
   const today = localTodayISO();
-  const sortedItems = useMemo(() => sortTasks(listItems), [listItems]);
+  const groups = useMemo(() => groupTasks(listItems), [listItems]);
 
   const isPending = (i) => i.status !== 'done' && i.status !== 'blocked';
   const done = listItems.filter((i) => i.status === 'done');
@@ -107,8 +117,16 @@ export function TaskListCard({
               </div>
             )}
           </div>
-          <button onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v); }} style={{ flexShrink: 0, padding: '0.375rem', color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer', borderRadius: '0.5rem' }}>
-            <MoreVertical size={16} />
+          <button
+            onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v); }}
+            aria-label={`Options for ${list.name}`}
+            style={{
+              flexShrink: 0, width: '2.75rem', height: '2.75rem', margin: '-0.5rem -0.5rem 0 0',
+              color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '0.5rem',
+            }}
+          >
+            <MoreVertical size={18} />
           </button>
         </div>
       </div>
@@ -118,18 +136,46 @@ export function TaskListCard({
           {listItems.length === 0 ? (
             <div style={{ padding: '1rem', textAlign: 'center', color: 'var(--subtle)', fontSize: '0.875rem' }}>No tasks yet — add one below.</div>
           ) : (
-            sortedItems.map((item) => (
-              <TaskRow
-                key={item.id}
-                item={item}
-                onEdit={onEditItem}
-                onUpdate={onUpdateItem}
-                onDelete={onDeleteItem}
-                onToggleStatus={onToggleStatus}
-                onSetBlocked={onSetBlocked}
-                onOpenAttachment={onOpenAttachment}
-              />
-            ))
+            groups.map((group) => {
+              const collapsible = group.key === 'done';
+              const open = !collapsible || showDone;
+              return (
+                <div key={group.key}>
+                  <button
+                    onClick={collapsible ? () => setShowDone((v) => !v) : undefined}
+                    style={{
+                      width: '100%', display: 'flex', alignItems: 'center', gap: '0.5rem',
+                      padding: '0.5rem 1rem', background: 'var(--surface2)', border: 'none',
+                      borderBottom: '1px solid var(--border)',
+                      cursor: collapsible ? 'pointer' : 'default', textAlign: 'left',
+                    }}
+                  >
+                    <span style={{
+                      fontSize: '0.6875rem', fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase',
+                      color: GROUP_COLOR[group.key] || 'var(--muted)',
+                    }}>
+                      {group.label}
+                    </span>
+                    <span style={{ fontSize: '0.6875rem', fontWeight: 700, color: 'var(--subtle)' }}>{group.items.length}</span>
+                    {collapsible && (
+                      <span style={{ marginLeft: 'auto', fontSize: '0.65rem', color: 'var(--subtle)' }}>{open ? '▲' : '▼'}</span>
+                    )}
+                  </button>
+                  {open && group.items.map((item) => (
+                    <TaskRow
+                      key={item.id}
+                      item={item}
+                      onEdit={onEditItem}
+                      onUpdate={onUpdateItem}
+                      onDelete={onDeleteItem}
+                      onToggleStatus={onToggleStatus}
+                      onSetBlocked={onSetBlocked}
+                      onOpenAttachment={onOpenAttachment}
+                    />
+                  ))}
+                </div>
+              );
+            })
           )}
           <div style={{ padding: '0.75rem 1rem', display: 'flex', gap: '0.5rem' }}>
             <input

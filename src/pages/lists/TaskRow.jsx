@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import {
   MapPin, Paperclip, Bell, Ban, Circle, CheckCircle2, CalendarClock, Trash2, Star, Repeat,
+  MoreHorizontal, RotateCcw,
 } from 'lucide-react';
 import { mapsHref, mapsAppName } from '../../utils/helpers';
 import { fileCategory } from '../../utils/storageUtils';
@@ -8,8 +9,11 @@ import {
   formatDueBadge, formatDueMoment, localTodayISO,
   notificationPermission, requestNotificationPermission,
 } from '../../utils/notifications';
-import { QUICK_DATES, isoInDays } from './listMeta';
+import Modal from '../../components/Modal';
+import ConfirmDialog from '../../components/ConfirmDialog';
+import { QUICK_DATES, isoInDays, MENU_BTN } from './listMeta';
 import { repeatLabel } from './recurrence.js';
+import { useSwipeRow, SWIPE_ROW_STYLE, DRAWER_WIDTH } from './useSwipeRow';
 
 // ── Task address & photos ─────────────────────────────────────────────────────
 /**
@@ -89,6 +93,11 @@ export function TaskPhotoStrip({ attachments = [], onOpen }) {
  * `onSetBlocked` are handed down, which is what keeps completion stamping and
  * recurrence out of the presentation layer.
  *
+ * Touch targets: four 23px icons used to sit along the right edge, which is
+ * under half Apple's 44px minimum and put an unconfirmed delete a thumb-width
+ * from a star. They're one 44px "⋯" now, opening an action sheet, with the two
+ * common actions also available as swipes — right to complete, left for delete.
+ *
  * Props:
  *   item             — the task
  *   listLabel        — list name badge, shown when the row is out of its card
@@ -104,6 +113,8 @@ export default function TaskRow({
 }) {
   const [dueOpen, setDueOpen] = useState(false);
   const [dueDraft, setDueDraft] = useState({ date: '', time: '' });
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const isDone = item.status === 'done';
   const isBlocked = item.status === 'blocked';
@@ -111,6 +122,13 @@ export default function TaskRow({
   const due = item.dueDate ? formatDueBadge(item.dueDate, item.dueTime) : null;
   const isOverdue = due?.label === 'Overdue';
   const repeats = repeatLabel(item.repeat);
+
+  // Swiping is suspended while the due-date panel is open, so dragging the
+  // date inputs can't also drag the row out from under them.
+  const swipe = useSwipeRow({
+    onComplete: () => onToggleStatus(item),
+    enabled: !dueOpen,
+  });
 
   const openDueMenu = () => {
     if (dueOpen) { setDueOpen(false); return; }
@@ -149,134 +167,214 @@ export default function TaskRow({
     setDueOpen(false);
   };
 
+  const runFromSheet = (fn) => { setSheetOpen(false); fn(); };
+
   return (
     <div style={{
-      padding: '0.75rem 1rem', borderBottom: '1px solid var(--border)',
-      opacity: (isDone || isBlocked) ? 0.55 : 1,
-      backgroundColor: isOverdue && pendingItem ? 'rgba(244,63,94,0.04)' : 'transparent',
+      position: 'relative',
+      overflow: 'hidden',
+      borderBottom: '1px solid var(--border)',
     }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
+      {/* Behind the row on the right — revealed by swiping left. */}
+      <div style={{
+        position: 'absolute', top: 0, right: 0, bottom: 0, width: `${DRAWER_WIDTH}px`,
+        display: 'flex', alignItems: 'stretch',
+      }}>
         <button
-          onClick={() => onToggleStatus(item)}
-          style={{ flexShrink: 0, marginTop: '0.125rem', background: 'none', border: 'none', cursor: 'pointer', padding: '0.125rem', display: 'flex', color: isDone ? 'var(--positive)' : isBlocked ? '#f59e0b' : 'var(--border)' }}
+          onClick={() => { swipe.close(); setConfirmDelete(true); }}
+          aria-label={`Delete ${item.name}`}
+          style={{
+            flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+            gap: '0.1875rem', backgroundColor: 'var(--danger)', color: '#fff',
+            border: 'none', cursor: 'pointer', fontSize: '0.6875rem', fontWeight: 700,
+          }}
         >
-          {isDone ? <CheckCircle2 size={20} /> : isBlocked ? <Ban size={20} /> : <Circle size={20} />}
-        </button>
-        <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={() => onEdit(item)}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-            <span style={{ fontSize: '0.9375rem', color: isOverdue && pendingItem ? 'var(--danger)' : 'var(--text)', textDecoration: (isDone || isBlocked) ? 'line-through' : 'none', fontWeight: isOverdue && pendingItem ? '600' : '400' }}>
-              {item.name}
-            </span>
-            {due && pendingItem && (
-              <span style={{ fontSize: '0.75rem', fontWeight: '700', color: due.color, backgroundColor: `${due.color}18`, padding: '0.0625rem 0.375rem', borderRadius: '0.375rem' }}>
-                {due.label}
-              </span>
-            )}
-            {item.notifyEnabled && pendingItem && <Bell size={11} style={{ color: 'var(--muted)', flexShrink: 0 }} />}
-            {repeats && pendingItem && (
-              <span title={repeats} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.1875rem', fontSize: '0.6875rem', fontWeight: 700, color: 'var(--muted)', flexShrink: 0 }}>
-                <Repeat size={10} /> {repeats.replace('Repeats ', '')}
-              </span>
-            )}
-            {listLabel && (
-              <span style={{ fontSize: '0.6875rem', fontWeight: '700', color: 'var(--muted)', backgroundColor: 'var(--surface2)', border: '1px solid var(--border)', padding: '0.0625rem 0.375rem', borderRadius: '0.375rem' }}>
-                {listLabel}
-              </span>
-            )}
-          </div>
-          {item.notes && <p style={{ fontSize: '0.8125rem', color: 'var(--subtle)', marginTop: '0.125rem', margin: '0.125rem 0 0' }}>{item.notes}</p>}
-          <TaskAddressLink address={item.address} />
-          <TaskPhotoStrip
-            attachments={item.attachments}
-            onOpen={(att) => onOpenAttachment?.(item, att)}
-          />
-        </div>
-        {pendingItem && (
-          <button
-            onClick={() => onUpdate(item.id, { flagged: !item.flagged })}
-            title={item.flagged ? 'Remove star' : 'Star as important'}
-            style={{ flexShrink: 0, padding: '0.375rem', color: item.flagged ? '#f59e0b' : 'var(--subtle)', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', borderRadius: '0.5rem' }}
-          >
-            <Star size={14} fill={item.flagged ? '#f59e0b' : 'none'} />
-          </button>
-        )}
-        {pendingItem && (
-          <button
-            onClick={openDueMenu}
-            title={item.dueDate ? 'Change due date & time' : 'Set a due date & time'}
-            style={{ flexShrink: 0, padding: '0.375rem', color: item.dueDate ? 'var(--accent-text)' : 'var(--subtle)', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', borderRadius: '0.5rem' }}
-          >
-            <CalendarClock size={14} />
-          </button>
-        )}
-        {pendingItem && (
-          <button
-            onClick={() => onSetBlocked(item)}
-            title="Mark as can't complete"
-            style={{ flexShrink: 0, padding: '0.375rem', color: 'var(--subtle)', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', borderRadius: '0.5rem' }}
-          >
-            <Ban size={14} />
-          </button>
-        )}
-        <button onClick={() => onDelete(item.id)} style={{ flexShrink: 0, color: 'var(--subtle)', background: 'none', border: 'none', cursor: 'pointer', padding: '0.375rem', display: 'flex', borderRadius: '0.5rem' }}>
-          <Trash2 size={14} />
+          <Trash2 size={18} />
+          Delete
         </button>
       </div>
 
-      {dueOpen && (
-        <div style={{ marginTop: '0.625rem', marginLeft: '1.8rem', padding: '0.75rem', borderRadius: '0.75rem', backgroundColor: 'var(--surface2)', border: '1px solid var(--border)' }}>
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <input
-              className="app-input" type="date" value={dueDraft.date}
-              onChange={(e) => setDueDraft((d) => ({ ...d, date: e.target.value }))}
-              style={{ flex: 1, minWidth: 0, height: 'auto', padding: '0.4375rem 0.5rem', fontSize: '0.8125rem' }}
+      {/* Behind the row on the left — revealed by swiping right. */}
+      <div style={{
+        position: 'absolute', top: 0, left: 0, bottom: 0, width: `${Math.max(0, swipe.dx)}px`,
+        backgroundColor: isDone ? 'var(--warn)' : 'var(--positive)',
+        display: 'flex', alignItems: 'center', justifyContent: 'flex-start',
+        paddingLeft: '1rem', color: '#fff', overflow: 'hidden',
+      }}>
+        {isDone ? <RotateCcw size={18} style={{ flexShrink: 0 }} /> : <CheckCircle2 size={18} style={{ flexShrink: 0 }} />}
+      </div>
+
+      {/* The row itself. Opaque, so nothing behind it shows through at rest. */}
+      <div
+        {...swipe.handlers}
+        style={{
+          ...SWIPE_ROW_STYLE,
+          position: 'relative',
+          padding: '0.75rem 0.5rem 0.75rem 1rem',
+          opacity: (isDone || isBlocked) ? 0.55 : 1,
+          backgroundColor: 'var(--surface)',
+          backgroundImage: isOverdue && pendingItem ? 'linear-gradient(rgba(244,63,94,0.06), rgba(244,63,94,0.06))' : 'none',
+          transform: `translateX(${swipe.dx}px)`,
+          transition: swipe.dragging ? 'none' : 'transform 0.2s ease',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
+          <button
+            onClick={() => onToggleStatus(item)}
+            aria-label={isDone ? `Mark ${item.name} as not done` : `Complete ${item.name}`}
+            style={{
+              flexShrink: 0, width: '2.75rem', height: '2.75rem', marginLeft: '-0.5rem',
+              background: 'none', border: 'none', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: isDone ? 'var(--positive)' : isBlocked ? '#f59e0b' : 'var(--border2)',
+            }}
+          >
+            {isDone ? <CheckCircle2 size={22} /> : isBlocked ? <Ban size={22} /> : <Circle size={22} />}
+          </button>
+
+          <div style={{ flex: 1, minWidth: 0, cursor: 'pointer', paddingTop: '0.375rem' }} onClick={() => onEdit(item)}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+              {item.flagged && pendingItem && (
+                <Star size={12} fill="#f59e0b" style={{ color: '#f59e0b', flexShrink: 0 }} />
+              )}
+              <span style={{ fontSize: '0.9375rem', color: isOverdue && pendingItem ? 'var(--danger)' : 'var(--text)', textDecoration: (isDone || isBlocked) ? 'line-through' : 'none', fontWeight: isOverdue && pendingItem ? '600' : '400' }}>
+                {item.name}
+              </span>
+              {due && pendingItem && (
+                <span style={{ fontSize: '0.75rem', fontWeight: '700', color: due.color, backgroundColor: `${due.color}18`, padding: '0.0625rem 0.375rem', borderRadius: '0.375rem' }}>
+                  {due.label}
+                </span>
+              )}
+              {item.notifyEnabled && pendingItem && <Bell size={11} style={{ color: 'var(--muted)', flexShrink: 0 }} />}
+              {repeats && pendingItem && (
+                <span title={repeats} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.1875rem', fontSize: '0.6875rem', fontWeight: 700, color: 'var(--muted)', flexShrink: 0 }}>
+                  <Repeat size={10} /> {repeats.replace('Repeats ', '')}
+                </span>
+              )}
+              {listLabel && (
+                <span style={{ fontSize: '0.6875rem', fontWeight: '700', color: 'var(--muted)', backgroundColor: 'var(--surface2)', border: '1px solid var(--border)', padding: '0.0625rem 0.375rem', borderRadius: '0.375rem' }}>
+                  {listLabel}
+                </span>
+              )}
+            </div>
+            {item.notes && <p style={{ fontSize: '0.8125rem', color: 'var(--subtle)', marginTop: '0.125rem', margin: '0.125rem 0 0' }}>{item.notes}</p>}
+            <TaskAddressLink address={item.address} />
+            <TaskPhotoStrip
+              attachments={item.attachments}
+              onOpen={(att) => onOpenAttachment?.(item, att)}
             />
-            <input
-              className="app-input" type="time" value={dueDraft.time}
-              onChange={(e) => setDueDraft((d) => ({ ...d, time: e.target.value }))}
-              style={{ flex: 1, minWidth: 0, height: 'auto', padding: '0.4375rem 0.5rem', fontSize: '0.8125rem' }}
-            />
           </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3125rem', marginTop: '0.5rem' }}>
-            {QUICK_DATES.map(({ label, days }) => {
-              const iso = isoInDays(days);
-              const active = dueDraft.date === iso;
-              return (
-                <button
-                  key={label}
-                  onClick={() => setDueDraft((d) => ({ ...d, date: active ? '' : iso }))}
-                  style={{
-                    padding: '0.25rem 0.5rem', borderRadius: '0.5rem', fontSize: '0.75rem', fontWeight: '600',
-                    border: `1.5px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
-                    backgroundColor: active ? 'rgba(99,102,241,0.12)' : 'var(--surface)',
-                    color: active ? 'var(--accent-text)' : 'var(--muted)', cursor: 'pointer',
-                  }}
-                >
-                  {label}
-                </button>
-              );
-            })}
-          </div>
-          <p style={{ fontSize: '0.6875rem', color: 'var(--subtle)', margin: '0.5rem 0 0' }}>
-            {formatDueMoment(dueDraft.date, dueDraft.time)
-              ? `Due ${formatDueMoment(dueDraft.date, dueDraft.time)}`
-              : 'Pick a date and time. A time on its own means today.'}
-          </p>
-          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.625rem' }}>
-            <button
-              onClick={() => (item.dueDate ? clearDue() : setDueOpen(false))}
-              style={{ flex: 1, padding: '0.4375rem', borderRadius: '0.5rem', fontSize: '0.8125rem', fontWeight: '600', border: '1px solid var(--border)', backgroundColor: 'transparent', color: 'var(--muted)', cursor: 'pointer' }}
-            >
-              {item.dueDate ? 'Clear due' : 'Cancel'}
-            </button>
-            <button
-              onClick={saveDue}
-              style={{ flex: 1, padding: '0.4375rem', borderRadius: '0.5rem', fontSize: '0.8125rem', fontWeight: '700', border: 'none', backgroundColor: 'var(--accent)', color: '#fff', cursor: 'pointer' }}
-            >
-              Save
-            </button>
-          </div>
+
+          <button
+            onClick={() => setSheetOpen(true)}
+            aria-label={`Actions for ${item.name}`}
+            style={{
+              flexShrink: 0, width: '2.75rem', height: '2.75rem',
+              color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '0.5rem',
+            }}
+          >
+            <MoreHorizontal size={20} />
+          </button>
         </div>
+
+        {dueOpen && (
+          <div style={{ marginTop: '0.625rem', marginLeft: '2.25rem', marginRight: '0.5rem', padding: '0.75rem', borderRadius: '0.75rem', backgroundColor: 'var(--surface2)', border: '1px solid var(--border)' }}>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <input
+                className="app-input" type="date" value={dueDraft.date}
+                onChange={(e) => setDueDraft((d) => ({ ...d, date: e.target.value }))}
+                style={{ flex: 1, minWidth: 0 }}
+              />
+              <input
+                className="app-input" type="time" value={dueDraft.time}
+                onChange={(e) => setDueDraft((d) => ({ ...d, time: e.target.value }))}
+                style={{ flex: 1, minWidth: 0 }}
+              />
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.375rem', marginTop: '0.5rem' }}>
+              {QUICK_DATES.map(({ label, days }) => {
+                const iso = isoInDays(days);
+                const active = dueDraft.date === iso;
+                return (
+                  <button
+                    key={label}
+                    onClick={() => setDueDraft((d) => ({ ...d, date: active ? '' : iso }))}
+                    style={{
+                      padding: '0.5rem 0.75rem', borderRadius: '0.625rem', fontSize: '0.8125rem', fontWeight: '600',
+                      border: `1.5px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
+                      backgroundColor: active ? 'rgba(99,102,241,0.12)' : 'var(--surface)',
+                      color: active ? 'var(--accent-text)' : 'var(--muted)', cursor: 'pointer',
+                    }}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+            <p style={{ fontSize: '0.6875rem', color: 'var(--subtle)', margin: '0.5rem 0 0' }}>
+              {formatDueMoment(dueDraft.date, dueDraft.time)
+                ? `Due ${formatDueMoment(dueDraft.date, dueDraft.time)}`
+                : 'Pick a date and time. A time on its own means today.'}
+            </p>
+            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.625rem' }}>
+              <button
+                onClick={() => (item.dueDate ? clearDue() : setDueOpen(false))}
+                style={{ flex: 1, minHeight: '2.75rem', borderRadius: '0.625rem', fontSize: '0.875rem', fontWeight: '600', border: '1px solid var(--border)', backgroundColor: 'transparent', color: 'var(--muted)', cursor: 'pointer' }}
+              >
+                {item.dueDate ? 'Clear due' : 'Cancel'}
+              </button>
+              <button
+                onClick={saveDue}
+                style={{ flex: 1, minHeight: '2.75rem', borderRadius: '0.625rem', fontSize: '0.875rem', fontWeight: '700', border: 'none', backgroundColor: 'var(--accent)', color: '#fff', cursor: 'pointer' }}
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {sheetOpen && (
+        <Modal title={item.name} onClose={() => setSheetOpen(false)}>
+          <div style={{ display: 'flex', flexDirection: 'column', margin: '-0.5rem 0' }}>
+            <button style={MENU_BTN} onClick={() => runFromSheet(() => onToggleStatus(item))}>
+              {isDone ? <RotateCcw size={16} /> : <CheckCircle2 size={16} />}
+              {isDone ? 'Mark as not done' : 'Mark as done'}
+            </button>
+            <button style={MENU_BTN} onClick={() => runFromSheet(() => onUpdate(item.id, { flagged: !item.flagged }))}>
+              <Star size={16} fill={item.flagged ? '#f59e0b' : 'none'} style={{ color: item.flagged ? '#f59e0b' : undefined }} />
+              {item.flagged ? 'Remove star' : 'Star as important'}
+            </button>
+            <button style={MENU_BTN} onClick={() => runFromSheet(openDueMenu)}>
+              <CalendarClock size={16} style={{ color: item.dueDate ? 'var(--accent-text)' : undefined }} />
+              {item.dueDate ? 'Change due date & time' : 'Set a due date & time'}
+            </button>
+            <button style={MENU_BTN} onClick={() => runFromSheet(() => onEdit(item))}>
+              <MoreHorizontal size={16} /> Edit task details…
+            </button>
+            <button style={MENU_BTN} onClick={() => runFromSheet(() => onSetBlocked(item))}>
+              <Ban size={16} />
+              {isBlocked ? 'No longer blocked' : "Can't complete"}
+            </button>
+            <button
+              style={{ ...MENU_BTN, color: 'var(--danger)' }}
+              onClick={() => runFromSheet(() => setConfirmDelete(true))}
+            >
+              <Trash2 size={16} /> Delete task
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {confirmDelete && (
+        <ConfirmDialog
+          title="Delete task?"
+          message={`"${item.name}" will be removed, along with any photos attached to it. This can't be undone.`}
+          confirmLabel="Delete"
+          onConfirm={() => { setConfirmDelete(false); onDelete(item.id); }}
+          onCancel={() => setConfirmDelete(false)}
+        />
       )}
     </div>
   );

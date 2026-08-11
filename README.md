@@ -30,6 +30,35 @@ minute and sends through FCM. In-app timers cover the case where the app is
 already open; both use the same notification tag, so the phone only ever shows
 one alert per reminder.
 
+## Today view, ordering, and repeating tasks
+
+- **Today tab** — at the top of Lists, a *Today* tab gathers everything overdue
+  or due today from every to-do and work list into one screen, with tomorrow's
+  work collapsed underneath. Its count badge turns red as soon as anything is
+  late. The tab appears only when something is actually due.
+- **Ordering** — tasks sort by urgency rather than by when they were typed:
+  unfinished before done, overdue before dated before undated, soonest first.
+  Finished tasks drop to the bottom, most recently ticked off at the top.
+  *Existing lists will re-order the first time you open them.*
+- **Stars** — the ☆ on a task marks it important. A star lifts a task within
+  its group but never above something that's genuinely overdue.
+- **Typing a date** — the quick-add box reads a trailing date phrase, so
+  "trash out tomorrow 7pm" becomes a task called *trash out*, due tomorrow at
+  7 PM. It understands today/tonight/tomorrow, weekday names, "next friday",
+  "in 3 days", "8/14" and "aug 14". Only a phrase at the *end* of the line
+  counts, so "call the tomorrow people" is left alone.
+- **Add task with details** — in a list's ⋮ menu, for a new task that needs
+  notes, an address, photos or a reminder set up front.
+- **Repeat** — a task can repeat daily, weekly or monthly (every N of those).
+  Ticking it off creates the next occurrence, skipping past any that were
+  missed, so a chore ignored for three weeks gives you one upcoming task
+  rather than three overdue ones. Notes, address, star and reminder carry
+  over; photos don't, since a receipt belongs to the occurrence it came from.
+- **Elsewhere in the app** — tasks now show up in global **Search** (by name,
+  notes or address; tapping a hit opens its list), and a **Tasks** tile on the
+  Dashboard lists what's overdue or due today. Turn the tile off under
+  *Customize Dashboard*.
+
 ## Addresses & photos on to-do items
 
 Tap a task on a to-do or work list to open it — alongside notes and the due
@@ -91,3 +120,18 @@ npm run dev
 ```bash
 npm run build
 ```
+
+## Tests
+
+```bash
+npm run test:unit          # front-end logic, via node --test — no extra deps
+npm --prefix functions test  # Cloud Function reminder selection
+```
+
+`test:unit` covers the pure pieces of the to-do list: task ordering
+(`src/pages/lists/taskSort.js`), the Today view's grouping (`agenda.js`),
+repeat scheduling (`recurrence.js`) and quick-add date parsing
+(`src/utils/parseTaskInput.js`). These modules deliberately import only from
+`src/utils/dueDates.js` and `helpers.js`, both free of the Firebase SDK, which
+is what lets plain Node run them. They use explicit `.js` extensions in their
+imports for the same reason.

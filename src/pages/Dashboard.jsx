@@ -5,6 +5,7 @@ import {
   MoreVertical, Bell, LayoutDashboard, Link, Plane, AlertTriangle,
   Wallet, PiggyBank, Settings, BarChart2, Users, LayoutGrid,
   ChevronDown, ChevronUp, FileText, Zap, Share2, Check, RefreshCw, FolderOpen,
+  ClipboardList, CalendarClock,
 } from 'lucide-react';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, AreaChart, Area } from 'recharts';
@@ -15,6 +16,8 @@ import {
   getPayDatesForMonth, getNextPayDate, getBillStatus, isBillOverdueUnpaid,
   isReminderOverdue, isReminderSoon, formatDate, getSpendingHistory, getCategoryTotals,
 } from '../utils/helpers';
+import { collectAgenda } from './lists/agenda';
+import { formatDueBadge } from '../utils/dueDates';
 import Modal from '../components/Modal';
 import SavingsForm from '../components/SavingsForm';
 import CommitmentForm from '../components/CommitmentForm';
@@ -242,6 +245,7 @@ export default function Dashboard() {
     budgetCategories, budgetSpends, addBudgetSpend,
     agreements, addAgreement, updateAgreement, deleteAgreement,
     setBillStatusDirect, addBill,
+    shoppingLists, shoppingItems,
     selectedMonth: mk, setSelectedMonth: setMk,
   } = useApp();
 
@@ -379,6 +383,11 @@ export default function Dashboard() {
   const totalSavings = savings.reduce((s, a) => s + a.balance, 0);
 
   const pinnedNotes = notes.filter((n) => n.pinnedToDashboard);
+
+  // What's overdue or due today across every to-do and work list. Same source
+  // as the Lists page's Today tab, so the two can't disagree.
+  const taskAgenda = collectAgenda(shoppingLists, shoppingItems);
+  const agendaRows = [...taskAgenda.overdue, ...taskAgenda.dueToday];
 
   const totalDebt = debts.reduce((s, d) => s + d.balance, 0);
   const netWorth = totalSavings - totalDebt;
@@ -584,6 +593,61 @@ export default function Dashboard() {
                 const billName = note.linkedBillId ? bills.find((b) => b.id === note.linkedBillId)?.name : null;
                 return <PinnedNoteCard key={note.id} note={note} billName={billName} />;
               })}
+            </div>
+          </div>
+        )}
+
+        {sec('tasks') && agendaRows.length > 0 && (
+          <div style={sectionWrap}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', marginBottom: '0.75rem' }}>
+              <ClipboardList size={13} style={{ color: 'var(--accent-text)' }} />
+              <SectionLabel>Tasks</SectionLabel>
+            </div>
+            <div style={sectionCard}>
+              <div
+                onClick={() => navigate('/lists')}
+                style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.875rem 1rem', borderBottom: '1px solid var(--border)', cursor: 'pointer' }}
+              >
+                {taskAgenda.overdue.length > 0 && (
+                  <span style={{ fontSize: '0.8125rem', fontWeight: 800, color: 'var(--danger)' }}>
+                    {taskAgenda.overdue.length} overdue
+                  </span>
+                )}
+                {taskAgenda.dueToday.length > 0 && (
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.8125rem', fontWeight: 700, color: 'var(--accent-text)' }}>
+                    <CalendarClock size={12} /> {taskAgenda.dueToday.length} due today
+                  </span>
+                )}
+                <span style={{ marginLeft: 'auto', fontSize: '0.75rem', color: 'var(--subtle)' }}>View all →</span>
+              </div>
+              {agendaRows.slice(0, 4).map((task) => {
+                const list = taskAgenda.listById.get(task.listId);
+                const badge = formatDueBadge(task.dueDate, task.dueTime);
+                return (
+                  <div
+                    key={task.id}
+                    onClick={() => navigate(`/lists?list=${task.listId}`)}
+                    style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', padding: '0.6875rem 1rem', borderBottom: '1px solid var(--border)', cursor: 'pointer' }}
+                  >
+                    <Square size={14} style={{ color: 'var(--border)', flexShrink: 0 }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ fontSize: '0.875rem', color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{task.name}</p>
+                      {list && <p style={{ fontSize: '0.75rem', color: 'var(--subtle)' }}>{list.name}</p>}
+                    </div>
+                    {badge && (
+                      <span style={{ fontSize: '0.75rem', fontWeight: 700, color: badge.color, flexShrink: 0 }}>{badge.label}</span>
+                    )}
+                  </div>
+                );
+              })}
+              {agendaRows.length > 4 && (
+                <div
+                  onClick={() => navigate('/lists')}
+                  style={{ padding: '0.625rem 1rem', fontSize: '0.8125rem', color: 'var(--muted)', cursor: 'pointer', textAlign: 'center' }}
+                >
+                  + {agendaRows.length - 4} more
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -1346,6 +1410,7 @@ export default function Dashboard() {
               Toggle sections on or off to simplify your dashboard.
             </p>
             {[
+              ['tasks',           'Tasks Due'],
               ['envelopes',       'Budget Envelopes'],
               ['savings',         'Savings'],
               ['commitments',     'Commitments & Agreements'],

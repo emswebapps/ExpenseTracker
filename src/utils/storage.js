@@ -50,6 +50,7 @@ const DEFAULT_SETTINGS = {
   shareToken: null,
   sharePin: '3419',
   dashboardSections: {
+    tasks: true,
     pinnedNotes: true,
     savings: true,
     commitments: false,

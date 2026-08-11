@@ -7,6 +7,8 @@ import ImageLightbox from '../components/ImageLightbox';
 import { deleteFile } from '../utils/storageUtils';
 import { isTaskList, isWishlist } from '../utils/helpers';
 import { LIST_TYPES } from './lists/listMeta';
+import TodayView from './lists/TodayView';
+import { collectAgenda } from './lists/agenda';
 import { ExportModal } from './lists/shareText';
 import { PasteImportModal } from './lists/pasteImport';
 import { GroceryListCard } from './lists/GroceryListCard';
@@ -65,6 +67,12 @@ export default function ShoppingLists() {
     () => LIST_TYPES.filter(({ key }) => active.some((l) => (l.type || 'grocery') === key)),
     [active]
   );
+
+  // The Today tab only earns its place when something is actually due; its
+  // badge turns red as soon as anything is late.
+  const agenda = useMemo(() => collectAgenda(shoppingLists, shoppingItems), [shoppingLists, shoppingItems]);
+  const overdueCount = agenda.overdue.length;
+  const agendaCount = overdueCount + agenda.dueToday.length;
 
   const handleEditItem = (item) => {
     const list = shoppingLists.find((l) => l.id === item.listId);
@@ -149,6 +157,16 @@ export default function ShoppingLists() {
     onToggleItem: toggleShoppingItem,
   });
 
+  // Props every task row needs, whether it sits in its card or in Today.
+  const taskRowProps = {
+    onEdit: handleEditItem,
+    onUpdate: updateShoppingItem,
+    onDelete: handleDeleteItem,
+    onToggleStatus: handleToggleStatus,
+    onSetBlocked: handleSetBlocked,
+    onOpenAttachment: (item, att) => setViewer({ itemId: item.id, attId: att.id }),
+  };
+
   const renderCard = (list) => {
     if (isTaskList(list.type)) return <TaskListCard key={list.id} {...taskCardProps(list)} />;
     if (isWishlist(list.type)) return <WishlistCard key={list.id} {...wishlistCardProps(list)} />;
@@ -179,14 +197,19 @@ export default function ShoppingLists() {
           </div>
         </div>
 
-        {/* Type filter tabs */}
-        {presentTypes.length > 1 && (
+        {/* Today + type filter tabs */}
+        {(presentTypes.length > 1 || agendaCount > 0 || typeFilter === 'today') && (
           <div style={{ display: 'flex', gap: '0.375rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
-            {[['all', 'All'], ...presentTypes.map((t) => [t.key, t.short])].map(([key, label]) => (
+            {[
+              ...((agendaCount > 0 || typeFilter === 'today') ? [['today', 'Today', agendaCount]] : []),
+              ['all', 'All'],
+              ...(presentTypes.length > 1 ? presentTypes.map((t) => [t.key, t.short]) : []),
+            ].map(([key, label, badge]) => (
               <button
                 key={key}
                 onClick={() => setTypeFilter(key)}
                 style={{
+                  display: 'flex', alignItems: 'center', gap: '0.3125rem',
                   padding: '0.375rem 0.75rem', borderRadius: '0.625rem', fontSize: '0.8125rem', fontWeight: '600',
                   border: typeFilter === key ? '1.5px solid var(--accent)' : '1.5px solid var(--border)',
                   backgroundColor: typeFilter === key ? 'rgba(99,102,241,0.1)' : 'transparent',
@@ -195,12 +218,22 @@ export default function ShoppingLists() {
                 }}
               >
                 {label}
+                {badge > 0 && (
+                  <span style={{
+                    fontSize: '0.6875rem', fontWeight: 800, lineHeight: 1,
+                    color: overdueCount > 0 ? '#fff' : 'var(--accent-text)',
+                    backgroundColor: overdueCount > 0 ? 'var(--danger)' : 'rgba(99,102,241,0.2)',
+                    borderRadius: '9999px', padding: '0.1875rem 0.375rem', minWidth: '1.125rem', textAlign: 'center',
+                  }}>
+                    {badge}
+                  </span>
+                )}
               </button>
             ))}
           </div>
         )}
 
-        {shoppingLists.length > 1 && (
+        {typeFilter !== 'today' && shoppingLists.length > 1 && (
           <div style={{ position: 'relative', marginBottom: '1rem' }}>
             <input className="app-input" placeholder="Search lists and tasks…" value={search} onChange={(e) => setSearch(e.target.value)} />
             {search && (
@@ -213,7 +246,9 @@ export default function ShoppingLists() {
       </div>
 
       <div style={{ padding: '0 1rem' }}>
-        {shoppingLists.length === 0 ? (
+        {typeFilter === 'today' ? (
+          <TodayView lists={shoppingLists} items={shoppingItems} rowProps={taskRowProps} />
+        ) : shoppingLists.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '4rem 1rem' }}>
             <ClipboardList size={48} style={{ margin: '0 auto 1rem', opacity: 0.2, color: 'var(--muted)', display: 'block' }} />
             <p style={{ fontWeight: '700', color: 'var(--text)', fontSize: '1.125rem', marginBottom: '0.5rem' }}>No lists yet</p>

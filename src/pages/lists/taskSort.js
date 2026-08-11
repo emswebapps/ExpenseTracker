@@ -1,3 +1,5 @@
+import { getDueDateMs } from '../../utils/dueDates.js';
+
 /**
  * The order tasks are shown in, everywhere. Tasks used to render in creation
  * order, which buried whatever was overdue and left finished ones wedged in the
@@ -19,18 +21,14 @@
 const isFinished = (item) => item.status === 'done';
 
 /**
- * Epoch ms this task is due, or null when it carries no deadline.
- *
- * Almost every task carries `dueAt` already; the fallback mirrors `computeDueAt`
- * in utils/notifications for the handful saved before that field existed. It's
- * repeated rather than imported so this module stays free of the Firebase
- * import chain and can be unit-tested on its own.
+ * Epoch ms this task is due, or null when it carries no deadline. Almost every
+ * task carries `dueAt`; the fallback covers the handful saved before that field
+ * existed.
  */
 function dueMs(item) {
   if (item.dueAt != null) return item.dueAt;
   if (!item.dueDate) return null;
-  const parsed = new Date(`${item.dueDate}T${item.dueTime || '23:59'}`).getTime();
-  return Number.isNaN(parsed) ? null : parsed;
+  return getDueDateMs(item.dueDate, item.dueTime);
 }
 
 function dueBucket(item, now) {

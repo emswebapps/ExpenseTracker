@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { ShoppingCart, ClipboardList, Briefcase, Gift, Bell, CalendarClock } from 'lucide-react';
-import { formatDueBadge, formatDueMoment } from '../../utils/notifications';
+import { formatDueBadge, formatDueMoment, isoInDays } from '../../utils/dueDates';
+
+export { isoInDays };
 
 // ── List type config ─────────────────────────────────────────────────────────
 // 'todo' and 'work' are both task lists — same card, same due date/time and
@@ -20,13 +22,6 @@ export const QUICK_DATES = [
   { label: 'Tomorrow', days: 1 },
   { label: 'Next week', days: 7 },
 ];
-
-/** "YYYY-MM-DD" for a date `days` from today, in local time. */
-export function isoInDays(days) {
-  const d = new Date();
-  d.setDate(d.getDate() + days);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
 
 /**
  * The due chip on a list header, shown when the list itself carries a deadline.

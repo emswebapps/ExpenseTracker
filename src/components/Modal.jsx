@@ -1,7 +1,12 @@
 import { X } from 'lucide-react';
 import { useEffect } from 'react';
 
-export default function Modal({ title, onClose, children }) {
+/**
+ * The app's only dialog. `footer` is optional: pass it and the node is pinned
+ * below the scrolling body, so a form's primary action can't scroll out of
+ * reach on a phone. Callers that don't pass one render exactly as before.
+ */
+export default function Modal({ title, onClose, children, footer }) {
   useEffect(() => {
     document.body.style.overflow = 'hidden';
     return () => { document.body.style.overflow = ''; };
@@ -63,10 +68,25 @@ export default function Modal({ title, onClose, children }) {
           overflowY: 'auto',
           flex: 1,
           padding: '1.25rem',
-          paddingBottom: 'max(1.25rem, env(safe-area-inset-bottom, 0px))',
+          // With a pinned footer the safe area is the footer's problem, and the
+          // extra bottom padding here would just be dead space above it.
+          paddingBottom: footer ? '1.25rem' : 'max(1.25rem, env(safe-area-inset-bottom, 0px))',
         }}>
           {children}
         </div>
+
+        {/* pinned footer */}
+        {footer && (
+          <div style={{
+            flexShrink: 0,
+            padding: '0.875rem 1.25rem',
+            paddingBottom: 'max(0.875rem, env(safe-area-inset-bottom, 0px))',
+            borderTop: '1px solid var(--border)',
+            backgroundColor: 'var(--surface)',
+          }}>
+            {footer}
+          </div>
+        )}
       </div>
     </div>
   );

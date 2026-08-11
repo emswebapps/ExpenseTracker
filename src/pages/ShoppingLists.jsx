@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Plus, X, Archive, ClipboardList, Clipboard } from 'lucide-react';
 import { useApp } from '../context/AppContext';
@@ -19,7 +19,7 @@ import { TaskListCard } from './lists/TaskListCard';
 import { ListForm } from './lists/forms/ListForm';
 import { GroceryItemForm } from './lists/forms/GroceryItemForm';
 import { WishlistItemForm } from './lists/forms/WishlistItemForm';
-import { TaskItemForm } from './lists/forms/TaskItemForm';
+import { TaskEditorModal } from './lists/forms/TaskEditorModal';
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function ShoppingLists() {
@@ -27,7 +27,7 @@ export default function ShoppingLists() {
     shoppingLists, addShoppingList, updateShoppingList, deleteShoppingList,
     shoppingItems, addShoppingItem, addShoppingItems, updateShoppingItem, deleteShoppingItem, toggleShoppingItem, importList,
     completeAndRepeatShoppingItem,
-    notifPrefs,
+    notifPrefs, cloudLoaded,
   } = useApp();
   const { user } = useAuth();
   // A search hit links to /lists?list=<id>; that list opens on arrival.
@@ -36,6 +36,10 @@ export default function ShoppingLists() {
 
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
+  // Whether the filter row has been touched. Guards the one-time landing
+  // decision below so it can never yank the view out from under a tap.
+  const chosenRef = useRef(false);
+  const landedRef = useRef(false);
   const [showNewList, setShowNewList] = useState(false);
   const [showPaste, setShowPaste] = useState(false);
   const [editList, setEditList] = useState(null);
@@ -82,6 +86,23 @@ export default function ShoppingLists() {
   const agenda = useMemo(() => collectAgenda(shoppingLists, shoppingItems), [shoppingLists, shoppingItems]);
   const overdueCount = agenda.overdue.length;
   const agendaCount = overdueCount + agenda.dueToday.length;
+
+  // Land on Today when the day actually has something in it, otherwise on the
+  // lists themselves. Decided exactly once: lists hydrate from localStorage
+  // synchronously, so a returning device is right on the first render, but a
+  // cold login has to wait for the Firestore pull — `cloudLoaded` is the flag
+  // the rest of the app already waits on for this. Re-deciding later would
+  // move the ground under someone already reading, hence the latch.
+  //
+  // A `?list=` deep link from Search or the Dashboard always wins: it asked
+  // for a specific list, and Today would silently swallow that.
+  useEffect(() => {
+    if (landedRef.current) return;
+    if (focusListId) { landedRef.current = true; return; }
+    if (user?.uid && !cloudLoaded) return;
+    landedRef.current = true;
+    if (!chosenRef.current && agendaCount > 0) setTypeFilter('today');
+  }, [agendaCount, focusListId, user?.uid, cloudLoaded]);
 
   const handleEditItem = (item) => {
     const list = shoppingLists.find((l) => l.id === item.listId);
@@ -236,10 +257,10 @@ export default function ShoppingLists() {
             ].map(([key, label, badge]) => (
               <button
                 key={key}
-                onClick={() => setTypeFilter(key)}
+                onClick={() => { chosenRef.current = true; setTypeFilter(key); }}
                 style={{
-                  display: 'flex', alignItems: 'center', gap: '0.3125rem',
-                  padding: '0.375rem 0.75rem', borderRadius: '0.625rem', fontSize: '0.8125rem', fontWeight: '600',
+                  display: 'flex', alignItems: 'center', gap: '0.3125rem', minHeight: '2.5rem',
+                  padding: '0.375rem 0.875rem', borderRadius: '0.625rem', fontSize: '0.8125rem', fontWeight: '600',
                   border: typeFilter === key ? '1.5px solid var(--accent)' : '1.5px solid var(--border)',
                   backgroundColor: typeFilter === key ? 'rgba(99,102,241,0.1)' : 'transparent',
                   color: typeFilter === key ? 'var(--accent-text)' : 'var(--muted)',
@@ -345,46 +366,44 @@ export default function ShoppingLists() {
         </Modal>
       )}
       {addTask && (
-        <Modal title={`New Task · ${addTask.list.name}`} onClose={cancelAddTask}>
-          <TaskItemForm
-            defaultLeadMinutes={notifPrefs?.todos?.defaultLeadMinutes ?? 0}
-            storagePath={user?.uid ? `users/${user.uid}/todos/${addTask.draftId}` : null}
-            attachments={addTask.attachments}
-            onAttachmentsChange={(atts) => setAddTask((d) => ({ ...d, attachments: atts }))}
-            onOpenAttachment={(att) => setViewer({ draft: true, attId: att.id })}
-            saveLabel="Add Task"
-            onSave={(data) => {
-              addShoppingItem({
-                ...data,
-                id: addTask.draftId,
-                listId: addTask.list.id,
-                attachments: addTask.attachments,
-                flagged: false,
-                completedAt: null,
-              });
-              setAddTask(null);
-            }}
-            onCancel={cancelAddTask}
-          />
-        </Modal>
+        <TaskEditorModal
+          title={`New Task · ${addTask.list.name}`}
+          saveLabel="Add Task"
+          onClose={cancelAddTask}
+          defaultLeadMinutes={notifPrefs?.todos?.defaultLeadMinutes ?? 0}
+          storagePath={user?.uid ? `users/${user.uid}/todos/${addTask.draftId}` : null}
+          attachments={addTask.attachments}
+          onAttachmentsChange={(atts) => setAddTask((d) => ({ ...d, attachments: atts }))}
+          onOpenAttachment={(att) => setViewer({ draft: true, attId: att.id })}
+          onSave={(data) => {
+            addShoppingItem({
+              ...data,
+              id: addTask.draftId,
+              listId: addTask.list.id,
+              attachments: addTask.attachments,
+              flagged: false,
+              completedAt: null,
+            });
+            setAddTask(null);
+          }}
+        />
       )}
       {editItem && isTaskList(editItemListType) && (() => {
         // Photos save as they upload, so the form reads the live task rather
         // than the snapshot taken when the modal opened.
         const live = shoppingItems.find((i) => i.id === editItem.id) || editItem;
         return (
-          <Modal title="Edit Task" onClose={() => setEditItem(null)}>
-            <TaskItemForm
-              initial={live}
-              defaultLeadMinutes={notifPrefs?.todos?.defaultLeadMinutes ?? 0}
-              storagePath={user?.uid ? `users/${user.uid}/todos/${live.id}` : null}
-              attachments={live.attachments || []}
-              onAttachmentsChange={(atts) => updateShoppingItem(live.id, { attachments: atts })}
-              onOpenAttachment={(att) => setViewer({ itemId: live.id, attId: att.id })}
-              onSave={(data) => { updateShoppingItem(live.id, data); setEditItem(null); }}
-              onCancel={() => setEditItem(null)}
-            />
-          </Modal>
+          <TaskEditorModal
+            title="Edit Task"
+            onClose={() => setEditItem(null)}
+            initial={live}
+            defaultLeadMinutes={notifPrefs?.todos?.defaultLeadMinutes ?? 0}
+            storagePath={user?.uid ? `users/${user.uid}/todos/${live.id}` : null}
+            attachments={live.attachments || []}
+            onAttachmentsChange={(atts) => updateShoppingItem(live.id, { attachments: atts })}
+            onOpenAttachment={(att) => setViewer({ itemId: live.id, attId: att.id })}
+            onSave={(data) => { updateShoppingItem(live.id, data); setEditItem(null); }}
+          />
         );
       })()}
       {exportList && (

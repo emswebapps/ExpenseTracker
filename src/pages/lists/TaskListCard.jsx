@@ -3,9 +3,10 @@ import {
   Plus, MoreVertical, Pencil, Trash2, Archive, ArchiveRestore, MessageSquare,
   Calendar, CalendarClock,
 } from 'lucide-react';
-import { getDueDateMs, localTodayISO } from '../../utils/notifications';
+import { getDueDateMs, localTodayISO, notificationPermission } from '../../utils/notifications';
 import { listTypeMeta, ListDueBadge, fmtDate, MENU_BTN, useTicker } from './listMeta';
 import { sortTasks } from './taskSort';
+import { parseTaskInput } from '../../utils/parseTaskInput.js';
 import { pasteAsItems } from './pasteImport';
 import TaskRow from './TaskRow';
 
@@ -16,7 +17,7 @@ export function TaskListCard({
   list, listItems,
   onEditList, onDeleteList, onArchiveList,
   onAddTodoItem, onAddTodoItems, onDeleteItem, onUpdateItem, onEditItem, onExport,
-  onOpenAttachment, onToggleStatus, onSetBlocked,
+  onOpenAttachment, onToggleStatus, onSetBlocked, onAddTaskDetailed,
 }) {
   const [expanded, setExpanded] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -38,16 +39,25 @@ export function TaskListCard({
   // while the card is open and something still has a deadline.
   useTicker(expanded && listItems.some((i) => isPending(i) && i.dueDate));
 
-  const makeItem = (name) => ({
+  const makeItem = (name, due = {}) => ({
     listId: list.id, name, status: 'pending', notes: null, address: null,
-    dueDate: null, dueTime: null, notifyEnabled: false, remindOffsetMinutes: 0,
+    dueDate: due.dueDate ?? null, dueTime: due.dueTime ?? null,
+    notifyEnabled: due.notifyEnabled ?? false, remindOffsetMinutes: 0,
     flagged: false, completedAt: null,
   });
 
+  // Typing "trash out tomorrow 7pm" dates the task on the way in. A pasted
+  // list doesn't go through here — those lines are names, not sentences.
+  //
+  // A date typed this way switches the reminder on exactly when the clock
+  // button would, but only if permission was already granted: interrupting
+  // someone mid-quick-add with a permission prompt would be obnoxious.
   const handleQuickAdd = () => {
     const trimmed = quickAdd.trim();
     if (!trimmed) return;
-    onAddTodoItem(makeItem(trimmed));
+    const { name, dueDate, dueTime } = parseTaskInput(trimmed);
+    const notify = !!dueDate && notificationPermission() === 'granted';
+    onAddTodoItem(makeItem(name, { dueDate, dueTime, notifyEnabled: notify }));
     setQuickAdd('');
   };
 
@@ -142,6 +152,7 @@ export function TaskListCard({
           <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => setMenuOpen(false)} />
           <div style={{ position: 'absolute', right: '0.75rem', top: '3rem', zIndex: 50, backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '0.75rem', overflow: 'hidden', minWidth: '11rem', boxShadow: '0 8px 32px rgba(0,0,0,0.3)' }}>
             <button onClick={() => { onExport(list); setMenuOpen(false); }} style={MENU_BTN}><MessageSquare size={14} /> Share as text</button>
+            <button onClick={() => { onAddTaskDetailed(list); setMenuOpen(false); }} style={MENU_BTN}><Plus size={14} /> Add task with details</button>
             <button onClick={() => { onEditList(list); setMenuOpen(false); }} style={MENU_BTN}><Pencil size={14} /> Edit list</button>
             <button onClick={() => { onArchiveList(list.id); setMenuOpen(false); }} style={MENU_BTN}>
               {list.archived ? <ArchiveRestore size={14} /> : <Archive size={14} />}

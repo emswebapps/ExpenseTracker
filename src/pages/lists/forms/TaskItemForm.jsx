@@ -10,6 +10,7 @@ import { useDueReminder, DueReminderFields } from '../useDueReminder';
 export function TaskItemForm({
   initial = {}, defaultLeadMinutes = 0, onSave, onCancel,
   storagePath, attachments = [], onAttachmentsChange, onOpenAttachment,
+  saveLabel = 'Save Task',
 }) {
   const [name, setName] = useState(initial.name || '');
   const [notes, setNotes] = useState(initial.notes || '');
@@ -92,7 +93,7 @@ export function TaskItemForm({
 
       <div style={{ display: 'flex', gap: '0.75rem', paddingTop: '0.25rem' }}>
         <button type="button" onClick={onCancel} className="app-btn-secondary" style={{ flex: 1 }}>Cancel</button>
-        <button type="submit" className="app-btn-primary" style={{ flex: 1 }}>Save Task</button>
+        <button type="submit" className="app-btn-primary" style={{ flex: 1 }}>{saveLabel}</button>
       </div>
     </form>
   );

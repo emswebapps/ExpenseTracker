@@ -474,11 +474,14 @@ export function AppProvider({ children, uid }) {
   }, [shoppingLists, shoppingItems, debouncedSync]);
 
   // ── Shopping Items ──
+  // The caller may bring its own id: the full add-task form needs one before
+  // the item exists, so photos can upload to their final storage path while
+  // it's still being filled in.
   const addShoppingItem = useCallback((item) => persistShoppingItems([
     ...shoppingItems,
     {
       ...item,
-      id: generateId(),
+      id: item.id ?? generateId(),
       createdAt: new Date().toISOString(),
       dueAt: item.dueAt ?? computeDueAt(item.dueDate, item.dueTime),
     },

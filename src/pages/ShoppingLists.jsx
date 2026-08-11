@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import Modal from '../components/Modal';
 import ImageLightbox from '../components/ImageLightbox';
 import { deleteFile } from '../utils/storageUtils';
-import { isTaskList, isWishlist } from '../utils/helpers';
+import { isTaskList, isWishlist, generateId } from '../utils/helpers';
 import { LIST_TYPES } from './lists/listMeta';
 import TodayView from './lists/TodayView';
 import { collectAgenda } from './lists/agenda';
@@ -35,10 +35,13 @@ export default function ShoppingLists() {
   const [editList, setEditList] = useState(null);
   const [editItem, setEditItem] = useState(null);
   const [editItemListType, setEditItemListType] = useState('grocery');
-  const [addItemToList, setAddItemToList] = useState(null);
+  // A task being composed in the full form. It carries an id from the start so
+  // photos can upload before the task is saved, and the attachments it has
+  // gathered so far so they can be cleaned up if the form is abandoned.
+  const [addTask, setAddTask] = useState(null); // { list, draftId, attachments }
   const [exportList, setExportList] = useState(null);
   const [showArchived, setShowArchived] = useState(false);
-  const [viewer, setViewer] = useState(null); // { itemId, attId }
+  const [viewer, setViewer] = useState(null); // { itemId | draft, attId }
 
   const active = useMemo(() => shoppingLists.filter((l) => !l.archived), [shoppingLists]);
   const archived = useMemo(() => shoppingLists.filter((l) => l.archived), [shoppingLists]);
@@ -80,8 +83,15 @@ export default function ShoppingLists() {
     setEditItem(item);
   };
 
-  const handleAddItemToList = (list) => {
-    setAddItemToList(list);
+  const handleAddTaskDetailed = (list) => {
+    setAddTask({ list, draftId: generateId(), attachments: [] });
+  };
+
+  // Abandoning the form has to take any already-uploaded photos with it,
+  // otherwise they'd sit in storage with nothing pointing at them.
+  const cancelAddTask = () => {
+    if (addTask?.attachments?.length) removeAttachmentFiles([{ attachments: addTask.attachments }]);
+    setAddTask(null);
   };
 
   // Uploaded photos outlive the row that pointed at them unless they're cleaned
@@ -147,6 +157,7 @@ export default function ShoppingLists() {
     onOpenAttachment: (item, att) => setViewer({ itemId: item.id, attId: att.id }),
     onToggleStatus: handleToggleStatus,
     onSetBlocked: handleSetBlocked,
+    onAddTaskDetailed: handleAddTaskDetailed,
   });
 
   const wishlistCardProps = (list) => ({
@@ -315,6 +326,30 @@ export default function ShoppingLists() {
           <WishlistItemForm initial={editItem} onSave={(data) => { updateShoppingItem(editItem.id, data); setEditItem(null); }} onCancel={() => setEditItem(null)} />
         </Modal>
       )}
+      {addTask && (
+        <Modal title={`New Task · ${addTask.list.name}`} onClose={cancelAddTask}>
+          <TaskItemForm
+            defaultLeadMinutes={notifPrefs?.todos?.defaultLeadMinutes ?? 0}
+            storagePath={user?.uid ? `users/${user.uid}/todos/${addTask.draftId}` : null}
+            attachments={addTask.attachments}
+            onAttachmentsChange={(atts) => setAddTask((d) => ({ ...d, attachments: atts }))}
+            onOpenAttachment={(att) => setViewer({ draft: true, attId: att.id })}
+            saveLabel="Add Task"
+            onSave={(data) => {
+              addShoppingItem({
+                ...data,
+                id: addTask.draftId,
+                listId: addTask.list.id,
+                attachments: addTask.attachments,
+                flagged: false,
+                completedAt: null,
+              });
+              setAddTask(null);
+            }}
+            onCancel={cancelAddTask}
+          />
+        </Modal>
+      )}
       {editItem && isTaskList(editItemListType) && (() => {
         // Photos save as they upload, so the form reads the live task rather
         // than the snapshot taken when the modal opened.
@@ -340,14 +375,16 @@ export default function ShoppingLists() {
         </Modal>
       )}
       {viewer && (() => {
-        const item = shoppingItems.find((i) => i.id === viewer.itemId);
-        const atts = item?.attachments || [];
+        // Photos on a task being composed have no saved item to read from yet,
+        // so those come off the draft instead.
+        const item = viewer.itemId ? shoppingItems.find((i) => i.id === viewer.itemId) : null;
+        const atts = (viewer.draft ? addTask?.attachments : item?.attachments) || [];
         if (atts.length === 0) return null;
         return (
           <ImageLightbox
             attachments={atts}
             startId={viewer.attId}
-            title={item.name}
+            title={item ? item.name : 'New task'}
             onClose={() => setViewer(null)}
           />
         );

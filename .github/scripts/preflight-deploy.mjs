@@ -54,6 +54,22 @@ const REQUIRED_PERMISSIONS = [
   ['firebase.projects.get', 'Firebase Admin'],
 ];
 
+// The `gcloud` role ID behind each friendly name in the table above. The
+// console shows the friendly name, but granting a role from a script needs the
+// ID, and guessing it wrong is the sort of thing that costs another failed
+// deploy — so keep the mapping here, next to the names it belongs to.
+const ROLE_IDS = new Map([
+  ['Service Usage Admin', 'roles/serviceusage.serviceUsageAdmin'],
+  ['Cloud Functions Admin', 'roles/cloudfunctions.admin'],
+  ['Service Account User', 'roles/iam.serviceAccountUser'],
+  ['Cloud Build Editor', 'roles/cloudbuild.builds.editor'],
+  ['Artifact Registry Administrator', 'roles/artifactregistry.admin'],
+  ['Storage Admin', 'roles/storage.admin'],
+  ['Eventarc Admin', 'roles/eventarc.admin'],
+  ['Cloud Scheduler Admin', 'roles/cloudscheduler.admin'],
+  ['Firebase Admin', 'roles/firebase.admin'],
+]);
+
 const apiLink = (api) => `https://console.cloud.google.com/apis/library/${api}?project=${project}`;
 
 function error(line) { console.log(`::error::${line}`); }
@@ -223,6 +239,57 @@ if (held === null) {
 }
 console.log('');
 
+/**
+ * Print one runnable block that fixes everything the checks found.
+ *
+ * The list of missing roles and APIs above is accurate but tedious to act on:
+ * each role is a separate row in the IAM editor and each API a separate page,
+ * and getting eight of them right by hand is how a deploy ends up failing a
+ * second time on the two that were missed. The same fix is a handful of gcloud
+ * lines, and Cloud Shell (the >_ icon in the console) runs them already signed
+ * in as the person reading this, with no install and no local terminal.
+ *
+ * Printed with console.log rather than as ::error:: annotations so the block
+ * survives copying — GitHub reformats annotation text, and a mangled paste is
+ * worse than no paste.
+ */
+function printFixBlock(disabledApis, rolesToGrant, serviceAccount) {
+  const lines = [];
+  for (const [api] of disabledApis) {
+    lines.push(`gcloud services enable ${api} --project=${project}`);
+  }
+  for (const [role] of rolesToGrant) {
+    const id = ROLE_IDS.get(role);
+    // A role with no known ID would silently drop out of the block, which would
+    // make the paste quietly incomplete — name it instead so it gets clicked.
+    if (!id) {
+      lines.push(`# Grant "${role}" by hand — no gcloud role ID is recorded for it.`);
+      continue;
+    }
+    lines.push(
+      `gcloud projects add-iam-policy-binding ${project} \\\n`
+      + `    --member="serviceAccount:${serviceAccount}" \\\n`
+      + `    --role="${id}" --condition=None`,
+    );
+  }
+  if (lines.length === 0) return;
+
+  console.log('');
+  console.log('─'.repeat(72));
+  console.log('FIX IT IN ONE PASTE');
+  console.log('');
+  console.log('Open Cloud Shell — the >_ icon, top right of');
+  console.log(`https://console.cloud.google.com/home/dashboard?project=${project}`);
+  console.log('— signed in as a project owner, and paste this:');
+  console.log('');
+  for (const line of lines) console.log(`  ${line}`);
+  console.log('');
+  console.log('Then re-run this workflow: Actions → Deploy Cloud Functions →');
+  console.log('Run workflow. It takes a couple of minutes and needs no code change.');
+  console.log('─'.repeat(72));
+  console.log('');
+}
+
 // ── Verdict ─────────────────────────────────────────────────────────────────
 // A disabled API is only fatal when the account also can't switch it on; with
 // Service Usage Admin the deploy enables it and carries on. Reporting those
@@ -258,8 +325,10 @@ if (blockingRoles.length > 0) {
 }
 
 if (fatal) {
+  printFixBlock(disabled, blockingRoles, key.client_email);
   error('Stopping before the deploy — it would fail part-way through with a');
   error('less specific version of the above, leaving nothing deployed.');
+  error('A copy-paste fix for all of it is printed just above this line.');
   process.exit(1);
 }
 

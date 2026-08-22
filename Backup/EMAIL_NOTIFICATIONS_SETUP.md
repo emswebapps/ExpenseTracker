@@ -164,7 +164,9 @@ server until it's deployed.
 
 **Preferred — from the browser.** Set up the deploy credential once, following
 `FUNCTIONS_DEPLOY_SETUP.md`, then run the **Deploy Cloud Functions** workflow
-from the repository's **Actions** tab. After that it deploys itself whenever
+from the repository's **Actions** tab. A credential that exists but lacks the
+project roles is the usual reason that workflow goes red without deploying
+anything; `FUNCTIONS_DEPLOY_SETUP.md` step 2a grants the whole set in one paste. After that it deploys itself whenever
 `functions/` changes on `main`, and no terminal is ever needed again.
 
 **Or from a terminal**, if you'd rather not set up the credential:

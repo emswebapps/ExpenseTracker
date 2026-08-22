@@ -51,6 +51,53 @@ Click **Done**.
 > pencil, and add them. Skipping this fails mid-deploy, not at the credential
 > check.
 
+## 2a. Or do steps 2 and 2b in one paste
+
+Nine roles and seven APIs is a lot of clicking, and missing one costs a whole
+failed deploy. The same grants are a few `gcloud` lines, and **Cloud Shell** —
+the `>_` icon at the top right of the
+[console](https://console.cloud.google.com/home/dashboard?project=billtracker-256ef)
+— is a browser terminal already signed in as you, with `gcloud` installed.
+
+Open it as a project **owner**, replace `SERVICE_ACCOUNT` with your deploy
+account's address, and paste the lot. Everything here is idempotent, so it is
+safe to run again if you are not sure what was granted before.
+
+```bash
+PROJECT=billtracker-256ef
+SERVICE_ACCOUNT=github-deployer@billtracker-256ef.iam.gserviceaccount.com
+
+gcloud services enable \
+  cloudfunctions.googleapis.com cloudbuild.googleapis.com \
+  artifactregistry.googleapis.com run.googleapis.com \
+  eventarc.googleapis.com pubsub.googleapis.com \
+  cloudscheduler.googleapis.com --project="$PROJECT"
+
+for ROLE in \
+  roles/firebase.admin \
+  roles/cloudfunctions.admin \
+  roles/iam.serviceAccountUser \
+  roles/cloudbuild.builds.editor \
+  roles/artifactregistry.admin \
+  roles/cloudscheduler.admin \
+  roles/eventarc.admin \
+  roles/storage.admin \
+  roles/serviceusage.serviceUsageAdmin
+do
+  gcloud projects add-iam-policy-binding "$PROJECT" \
+    --member="serviceAccount:$SERVICE_ACCOUNT" \
+    --role="$ROLE" --condition=None >/dev/null
+done
+```
+
+> Reusing the Firebase Admin SDK key? Then `SERVICE_ACCOUNT` is the
+> `firebase-adminsdk-…@billtracker-256ef.iam.gserviceaccount.com` address shown
+> in the key file's `client_email`, and in the deploy log's preflight output.
+
+When the preflight stops a deploy it prints this same block back at you, already
+filled in with your service account and narrowed to only what is actually
+missing. Copy it from the failed run's log.
+
 ## 2b. Enable the APIs the deploy touches
 
 A deploy calls several Google APIs, and an account without **Service Usage
@@ -131,6 +178,7 @@ will never be the reason a working deploy is blocked.
 | `private_key is not a usable private key` | The key was mangled (usually newlines stripped). Download a fresh one and paste it unmodified |
 | `key belongs to project "…"` | The service account was created in the wrong Google Cloud project |
 | `Failed to authenticate, have you run firebase login?` | The key is well-formed but Google rejected it — the key was deleted or disabled, or its service account was removed. Create a new key (steps 1–4) |
+| `The service account is missing N role(s)` | The preflight caught it before the deploy. Its log ends with a filled-in `gcloud` block — paste that into Cloud Shell, then re-run the workflow |
 | `Permission denied` / `caller does not have permission` | A role from step 2 is missing — the message names the service |
 | `Permissions denied enabling <api>` | The key is fine; the account can't switch that API on. Enable it from the step 2b list, or grant **Service Usage Admin** |
 | `API has not been used in project…` | Enable the named API under **APIs & Services → Library**, then re-run |

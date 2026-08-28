@@ -43,10 +43,10 @@ export const DEFAULT_VARIANT_ID = 'short';
 // can't drift apart.
 const RETURN_PHRASES = [
   'come back',
+  'coming back',
   'come find you',
   'pick it back up',
   'be back',
-  'come back to you',
 ];
 
 // Second-person constructions that turn a timeout into an accusation.
@@ -108,7 +108,11 @@ export function smsHref(text) {
 // his side.
 const TONE_CHECKS = [
   { re: /\byou (always|never)\b/i, level: 'warn', message: 'Absolutes usually land as an accusation.' },
-  { re: /\byou (don’t|don't|didn’t|didn't|won’t|won't|aren’t|aren't)\b/i, level: 'warn', message: 'This might land as a list of what he isn’t doing.' },
+  // Second-person negation reads as a charge sheet — except in the
+  // constructions that do the opposite and let him off the hook ("you don't
+  // have to fix it", "you didn't do anything"). Those are the warmest lines in
+  // the standing agreement, and flagging them would be exactly backwards.
+  { re: /\byou (don’t|don't|didn’t|didn't|won’t|won't|aren’t|aren't)\b(?!\s+(have to|need to|deserve|do anything|have anything))/i, level: 'warn', message: 'This might land as a list of what he isn’t doing.' },
   { re: /\b(you made me|you make me|because of you)\b/i, level: 'warn', message: 'This puts the crash on him.' },
   { re: /\bwhy (do|did|are|don’t|don't) you\b/i, level: 'warn', message: 'A “why do you” question asks him to defend himself.' },
 ];
@@ -129,4 +133,27 @@ export function toneWarnings(text) {
     out.push({ level: 'info', message: 'Add a line that says you’re coming back — that’s the part that keeps this from feeling like a wall.' });
   }
   return out;
+}
+
+// ── The standing agreement ──────────────────────────────────────────────────
+// Sent once, on a good day, out of band. This is what lets the in-the-moment
+// message afford to be four words long: he already knows what they mean.
+//
+// Note what it does NOT ask of him — it doesn't ask him to check in, draw her
+// out, or work out what's wrong. Those are the instincts that make a crash
+// louder, and naming them plainly is kinder than letting him guess wrong and
+// feel like he failed.
+export const DEFAULT_AGREEMENT = `There’s something I want to set up with you for the evenings, while things are good and I can explain it properly.
+
+When my meds wear off I get flooded. Everything you say lands wrong, and I lose access to all the evidence that you love me. It isn’t about you and it isn’t something you caused.
+
+So if I say “I’m crashing,” here’s what it means: I need about 30 minutes, I’m not angry at you, and I am coming back. It is never me leaving the conversation.
+
+What helps most is if you say something like “ok, take your time,” and then let it be. You don’t have to fix it, follow me, or work out what’s wrong — that all makes it louder. Half an hour later I’ll be myself again and we can talk about whatever it actually was.
+
+Thank you for being patient with this.`;
+
+export function buildAgreement(kit = {}, partnerName) {
+  const custom = typeof kit.agreementText === 'string' ? kit.agreementText.trim() : '';
+  return applyName(custom || DEFAULT_AGREEMENT, partnerName ?? kit.partnerName ?? '');
 }

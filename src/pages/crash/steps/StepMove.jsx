@@ -1,6 +1,8 @@
 import { FEELINGS } from '../crashKit.js';
 import { BigButton } from '../ui.jsx';
 import { formatClock } from '../protocol.js';
+import { bestMove } from '../stats.js';
+import { useApp } from '../../../context/AppContext';
 
 /**
  * Round 4, placed after the cognitive rounds on purpose. Distraction on its own
@@ -9,8 +11,13 @@ import { formatClock } from '../protocol.js';
  * comes back comes back to a brain that already sorted it.
  */
 export default function StepMove({ session, kit, onPatch, onOpenAnchors, onOpenPark, onGoTo }) {
+  const { crashSessions } = useApp();
   const feeling = session.feeling;
   const moves = session.moves || [];
+  // Earned from her own record, not a guess. Tile order deliberately stays
+  // fixed — a menu that reshuffles under a dysregulated thumb is worse than
+  // one that doesn't.
+  const best = bestMove(crashSessions.filter((s) => s.id !== session.id));
 
   if (!feeling) {
     return (
@@ -53,10 +60,19 @@ export default function StepMove({ session, kit, onPatch, onOpenAnchors, onOpenP
             key={o.id}
             tone={picked === o.id ? 'accent' : 'quiet'}
             onClick={() => choose(o)}
-            style={{ minHeight: '5.5rem', fontSize: '0.9375rem' }}
+            style={{ minHeight: '5.5rem', fontSize: '0.9375rem', position: 'relative' }}
           >
             <span style={{ fontSize: '1.625rem', display: 'block', marginBottom: '0.375rem' }}>{o.emoji}</span>
             {o.label}
+            {best && best.id === o.id && (
+              <span style={{
+                display: 'block', marginTop: '0.3125rem',
+                fontSize: '0.6875rem', fontWeight: 700, letterSpacing: '0.02em',
+                color: picked === o.id ? 'rgba(255,255,255,0.85)' : 'var(--positive-text)',
+              }}>
+                usually helps you most
+              </span>
+            )}
           </BigButton>
         ))}
       </div>

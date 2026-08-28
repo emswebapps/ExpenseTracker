@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   BRAKE_VARIANTS, buildBrakeMessage, hasReturnCommitment, hasBlame, applyName,
   variantById, smsHref,
-  toneWarnings,
+  toneWarnings, buildAgreement, DEFAULT_AGREEMENT,
 } from './message.js';
 
 // The one that actually matters: a timeout without a promise to return is
@@ -78,4 +78,33 @@ test('a message with no return promise gets a nudge, not a block', () => {
 test('tone check is safe on empty input', () => {
   assert.deepEqual(toneWarnings(''), []);
   assert.deepEqual(toneWarnings(undefined), []);
+});
+
+test('the standing agreement explains the phrase and promises the return', () => {
+  const text = buildAgreement({});
+  assert.ok(text.includes('I’m crashing'), 'it has to name the actual phrase');
+  assert.ok(hasReturnCommitment(text));
+  assert.equal(hasBlame(text), false);
+  assert.deepEqual(toneWarnings(text).filter((w) => w.level === 'warn'), []);
+});
+
+test('a rewritten agreement wins over the default', () => {
+  assert.equal(buildAgreement({ agreementText: 'ours' }), 'ours');
+  assert.equal(buildAgreement({ agreementText: '  ' }), DEFAULT_AGREEMENT);
+});
+
+test('reassurance is not mistaken for blame', () => {
+  for (const line of [
+    'You don’t have to fix it.',
+    'You didn’t do anything wrong.',
+    'You don’t need to follow me.',
+  ]) {
+    assert.deepEqual(toneWarnings(line).filter((w) => w.level === 'warn'), [], line);
+  }
+});
+
+test('the blunt second-person charge sheet is still caught', () => {
+  for (const line of ['you don’t care', 'you didn’t answer me', 'you aren’t even listening']) {
+    assert.ok(toneWarnings(line).some((w) => w.level === 'warn'), line);
+  }
 });

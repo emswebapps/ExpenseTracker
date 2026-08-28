@@ -2,6 +2,7 @@ import { Feather, Images, TrendingDown, Settings2, Inbox } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { useCountdown } from './useCountdown.js';
 import { timerRemaining, formatRemaining, isReleased } from './protocol.js';
+import DoseRow from './DoseRow.jsx';
 
 function QuietRow({ Icon, label, detail, onClick }) {
   return (
@@ -40,6 +41,8 @@ export default function CrashHome({ active, onStart, onResume, onPark, onGo }) {
           Nothing in here is shared with anyone.
         </p>
       </div>
+
+      <DoseRow />
 
       {active ? (
         <button

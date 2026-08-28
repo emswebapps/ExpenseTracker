@@ -31,6 +31,15 @@ export default defineConfig({
         ],
         shortcuts: [
           {
+            // First in the list so it's the top item on a long-press, which is
+            // the whole point: the fewest possible taps when they're needed most.
+            name: 'I’m crashing',
+            short_name: 'Crash',
+            description: 'Start the crash protocol',
+            url: '/ExpenseTracker/crash?start=1',
+            icons: [{ src: '/ExpenseTracker/pwa-192x192.png', sizes: '192x192', type: 'image/png' }],
+          },
+          {
             name: 'Log Purchase',
             short_name: 'Log',
             description: 'Quickly log a new purchase',

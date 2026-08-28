@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { summarize, historySentence, pruneSessions, compactSession, FULL_SESSION_CAP } from './stats.js';
+import {
+  summarize, historySentence, pruneSessions, compactSession, FULL_SESSION_CAP,
+  rankMoves, bestMove,
+} from './stats.js';
 
 const session = (over = {}) => ({
   id: Math.random().toString(36).slice(2),
@@ -101,4 +104,54 @@ test('the session you are currently inside is never compacted', () => {
   const live = pruned.find((s) => s.id === 'live');
   assert.equal(live.compact, undefined);
   assert.ok(live.facts, 'the live session must keep its facts column');
+});
+
+// ── which options actually help ─────────────────────────────────────────────
+
+const moved = (moves, intensity, intensityAfter) => session({ moves, intensity, intensityAfter });
+
+test('an option used fewer than three times makes no claim', () => {
+  const s = [moved(['walk'], 8, 3), moved(['walk'], 8, 4)];
+  assert.deepEqual(rankMoves(s), []);
+  assert.equal(bestMove(s), null);
+});
+
+test('options are ranked by how far the number actually dropped', () => {
+  const s = [
+    ...Array.from({ length: 3 }, () => moved(['walk'], 8, 2)),   // drop 6
+    ...Array.from({ length: 3 }, () => moved(['game'], 8, 6)),   // drop 2
+  ];
+  const ranked = rankMoves(s);
+  assert.equal(ranked.length, 2);
+  assert.equal(ranked[0].id, 'walk');
+  assert.equal(ranked[0].avgDrop, 6);
+  assert.equal(ranked[1].id, 'game');
+  assert.equal(bestMove(s).id, 'walk');
+});
+
+test('sessions missing the second rating are left out of the average', () => {
+  const s = [
+    moved(['walk'], 8, 2), moved(['walk'], 8, 2), moved(['walk'], 8, 2),
+    moved(['walk'], 9, null),
+  ];
+  const ranked = rankMoves(s);
+  assert.equal(ranked[0].uses, 3);
+  assert.equal(ranked[0].avgDrop, 6);
+});
+
+test('an option logged twice in one night is counted once for it', () => {
+  const s = Array.from({ length: 3 }, () => moved(['walk', 'walk'], 8, 4));
+  assert.equal(rankMoves(s)[0].uses, 3);
+});
+
+test('an option that never helps is never presented as the best one', () => {
+  const s = Array.from({ length: 3 }, () => moved(['scroll'], 5, 7)); // went up
+  assert.equal(bestMove(s), null);
+  assert.equal(rankMoves(s)[0].avgDrop, -2);
+});
+
+test('ranking is safe on an empty history', () => {
+  assert.deepEqual(rankMoves([]), []);
+  assert.deepEqual(rankMoves(undefined), []);
+  assert.equal(bestMove([]), null);
 });

@@ -117,14 +117,63 @@ Supporting pieces:
 - **My kit** — warning signs, the agreed phrase, timer length, and whether to
   get a buzz when time is up. Set this up on a day you feel fine.
 
+### Dose timing and the predicted window
+
+The crash is a schedule, not a surprise. Log when you took your meds — one tap
+at the top of the Crash tab, time editable — and the app shows tonight's likely
+window on a small timeline, and pushes a heads-up about half an hour before it
+opens, while there's still time to finish a hard conversation.
+
+Onset and duration default to 4 hours and 5 hours and are editable in **My
+Kit**. Once there are five or more dose-and-crash pairs, *What usually happens*
+works out your real number from your own record — "your last 8 crashes started
+about 4h 20m after your dose" — and offers to use it. It never changes the
+setting on its own.
+
+**The app never advises on medication.** It does arithmetic on a time you
+entered and shows you the result. There is no dose reminder, no adherence
+tracking and no missed-dose guilt; with nothing logged, the feature says
+nothing at all.
+
+### What he needs to know
+
+A message in **My Kit** to send him once, on a good day, explaining what the
+phrase means, that you're coming back, and — the part he otherwise has to guess
+— that checking in, following you or trying to fix it makes a crash louder.
+This is what lets the in-the-moment message afford to be four words long.
+Nothing of yours is shared; it's a message you choose to send.
+
+### What actually helps you
+
+Options in the crash menu are logged alongside the before-and-after numbers, so
+after a few weeks the app can say which ones actually move yours. The best one
+gets a quiet "usually helps you most" tag; the full ranking is in *What usually
+happens*. Tile order never changes — a menu that reshuffles under a
+dysregulated thumb is worse than one that doesn't. Nothing is claimed about an
+option used fewer than three times.
+
+### Reminders
+
+Two pushes, both from the `crashReminders` Cloud Function so they arrive with
+the app closed: the window heads-up, and a nudge the morning after when
+something you held in escrow opens. Both are **push only** — never in the email
+digest — and neither ever contains a word you wrote, since a lock-screen
+preview is visible to whoever is holding the phone. Both are switchable in
+My Kit.
+
+There's also a home-screen shortcut: long-press the installed app icon and
+"I'm crashing" starts a session directly.
+
 Everything is private to your login and deliberately excluded from global
 Search and from shared view links. The timer is stored as an absolute
 timestamp and re-syncs on `visibilitychange`, so putting the phone down and
 walking the dogs — which step 6 tells you to do — doesn't lose the session.
 
 `test:unit` covers the step machine and timer math (`protocol.js`), the message
-builder and its tone checks (`message.js`), and the history stats and session
-pruning (`stats.js`).
+builder and its tone checks (`message.js`), the history stats, session pruning
+and move ranking (`stats.js`), and the window prediction and onset inference
+(`window.js`). `npm --prefix functions test` covers which reminders are due —
+including an assertion that no notification body can contain your own words.
 
 ## Push notification setup
 

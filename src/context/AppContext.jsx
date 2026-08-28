@@ -56,6 +56,7 @@ export function AppProvider({ children, uid }) {
   const [crashDrafts, setCrashDraftsState] = useState(() => storage.getCrashDrafts());
   const [crashAnchors, setCrashAnchorsState] = useState(() => storage.getCrashAnchors());
   const [crashKit, setCrashKitState] = useState(() => storage.getCrashKit());
+  const [crashDoses, setCrashDosesState] = useState(() => storage.getCrashDoses());
   const [cloudLoaded, setCloudLoaded] = useState(false);
   const [testMode, setTestMode] = useState(false);
   // Selected month shared across all pages so toggling the month on one page
@@ -66,7 +67,7 @@ export function AppProvider({ children, uid }) {
 
   // Use refs to always have fresh values for the save function
   const stateRef = useRef({});
-  stateRef.current = { bills, income, budget, settings, notes, debts, savings, commitments, purchases, plannedExpenses, jobs, shifts, budgetCategories, budgetSpends, agreements, shoppingLists, shoppingItems, planningSettings, recurringTemplates, paycheckActuals, notifPrefs, fcmToken, projects, vaultDocuments, billStickyNotes, crashSessions, crashDrafts, crashAnchors, crashKit };
+  stateRef.current = { bills, income, budget, settings, notes, debts, savings, commitments, purchases, plannedExpenses, jobs, shifts, budgetCategories, budgetSpends, agreements, shoppingLists, shoppingItems, planningSettings, recurringTemplates, paycheckActuals, notifPrefs, fcmToken, projects, vaultDocuments, billStickyNotes, crashSessions, crashDrafts, crashAnchors, crashKit, crashDoses };
 
   // Load from Firestore on login
   useEffect(() => {
@@ -113,6 +114,7 @@ export function AppProvider({ children, uid }) {
         if (data.crashDrafts) { setCrashDraftsState(data.crashDrafts); storage.setCrashDrafts(data.crashDrafts); }
         if (data.crashAnchors) { setCrashAnchorsState(data.crashAnchors); storage.setCrashAnchors(data.crashAnchors); }
         if (data.crashKit) { const k = { ...storage.getCrashKit(), ...data.crashKit }; setCrashKitState(k); storage.setCrashKit(k); }
+        if (data.crashDoses) { setCrashDosesState(data.crashDoses); storage.setCrashDoses(data.crashDoses); }
       } else {
         // First login — upload existing localStorage data to Firestore
         saveUserData(uid, stateRef.current);
@@ -263,6 +265,7 @@ export function AppProvider({ children, uid }) {
       if (snap.crashDrafts) { setCrashDraftsState(snap.crashDrafts); storage.setCrashDrafts(snap.crashDrafts); }
       if (snap.crashAnchors) { setCrashAnchorsState(snap.crashAnchors); storage.setCrashAnchors(snap.crashAnchors); }
       if (snap.crashKit) { setCrashKitState(snap.crashKit); storage.setCrashKit(snap.crashKit); }
+      if (snap.crashDoses) { setCrashDosesState(snap.crashDoses); storage.setCrashDoses(snap.crashDoses); }
       testModeSnapshot.current = null;
     }
     testModeRef.current = false;
@@ -1065,6 +1068,16 @@ export function AppProvider({ children, uid }) {
     if (!testModeRef.current) { storage.setCrashAnchors(next); debouncedSync({ crashAnchors: next }); }
   }, [debouncedSync]);
 
+  // Doses accumulate every single day, so this is the crash slice most able to
+  // outgrow its share of the shared app document. Two months is far more than
+  // the onset inference needs.
+  const persistCrashDoses = useCallback((next) => {
+    const cutoff = Date.now() - 60 * 24 * 60 * 60 * 1000;
+    const kept = next.filter((d) => d && d.takenAt >= cutoff).sort((a, b) => b.takenAt - a.takenAt);
+    setCrashDosesState(kept);
+    if (!testModeRef.current) { storage.setCrashDoses(kept); debouncedSync({ crashDoses: kept }); }
+  }, [debouncedSync]);
+
   const persistCrashKit = useCallback((next) => {
     setCrashKitState(next);
     if (!testModeRef.current) { storage.setCrashKit(next); debouncedSync({ crashKit: next }); }
@@ -1152,6 +1165,20 @@ export function AppProvider({ children, uid }) {
     persistCrashAnchors(crashAnchors.filter((a) => a.id !== id));
   }, [crashAnchors, persistCrashAnchors]);
 
+  const addCrashDose = useCallback((takenAt = Date.now()) => {
+    const dose = { id: generateId(), takenAt };
+    persistCrashDoses([dose, ...crashDoses]);
+    return dose;
+  }, [crashDoses, persistCrashDoses]);
+
+  const updateCrashDose = useCallback((id, patch) => {
+    persistCrashDoses(crashDoses.map((d) => (d.id === id ? { ...d, ...patch } : d)));
+  }, [crashDoses, persistCrashDoses]);
+
+  const deleteCrashDose = useCallback((id) => {
+    persistCrashDoses(crashDoses.filter((d) => d.id !== id));
+  }, [crashDoses, persistCrashDoses]);
+
   const updateCrashKit = useCallback((patch) => {
     persistCrashKit({ ...crashKit, ...patch });
   }, [crashKit, persistCrashKit]);
@@ -1191,6 +1218,7 @@ export function AppProvider({ children, uid }) {
       crashDrafts, addCrashDraft, updateCrashDraft, resolveCrashDraft, deleteCrashDraft,
       crashAnchors, addCrashAnchor, updateCrashAnchor, deleteCrashAnchor,
       crashKit, updateCrashKit, flushCrashSync,
+      crashDoses, addCrashDose, updateCrashDose, deleteCrashDose,
     }}>
       {children}
     </AppContext.Provider>

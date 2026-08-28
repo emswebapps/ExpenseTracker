@@ -9,7 +9,7 @@ import { useEffect, useState } from 'react';
  * drifted or stopped entirely. Recomputing on `visibilitychange`, `focus` and
  * `pageshow` is what makes the number correct the moment you look at it again.
  */
-export function useNow({ tick = 1000, active = true } = {}) {
+export function useNow({ tick = 1000, active = true, syncKey = null } = {}) {
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -26,7 +26,11 @@ export function useNow({ tick = 1000, active = true } = {}) {
       window.removeEventListener('focus', resync);
       window.removeEventListener('pageshow', resync);
     };
-  }, [tick, active]);
+    // `syncKey` forces an immediate recompute when the data being timed
+    // changes. Without it a slow ticker can still be holding a `now` from
+    // before the user's action — and something they just logged reads as being
+    // in the future, so it renders as nothing at all.
+  }, [tick, active, syncKey]);
 
   return now;
 }

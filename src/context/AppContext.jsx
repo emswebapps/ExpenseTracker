@@ -2,6 +2,8 @@ import { createContext, useContext, useState, useCallback, useEffect, useRef } f
 import { storage } from '../utils/storage';
 import { saveUserData, loadUserData, saveSharedView, saveFCMToken } from '../utils/firestoreSync';
 import { generateId, currentMonthKey, getBillStatus, nextBillStatus, isTaskList } from '../utils/helpers';
+import { createSession as createCrashSession, defaultReleaseAt } from '../pages/crash/protocol.js';
+import { pruneSessions } from '../pages/crash/stats.js';
 import { notificationPermission, requestNotificationPermission, sendNotification, computeDueAt, todoReminderAt, registerFCMToken, onForegroundMessage, scheduleShiftNotification, cancelShiftNotification } from '../utils/notifications';
 
 const AppContext = createContext(null);
@@ -50,6 +52,10 @@ export function AppProvider({ children, uid }) {
   const [projects, setProjectsState] = useState(() => storage.getProjects());
   const [vaultDocuments, setVaultDocumentsState] = useState(() => storage.getVaultDocuments());
   const [billStickyNotes, setBillStickyNotesState] = useState(() => storage.getBillStickyNotes());
+  const [crashSessions, setCrashSessionsState] = useState(() => storage.getCrashSessions());
+  const [crashDrafts, setCrashDraftsState] = useState(() => storage.getCrashDrafts());
+  const [crashAnchors, setCrashAnchorsState] = useState(() => storage.getCrashAnchors());
+  const [crashKit, setCrashKitState] = useState(() => storage.getCrashKit());
   const [cloudLoaded, setCloudLoaded] = useState(false);
   const [testMode, setTestMode] = useState(false);
   // Selected month shared across all pages so toggling the month on one page
@@ -60,7 +66,7 @@ export function AppProvider({ children, uid }) {
 
   // Use refs to always have fresh values for the save function
   const stateRef = useRef({});
-  stateRef.current = { bills, income, budget, settings, notes, debts, savings, commitments, purchases, plannedExpenses, jobs, shifts, budgetCategories, budgetSpends, agreements, shoppingLists, shoppingItems, planningSettings, recurringTemplates, paycheckActuals, notifPrefs, fcmToken, projects, vaultDocuments, billStickyNotes };
+  stateRef.current = { bills, income, budget, settings, notes, debts, savings, commitments, purchases, plannedExpenses, jobs, shifts, budgetCategories, budgetSpends, agreements, shoppingLists, shoppingItems, planningSettings, recurringTemplates, paycheckActuals, notifPrefs, fcmToken, projects, vaultDocuments, billStickyNotes, crashSessions, crashDrafts, crashAnchors, crashKit };
 
   // Load from Firestore on login
   useEffect(() => {
@@ -103,6 +109,10 @@ export function AppProvider({ children, uid }) {
         if (data.projects) { setProjectsState(data.projects); storage.setProjects(data.projects); }
         if (data.vaultDocuments) { setVaultDocumentsState(data.vaultDocuments); storage.setVaultDocuments(data.vaultDocuments); }
         if (data.billStickyNotes) { setBillStickyNotesState(data.billStickyNotes); storage.setBillStickyNotes(data.billStickyNotes); }
+        if (data.crashSessions) { setCrashSessionsState(data.crashSessions); storage.setCrashSessions(data.crashSessions); }
+        if (data.crashDrafts) { setCrashDraftsState(data.crashDrafts); storage.setCrashDrafts(data.crashDrafts); }
+        if (data.crashAnchors) { setCrashAnchorsState(data.crashAnchors); storage.setCrashAnchors(data.crashAnchors); }
+        if (data.crashKit) { const k = { ...storage.getCrashKit(), ...data.crashKit }; setCrashKitState(k); storage.setCrashKit(k); }
       } else {
         // First login — upload existing localStorage data to Firestore
         saveUserData(uid, stateRef.current);
@@ -249,6 +259,10 @@ export function AppProvider({ children, uid }) {
       setProjectsState(snap.projects); storage.setProjects(snap.projects);
       if (snap.vaultDocuments) { setVaultDocumentsState(snap.vaultDocuments); storage.setVaultDocuments(snap.vaultDocuments); }
       if (snap.billStickyNotes) { setBillStickyNotesState(snap.billStickyNotes); storage.setBillStickyNotes(snap.billStickyNotes); }
+      if (snap.crashSessions) { setCrashSessionsState(snap.crashSessions); storage.setCrashSessions(snap.crashSessions); }
+      if (snap.crashDrafts) { setCrashDraftsState(snap.crashDrafts); storage.setCrashDrafts(snap.crashDrafts); }
+      if (snap.crashAnchors) { setCrashAnchorsState(snap.crashAnchors); storage.setCrashAnchors(snap.crashAnchors); }
+      if (snap.crashKit) { setCrashKitState(snap.crashKit); storage.setCrashKit(snap.crashKit); }
       testModeSnapshot.current = null;
     }
     testModeRef.current = false;
@@ -1032,6 +1046,116 @@ export function AppProvider({ children, uid }) {
     };
   }, [shifts, jobs]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Crash Protocol ──────────────────────────────────────────────────────────
+  // Sessions are pruned on every write rather than on a schedule, so the slice
+  // can't quietly grow past its share of the single Firestore app document.
+  const persistCrashSessions = useCallback((next) => {
+    const pruned = pruneSessions(next);
+    setCrashSessionsState(pruned);
+    if (!testModeRef.current) { storage.setCrashSessions(pruned); debouncedSync({ crashSessions: pruned }); }
+  }, [debouncedSync]);
+
+  const persistCrashDrafts = useCallback((next) => {
+    setCrashDraftsState(next);
+    if (!testModeRef.current) { storage.setCrashDrafts(next); debouncedSync({ crashDrafts: next }); }
+  }, [debouncedSync]);
+
+  const persistCrashAnchors = useCallback((next) => {
+    setCrashAnchorsState(next);
+    if (!testModeRef.current) { storage.setCrashAnchors(next); debouncedSync({ crashAnchors: next }); }
+  }, [debouncedSync]);
+
+  const persistCrashKit = useCallback((next) => {
+    setCrashKitState(next);
+    if (!testModeRef.current) { storage.setCrashKit(next); debouncedSync({ crashKit: next }); }
+  }, [debouncedSync]);
+
+  // The protocol tells you to put the phone down and go walk the dogs, which
+  // means the app gets backgrounded seconds after a step advances — right
+  // inside the 1500ms debounce window. localStorage is synchronous so nothing
+  // is lost on this device, but without this the cloud copy would be a step
+  // behind on every other one.
+  const flushCrashSync = useCallback(() => {
+    if (!uid || testModeRef.current) return;
+    const st = stateRef.current;
+    saveUserData(uid, {
+      crashSessions: st.crashSessions,
+      crashDrafts: st.crashDrafts,
+      crashAnchors: st.crashAnchors,
+    });
+  }, [uid]);
+
+  const startCrashSession = useCallback(() => {
+    const session = createCrashSession(generateId(), Date.now(), crashKit.timerMinutes);
+    // Any session still open belongs to an earlier night; close it out rather
+    // than leaving two live at once.
+    const closed = crashSessions.map((s) => (s.endedAt ? s : { ...s, endedAt: Date.now() }));
+    persistCrashSessions([session, ...closed]);
+    return session;
+  }, [crashSessions, crashKit.timerMinutes, persistCrashSessions]);
+
+  const updateCrashSession = useCallback((id, patch) => {
+    persistCrashSessions(crashSessions.map((s) => (s.id === id ? { ...s, ...patch } : s)));
+  }, [crashSessions, persistCrashSessions]);
+
+  const endCrashSession = useCallback((id, patch = {}) => {
+    persistCrashSessions(
+      crashSessions.map((s) => (s.id === id ? { ...s, ...patch, endedAt: s.endedAt || Date.now() } : s)),
+    );
+  }, [crashSessions, persistCrashSessions]);
+
+  const deleteCrashSession = useCallback((id) => {
+    persistCrashSessions(crashSessions.filter((s) => s.id !== id));
+  }, [crashSessions, persistCrashSessions]);
+
+  // Escrow. Works with no session open on purpose — "I need to say this before
+  // I forget" is the trap, so capturing has to be the fastest thing in the app.
+  const addCrashDraft = useCallback((text, sessionId = null) => {
+    const draft = {
+      id: generateId(),
+      text,
+      createdAt: Date.now(),
+      releaseAt: defaultReleaseAt(),
+      sessionId,
+      status: 'held',
+    };
+    persistCrashDrafts([draft, ...crashDrafts]);
+    return draft;
+  }, [crashDrafts, persistCrashDrafts]);
+
+  const updateCrashDraft = useCallback((id, patch) => {
+    persistCrashDrafts(crashDrafts.map((d) => (d.id === id ? { ...d, ...patch } : d)));
+  }, [crashDrafts, persistCrashDrafts]);
+
+  const resolveCrashDraft = useCallback((id, status) => {
+    persistCrashDrafts(
+      crashDrafts.map((d) => (d.id === id ? { ...d, status, resolvedAt: Date.now() } : d)),
+    );
+  }, [crashDrafts, persistCrashDrafts]);
+
+  const deleteCrashDraft = useCallback((id) => {
+    persistCrashDrafts(crashDrafts.filter((d) => d.id !== id));
+  }, [crashDrafts, persistCrashDrafts]);
+
+  const addCrashAnchor = useCallback((anchor) => {
+    const next = { id: generateId(), createdAt: Date.now(), files: [], pinned: false, ...anchor };
+    persistCrashAnchors([next, ...crashAnchors]);
+    return next;
+  }, [crashAnchors, persistCrashAnchors]);
+
+  const updateCrashAnchor = useCallback((id, patch) => {
+    persistCrashAnchors(crashAnchors.map((a) => (a.id === id ? { ...a, ...patch } : a)));
+  }, [crashAnchors, persistCrashAnchors]);
+
+  // The caller deletes the Storage bytes first, matching DocumentVault.
+  const deleteCrashAnchor = useCallback((id) => {
+    persistCrashAnchors(crashAnchors.filter((a) => a.id !== id));
+  }, [crashAnchors, persistCrashAnchors]);
+
+  const updateCrashKit = useCallback((patch) => {
+    persistCrashKit({ ...crashKit, ...patch });
+  }, [crashKit, persistCrashKit]);
+
   return (
     <AppContext.Provider value={{
       cloudLoaded,
@@ -1063,6 +1187,10 @@ export function AppProvider({ children, uid }) {
       vaultDocuments, addVaultDocument, updateVaultDocument, deleteVaultDocument,
       billStickyNotes, setBillStickyNote,
       testMode, enterTestMode, exitTestMode,
+      crashSessions, startCrashSession, updateCrashSession, endCrashSession, deleteCrashSession,
+      crashDrafts, addCrashDraft, updateCrashDraft, resolveCrashDraft, deleteCrashDraft,
+      crashAnchors, addCrashAnchor, updateCrashAnchor, deleteCrashAnchor,
+      crashKit, updateCrashKit, flushCrashSync,
     }}>
       {children}
     </AppContext.Provider>

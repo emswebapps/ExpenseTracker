@@ -1,12 +1,15 @@
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, Receipt, TrendingUp, ShoppingBag, ShoppingCart, Search } from 'lucide-react';
+import { LayoutDashboard, Receipt, TrendingUp, ShoppingBag, ShoppingCart, Search, Anchor } from 'lucide-react';
 
 const links = [
   { to: '/', label: 'Home', Icon: LayoutDashboard },
   { to: '/bills', label: 'Bills', Icon: Receipt },
-  { to: '/purchases', label: 'Spending', Icon: ShoppingBag },
+  { to: '/purchases', label: 'Spend', Icon: ShoppingBag },
   { to: '/income', label: 'Income', Icon: TrendingUp },
   { to: '/lists', label: 'Lists', Icon: ShoppingCart },
+  // Anchor rather than a life-ring or a heartbeat: this should read as
+  // "steady", not as an emergency or a medical device.
+  { to: '/crash', label: 'Crash', Icon: Anchor },
   { to: '/search', label: 'Search', Icon: Search },
 ];
 
@@ -25,12 +28,12 @@ export default function BottomNav() {
             {({ isActive }) => (
               <div className="flex flex-col items-center justify-center h-16 gap-1">
                 <Icon
-                  size={23}
+                  size={21}
                   strokeWidth={isActive ? 2.2 : 1.6}
                   style={{ color: isActive ? 'var(--accent-text)' : 'var(--subtle)' }}
                 />
                 <span
-                  className="text-[10px] font-semibold leading-none"
+                  className="text-[9px] font-semibold leading-none tracking-tight"
                   style={{ color: isActive ? 'var(--accent-text)' : 'var(--subtle)' }}
                 >
                   {label}

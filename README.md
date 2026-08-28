@@ -79,6 +79,53 @@ date there's now an **Address** and a **Photos** section.
 Files live in Firebase Storage under `users/<uid>/todos/<taskId>/`, so the same
 10 MB per-file limit and owner-only access rules apply as everywhere else.
 
+## Crash Protocol
+
+A step-by-step tool for the hours after stimulant medication wears off, when
+emotional reactions get loud enough to feel like facts. Its job is narrow: keep
+a temporarily dysregulated nervous system from making permanent decisions.
+
+Open it from the **Crash** tab, the **I'm crashing** tile on the Dashboard, or
+`/crash`. One tap starts a 30-minute session and walks seven steps:
+
+1. **What's happening** — tap the warning signs that fit, pick a feeling, rate
+   it 0–10. No typing.
+2. **Tell him** — the pre-agreed message, with variants you can edit and send
+   by share sheet, text or clipboard. Every built-in variant promises a return,
+   because a timeout without one is stonewalling; `message.test.js` enforces it.
+3. **Facts vs. story** — two lists, *what I know* and *what my brain is telling
+   me*. The second column is labeled, never argued with.
+4. **How big is this** — "this is an 8; do you want to make an 8-out-of-10
+   decision about your marriage?"
+5. **The tomorrow test** — two questions. Any wobble opens escrow: the text you
+   were about to send gets held until 9 AM instead, under a DO NOT SEND banner
+   with no send button.
+6. **Change something** — a pre-decided menu, filtered by how you said it
+   feels. *Rejected* opens your anchors; *about to send a text* opens escrow.
+7. **Where are you now** — rate it again, say whether it still needs talking
+   about. "Still matters" is treated as a real answer, not a failure.
+
+Supporting pieces:
+
+- **Anchors** — a private locker of screenshots, photos and notes to yourself,
+  for the nights you can't retrieve a single counter-example. Files live in
+  Firebase Storage under `users/<uid>/crash/<anchorId>/`.
+- **Held** — everything in escrow, with what's been released this morning.
+- **What usually happens** — the point of the whole thing: your own record
+  showing how often the 30 minutes changed the answer. Hidden until there are
+  three sessions, since a thin number reads as discouraging.
+- **My kit** — warning signs, the agreed phrase, timer length, and whether to
+  get a buzz when time is up. Set this up on a day you feel fine.
+
+Everything is private to your login and deliberately excluded from global
+Search and from shared view links. The timer is stored as an absolute
+timestamp and re-syncs on `visibilitychange`, so putting the phone down and
+walking the dogs — which step 6 tells you to do — doesn't lose the session.
+
+`test:unit` covers the step machine and timer math (`protocol.js`), the message
+builder and its tone checks (`message.js`), and the history stats and session
+pruning (`stats.js`).
+
 ## Push notification setup
 
 Background push needs two things configured:
@@ -130,8 +177,9 @@ npm --prefix functions test  # Cloud Function reminder selection
 
 `test:unit` covers the pure pieces of the to-do list: task ordering
 (`src/pages/lists/taskSort.js`), the Today view's grouping (`agenda.js`),
-repeat scheduling (`recurrence.js`) and quick-add date parsing
-(`src/utils/parseTaskInput.js`). These modules deliberately import only from
+repeat scheduling (`recurrence.js`), quick-add date parsing
+(`src/utils/parseTaskInput.js`) and the Crash Protocol's step machine, message
+builder and history stats (`src/pages/crash/`). These modules deliberately import only from
 `src/utils/dueDates.js` and `helpers.js`, both free of the Firebase SDK, which
 is what lets plain Node run them. They use explicit `.js` extensions in their
 imports for the same reason.

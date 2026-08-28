@@ -24,6 +24,10 @@ const KEYS = {
   PROJECTS: 'bt_projects',
   VAULT_DOCUMENTS: 'bt_vault_docs',
   BILL_STICKY_NOTES: 'bt_bill_sticky_notes',
+  CRASH_SESSIONS: 'bt_crash_sessions',
+  CRASH_DRAFTS: 'bt_crash_drafts',
+  CRASH_ANCHORS: 'bt_crash_anchors',
+  CRASH_KIT: 'bt_crash_kit',
 };
 
 function get(key) {
@@ -38,6 +42,17 @@ function get(key) {
 function set(key, value) {
   localStorage.setItem(key, JSON.stringify(value));
 }
+
+const CRASH_KIT_SCALARS = {
+  partnerName: '',
+  timerMinutes: 30,
+  brakeVariantId: 'short',
+  brakePhrase: '',
+  notifyOnTimerEnd: true,
+  warningSigns: null,
+  menu: null,
+  removedSigns: [],
+};
 
 const DEFAULT_SETTINGS = {
   spouseEnabled: true,
@@ -65,6 +80,7 @@ const DEFAULT_SETTINGS = {
     spendingByPerson: true,
     envelopes: true,
     agreements: false,
+    crash: true,
   },
 };
 
@@ -145,6 +161,9 @@ export const storage = {
       todos: { enabled: true, defaultLeadMinutes: 0, ...(saved.todos || {}) },
       shifts: { reminder: false, reminderTime: '18:00', ...(saved.shifts || {}) },
       goals: { enabled: true, ...(saved.goals || {}) },
+      // Local/push only, deliberately absent from the email group below: the
+      // body says the 30 minutes are up and nothing about what happened.
+      crash: { timerEnd: true, ...(saved.crash || {}) },
       projects: { enabled: true, ...(saved.projects || {}) },
       // When the once-a-day summary goes out, in your own time zone. Governs
       // both the daily push batch and the daily email digest.
@@ -200,4 +219,16 @@ export const storage = {
     pto: { ...{ jobId: '', baseDate: '', baseBalance: '', accrualRate: 24, capHours: '', targetHours: '', hoursPerShift: 24 }, ...((get(KEYS.PLANNING_SETTINGS) || {}).pto || {}) },
   }),
   setPlanningSettings: (v) => set(KEYS.PLANNING_SETTINGS, v),
+
+  getCrashSessions: () => get(KEYS.CRASH_SESSIONS) || [],
+  setCrashSessions: (v) => set(KEYS.CRASH_SESSIONS, v),
+
+  getCrashDrafts: () => get(KEYS.CRASH_DRAFTS) || [],
+  setCrashDrafts: (v) => set(KEYS.CRASH_DRAFTS, v),
+
+  getCrashAnchors: () => get(KEYS.CRASH_ANCHORS) || [],
+  setCrashAnchors: (v) => set(KEYS.CRASH_ANCHORS, v),
+
+  getCrashKit: () => ({ ...CRASH_KIT_SCALARS, ...(get(KEYS.CRASH_KIT) || {}) }),
+  setCrashKit: (v) => set(KEYS.CRASH_KIT, v),
 };

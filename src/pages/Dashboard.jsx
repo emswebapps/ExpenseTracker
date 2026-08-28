@@ -5,7 +5,7 @@ import {
   MoreVertical, Bell, LayoutDashboard, Link, Plane, AlertTriangle,
   Wallet, PiggyBank, Settings, BarChart2, Users, LayoutGrid,
   ChevronDown, ChevronUp, FileText, Zap, Share2, Check, RefreshCw, FolderOpen,
-  ClipboardList, CalendarClock,
+  ClipboardList, CalendarClock, Anchor,
 } from 'lucide-react';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, AreaChart, Area } from 'recharts';
@@ -580,6 +580,26 @@ export default function Dashboard() {
             </>
           )}
         </div>}
+
+        {/* One tap to the protocol from Home. Deliberately quiet — a red alarm
+            on the dashboard every day would be its own kind of pressure. */}
+        {sec('crash') && (
+          <div style={sectionWrap}>
+            <button
+              onClick={() => navigate('/crash?start=1')}
+              style={{
+                width: '100%', display: 'flex', alignItems: 'center', gap: '0.75rem',
+                padding: '1rem 1.125rem', borderRadius: '0.875rem', cursor: 'pointer',
+                backgroundColor: 'var(--accent-soft)', border: '1px solid var(--accent)',
+                color: 'var(--accent-text)', textAlign: 'left',
+              }}
+            >
+              <Anchor size={19} style={{ flexShrink: 0 }} />
+              <span style={{ flex: 1, fontSize: '0.9375rem', fontWeight: 700 }}>I’m crashing</span>
+              <span style={{ fontSize: '0.8125rem', opacity: 0.75 }}>30 min</span>
+            </button>
+          </div>
+        )}
 
         {/* Pinned notes */}
         {sec('pinnedNotes') && pinnedNotes.length > 0 && (
@@ -1424,6 +1444,7 @@ export default function Dashboard() {
               ['topCategories',   'Top Categories'],
               ['spendingByPerson','Spending by Person'],
               ['pinnedNotes',     'Pinned Notes'],
+              ['crash',           'Crash Protocol'],
             ].map(([key, label]) => {
               const on = sec(key);
               return (

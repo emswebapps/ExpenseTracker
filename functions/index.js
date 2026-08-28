@@ -7,7 +7,14 @@ admin.initializeApp();
 const db = admin.firestore();
 const messaging = admin.messaging();
 
-const ICON = 'https://pairamedic.github.io/ExpenseTracker/app-icon.jpeg';
+// Where the app is actually served. This repo is emswebapps/ExpenseTracker with
+// Pages enabled, so the project site is https://emswebapps.github.io/ExpenseTracker/
+// — the old pairamedic host predates a rename. Override with the APP_ORIGIN
+// env var at deploy time rather than editing this, and keep it in one place:
+// a wrong value here silently breaks every notification icon and every tap.
+const SITE_ORIGIN = process.env.APP_ORIGIN || 'https://emswebapps.github.io';
+const SITE_BASE = `${SITE_ORIGIN}/ExpenseTracker/`;
+const ICON = `${SITE_BASE}app-icon.jpeg`;
 const DEFAULT_TZ = 'America/New_York';
 
 /**
@@ -21,7 +28,9 @@ async function sendPush(userPath, token, msg) {
       notification: { title: msg.title, body: msg.body },
       data: { tag: msg.tag, url: msg.url || '/ExpenseTracker/' },
       webpush: {
-        fcmOptions: { link: msg.url || 'https://pairamedic.github.io/ExpenseTracker/' },
+        // fcmOptions.link has to be absolute — msg.url is a site-relative path,
+        // so joining it is what makes the tap land anywhere at all.
+        fcmOptions: { link: msg.url ? new URL(msg.url, SITE_ORIGIN).href : SITE_BASE },
         notification: {
           icon: ICON,
           badge: ICON,
@@ -744,6 +753,11 @@ exports.todoReminders = onSchedule(
 // Push only, by design: there is deliberately no collectCrashEmails, and
 // nothing crash-related is added to the daily digest.
 
+// Taps land in the standalone Reset app rather than the finance app, since that
+// is the one installed on the home screen. The /crash route inside the main app
+// stays for when they're already in there.
+const RESET_APP_URL = '/ExpenseTracker/reset/';
+
 const CRASH_HOUR_MS = 60 * 60 * 1000;
 const CRASH_HEADSUP_MS = 30 * 60 * 1000;
 const CRASH_DOSE_LOOKBACK_MS = 24 * CRASH_HOUR_MS;
@@ -793,7 +807,7 @@ function collectCrashMessages(data, sent, now, tz) {
             tag,
             title: 'Your window starts soon',
             body: 'About half an hour. If there’s anything hard to say, now’s the better time.',
-            url: '/ExpenseTracker/crash',
+            url: RESET_APP_URL,
           });
         }
       }
@@ -818,7 +832,7 @@ function collectCrashMessages(data, sent, now, tz) {
           body: ready.length === 1
             ? 'Something you held last night is open.'
             : `${ready.length} things you held are open.`,
-          url: '/ExpenseTracker/crash',
+          url: RESET_APP_URL,
         });
       }
     }
@@ -878,5 +892,5 @@ exports._internal = {
   collectTodoMessages, collectTodoEmails, wallClockToMs,
   collectDailyMessages, filterDailyForPush, filterDailyForEmail,
   localDateAndMinutes, daysBetween, tomorrowDayOfMonth,
-  collectCrashMessages, crashLatestDose,
+  collectCrashMessages, crashLatestDose, RESET_APP_URL,
 };

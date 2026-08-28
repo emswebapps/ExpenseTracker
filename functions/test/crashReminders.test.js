@@ -7,7 +7,7 @@ const { test } = require('node:test');
 
 process.env.GOOGLE_CLOUD_PROJECT = process.env.GOOGLE_CLOUD_PROJECT || 'test-project';
 const { _internal } = require('../index');
-const { collectCrashMessages, crashLatestDose } = _internal;
+const { collectCrashMessages, crashLatestDose, RESET_APP_URL } = _internal;
 
 const TZ = 'America/New_York';
 const HOUR = 60 * 60 * 1000;
@@ -167,4 +167,22 @@ test('no notification ever contains the user’s own words', () => {
 test('missing prefs default to on rather than crashing', () => {
   const data = withDraft({ notifPrefs: undefined });
   assert.strictEqual(collectCrashMessages(data, {}, NOW, TZ).length, 1);
+});
+
+test('both notifications open the installed Reset app', () => {
+  const data = {
+    fcmToken: 'tok',
+    crashKit: { onsetHours: 4, doseTracking: true },
+    crashDoses: [{ id: 'd1', takenAt: NOW - (3 * HOUR + 40 * 60 * 1000) }],
+    crashDrafts: [{ id: 'x1', text: 'held', status: 'held', releaseAt: NOW - HOUR }],
+    notifPrefs: { crash: { windowHeadsUp: true, escrowOpened: true } },
+  };
+  const msgs = collectCrashMessages(data, {}, NOW, TZ);
+  assert.strictEqual(msgs.length, 2);
+  for (const m of msgs) {
+    assert.strictEqual(m.url, RESET_APP_URL);
+    // Inside the standalone app's manifest scope, or the tap opens the finance
+    // app in a browser tab instead of the installed one.
+    assert.ok(m.url.startsWith('/ExpenseTracker/reset/'), m.tag);
+  }
 });

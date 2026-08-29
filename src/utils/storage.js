@@ -29,6 +29,8 @@ const KEYS = {
   CRASH_ANCHORS: 'bt_crash_anchors',
   CRASH_KIT: 'bt_crash_kit',
   CRASH_DOSES: 'bt_crash_doses',
+  CRASH_MEDS: 'bt_crash_meds',
+  CRASH_BEHAVIORS: 'bt_crash_behaviors',
 };
 
 function get(key) {
@@ -171,7 +173,15 @@ export const storage = {
       goals: { enabled: true, ...(saved.goals || {}) },
       // Local/push only, deliberately absent from the email group below: the
       // body says the 30 minutes are up and nothing about what happened.
-      crash: { timerEnd: true, windowHeadsUp: true, escrowOpened: true, ...(saved.crash || {}) },
+      // `crashNote` is the one that fires as the window actually opens and
+      // opens onto the anchors. The three med flags below are the only place
+      // this app nudges about medication at all, and every one of them is off
+      // in a single tap.
+      crash: {
+        timerEnd: true, windowHeadsUp: true, escrowOpened: true, crashNote: true,
+        doseDue: true, ruleReminders: true, refillLow: true,
+        ...(saved.crash || {}),
+      },
       projects: { enabled: true, ...(saved.projects || {}) },
       // When the once-a-day summary goes out, in your own time zone. Governs
       // both the daily push batch and the daily email digest.
@@ -242,4 +252,10 @@ export const storage = {
 
   getCrashDoses: () => get(KEYS.CRASH_DOSES) || [],
   setCrashDoses: (v) => set(KEYS.CRASH_DOSES, v),
+
+  getCrashMeds: () => get(KEYS.CRASH_MEDS) || [],
+  setCrashMeds: (v) => set(KEYS.CRASH_MEDS, v),
+
+  getCrashBehaviors: () => get(KEYS.CRASH_BEHAVIORS) || [],
+  setCrashBehaviors: (v) => set(KEYS.CRASH_BEHAVIORS, v),
 };

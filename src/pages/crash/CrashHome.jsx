@@ -1,8 +1,10 @@
-import { Feather, Images, TrendingDown, Settings2, Inbox } from 'lucide-react';
+import { Feather, Images, TrendingDown, Settings2, Inbox, Pill, Activity } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { useCountdown } from './useCountdown.js';
 import { timerRemaining, formatRemaining, isReleased } from './protocol.js';
 import DoseRow from './DoseRow.jsx';
+import { nextExpected, normalizeMed, expectedDosesToday } from './meds.js';
+import { formatClock } from './protocol.js';
 
 function QuietRow({ Icon, label, detail, onClick }) {
   return (
@@ -23,13 +25,26 @@ function QuietRow({ Icon, label, detail, onClick }) {
   );
 }
 
-export default function CrashHome({ active, onStart, onResume, onPark, onGo }) {
-  const { crashDrafts, crashAnchors, crashSessions } = useApp();
+export default function CrashHome({ active, onStart, onResume, onPark, onCheck, onGo }) {
+  const { crashDrafts, crashAnchors, crashSessions, crashMeds, crashDoses } = useApp();
   const now = useCountdown(active?.timerEndsAt);
 
   const held = crashDrafts.filter((d) => d.status === 'held');
   const ready = held.filter((d) => isReleased(d, now));
   const done = crashSessions.filter((s) => s.endedAt).length;
+
+  // The detail on the medications row is the next thing due, so the answer to
+  // "have I taken it?" is on the home screen rather than one tap in. When
+  // there's nothing still ahead, "all logged" has to actually be true — saying
+  // it over a dose that was missed is the one answer worse than saying nothing.
+  const schedule = expectedDosesToday(crashMeds, crashDoses, Date.now());
+  const next = nextExpected(crashMeds, crashDoses, Date.now());
+  const missed = schedule.filter((e) => e.state === 'skipped').length;
+  const nextLabel = next
+    ? `${normalizeMed(next.med).name || 'Next'} · ${next.state === 'due' ? 'now' : formatClock(next.expectedAt)}`
+    : missed ? `${missed} not logged`
+    : schedule.length ? 'All logged'
+    : null;
 
   return (
     <div className="app-page" style={{ padding: '1.25rem' }}>
@@ -42,7 +57,7 @@ export default function CrashHome({ active, onStart, onResume, onPark, onGo }) {
         </p>
       </div>
 
-      <DoseRow />
+      <DoseRow onOpenMeds={() => onGo('meds')} />
 
       {active ? (
         <button
@@ -76,6 +91,7 @@ export default function CrashHome({ active, onStart, onResume, onPark, onGo }) {
 
       <div style={{ display: 'grid', gap: '0.5rem', marginTop: '1.25rem' }}>
         <QuietRow Icon={Feather} label="Just get the thought out" onClick={onPark} />
+        <QuietRow Icon={Activity} label="How am I doing?" onClick={onCheck} />
         <QuietRow Icon={Images} label="Read my anchors" detail={crashAnchors.length || null} onClick={() => onGo('anchors')} />
         <QuietRow
           Icon={Inbox}
@@ -84,6 +100,7 @@ export default function CrashHome({ active, onStart, onResume, onPark, onGo }) {
           onClick={() => onGo('drafts')}
         />
         <QuietRow Icon={TrendingDown} label="What usually happens" detail={done || null} onClick={() => onGo('history')} />
+        <QuietRow Icon={Pill} label="My medications" detail={nextLabel} onClick={() => onGo('meds')} />
         <QuietRow Icon={Settings2} label="Set up my kit" onClick={() => onGo('setup')} />
       </div>
     </div>

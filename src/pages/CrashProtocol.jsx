@@ -10,6 +10,8 @@ import AnchorsView from './crash/AnchorsView.jsx';
 import DraftsView from './crash/DraftsView.jsx';
 import HistoryView from './crash/HistoryView.jsx';
 import KitSetup from './crash/KitSetup.jsx';
+import MedsView from './crash/MedsView.jsx';
+import BehaviorCheck from './crash/BehaviorCheck.jsx';
 import { sendNotification } from '../utils/notifications';
 
 export default function CrashProtocol() {
@@ -21,6 +23,7 @@ export default function CrashProtocol() {
   const [view, setView] = useState('home');
   const [running, setRunning] = useState(false);
   const [parking, setParking] = useState(false);
+  const [checking, setChecking] = useState(false);
   // Anchors can be reached two ways — from the home screen, or from Round 6 of
   // a live round. Back has to go where you actually came from, not merely
   // wherever a session happens to be open.
@@ -44,6 +47,19 @@ export default function CrashProtocol() {
     if (active) setRunning(true);
     else { startCrashSession(); setRunning(true); }
   }, [params, setParams, active, startCrashSession]);
+
+  // Deep link from the notification that fires as the window opens. It lands on
+  // the anchors and nothing else: the note is the thing that's hard to reach
+  // for at that exact moment, so it should already be open. Deliberately does
+  // NOT start a session — the push says "read this", not "you are crashing".
+  useEffect(() => {
+    const open = params.get('open');
+    if (open !== 'anchors' && open !== 'meds') return;
+    setParams({}, { replace: true });
+    setRunning(false);
+    setCameFromRunner(false);
+    setView(open);
+  }, [params, setParams]);
 
   // One buzz when the 30 minutes are up, saying only that.
   useEffect(() => {
@@ -88,6 +104,7 @@ export default function CrashProtocol() {
           onStart={() => { startCrashSession(); setRunning(true); }}
           onResume={resume}
           onPark={() => setParking(true)}
+          onCheck={() => setChecking(true)}
           onGo={(v) => { setCameFromRunner(false); setView(v); }}
         />
       )}
@@ -99,8 +116,10 @@ export default function CrashProtocol() {
       {view === 'drafts' && <DraftsView onBack={back} />}
       {view === 'history' && <HistoryView onBack={back} />}
       {view === 'setup' && <KitSetup onBack={back} />}
+      {view === 'meds' && <MedsView onBack={back} />}
 
       {parking && <ParkThought onClose={() => setParking(false)} />}
+      {checking && <BehaviorCheck onClose={() => setChecking(false)} />}
     </>
   );
 }

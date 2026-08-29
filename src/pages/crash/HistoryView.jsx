@@ -1,7 +1,9 @@
 import { ArrowLeft } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
-import { summarize, historySentence } from './stats.js';
+import { summarize, historySentence, rankMoves } from './stats.js';
 import { formatClock } from './protocol.js';
+import { suggestedOnset, formatHours } from './window.js';
+import { mergeKit, findMove } from './crashKit.js';
 
 const OUTCOME_LABEL = {
   'let-it-go': 'It settled',
@@ -17,10 +19,22 @@ const OUTCOME_LABEL = {
  * reads as discouraging, and showing nothing is better than showing "1 of 2".
  */
 export default function HistoryView({ onBack }) {
-  const { crashSessions, crashDrafts } = useApp();
+  const { crashSessions, crashDrafts, crashDoses, crashKit } = useApp();
+  const kit = mergeKit(crashKit);
   const finished = crashSessions.filter((s) => s.endedAt).sort((a, b) => b.startedAt - a.startedAt);
   const summary = summarize(crashSessions, crashDrafts);
   const sentence = finished.length >= 3 ? historySentence(summary) : null;
+  const inferred = suggestedOnset(crashSessions, crashDoses);
+  const ranked = rankMoves(crashSessions);
+
+  // When your evenings actually go wrong, by hour. Unlike the crash screens,
+  // nothing here is urgent, so a real chart is affordable.
+  const byHour = Array.from({ length: 24 }, (_, hour) => ({ hour, count: 0 }));
+  for (const s of crashSessions) {
+    if (typeof s.startedAt === 'number') byHour[new Date(s.startedAt).getHours()].count += 1;
+  }
+  const busiest = Math.max(...byHour.map((b) => b.count));
+  const hourLabel = (h) => (h === 0 ? '12a' : h === 12 ? '12p' : h > 12 ? `${h - 12}p` : `${h}a`);
 
   return (
     <div className="app-page" style={{ padding: '1.25rem' }}>
@@ -52,6 +66,77 @@ export default function HistoryView({ onBack }) {
             ? 'Once you’ve been through this a few times, this page will tell you what actually tends to happen.'
             : 'A couple more times through and there’ll be enough here to be worth reading.'}
         </p>
+      )}
+
+      {crashSessions.length >= 3 && busiest > 0 && (
+        <div style={{ marginBottom: '1.75rem' }}>
+          <h2 style={{ fontSize: '0.75rem', fontWeight: 800, letterSpacing: '0.06em', color: 'var(--muted)', marginBottom: '0.75rem' }}>
+            WHEN IT USUALLY HITS
+          </h2>
+          {/* Plain divs rather than a chart library: CSS custom properties don't
+              resolve inside SVG fill attributes, so a themed recharts bar paints
+              nothing in either mode. This also keeps recharts out of the bundle. */}
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: '2px', height: '5rem' }}>
+            {byHour.map((b) => (
+              <div key={b.hour} style={{ flex: 1, height: '100%', display: 'flex', alignItems: 'flex-end' }}>
+                <div
+                  title={`${hourLabel(b.hour)} — ${b.count}`}
+                  style={{
+                    width: '100%',
+                    height: b.count ? `${Math.max(8, (b.count / busiest) * 100)}%` : '2px',
+                    borderRadius: '2px',
+                    backgroundColor: b.count === busiest && b.count > 0
+                      ? 'var(--accent)'
+                      : b.count > 0 ? 'var(--accent-soft)' : 'var(--border)',
+                  }}
+                />
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: '2px', marginTop: '0.375rem' }}>
+            {byHour.map((b) => (
+              <div key={b.hour} style={{
+                flex: 1, textAlign: 'center', fontSize: '0.5625rem', color: 'var(--subtle)',
+              }}>
+                {b.hour % 4 === 0 ? hourLabel(b.hour) : ''}
+              </div>
+            ))}
+          </div>
+          {inferred && (
+            <p style={{ fontSize: '0.875rem', color: 'var(--muted)', lineHeight: 1.5, marginTop: '0.5rem' }}>
+              Across {inferred.samples} nights, it starts about{' '}
+              <strong style={{ color: 'var(--text)' }}>{formatHours(inferred.hours)}</strong> after your dose.
+            </p>
+          )}
+        </div>
+      )}
+
+      {ranked.length > 0 && (
+        <div style={{ marginBottom: '1.75rem' }}>
+          <h2 style={{ fontSize: '0.75rem', fontWeight: 800, letterSpacing: '0.06em', color: 'var(--muted)', marginBottom: '0.75rem' }}>
+            WHAT ACTUALLY HELPS YOU
+          </h2>
+          <div style={{ display: 'grid', gap: '0.5rem' }}>
+            {ranked.map((r) => {
+              const opt = findMove(kit, r.id);
+              return (
+                <div key={r.id} style={{
+                  display: 'flex', alignItems: 'center', gap: '0.625rem',
+                  padding: '0.75rem 0.875rem', borderRadius: '0.75rem',
+                  backgroundColor: 'var(--surface)', border: '1px solid var(--border)',
+                }}>
+                  <span style={{ fontSize: '1.125rem' }}>{opt?.emoji || '•'}</span>
+                  <span style={{ flex: 1, fontSize: '0.9375rem', color: 'var(--text)', fontWeight: 600 }}>
+                    {opt?.label || r.id}
+                  </span>
+                  <span style={{ fontSize: '0.8125rem', color: 'var(--subtle)', fontVariantNumeric: 'tabular-nums' }}>
+                    {r.uses}× · {r.avgDrop > 0 ? `−${r.avgDrop}` : `+${Math.abs(r.avgDrop)}`}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       )}
 
       {finished.length > 0 && (

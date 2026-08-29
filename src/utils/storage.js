@@ -28,6 +28,7 @@ const KEYS = {
   CRASH_DRAFTS: 'bt_crash_drafts',
   CRASH_ANCHORS: 'bt_crash_anchors',
   CRASH_KIT: 'bt_crash_kit',
+  CRASH_DOSES: 'bt_crash_doses',
 };
 
 function get(key) {
@@ -49,6 +50,13 @@ const CRASH_KIT_SCALARS = {
   brakeVariantId: 'short',
   brakePhrase: '',
   notifyOnTimerEnd: true,
+  // Dose timing. Defaults are the user's own reported pattern; the app only
+  // ever does arithmetic on a time they entered, and never advises on
+  // medication.
+  doseTracking: true,
+  onsetHours: 4,
+  durationHours: 5,
+  agreementText: '',
   warningSigns: null,
   menu: null,
   removedSigns: [],
@@ -163,7 +171,7 @@ export const storage = {
       goals: { enabled: true, ...(saved.goals || {}) },
       // Local/push only, deliberately absent from the email group below: the
       // body says the 30 minutes are up and nothing about what happened.
-      crash: { timerEnd: true, ...(saved.crash || {}) },
+      crash: { timerEnd: true, windowHeadsUp: true, escrowOpened: true, ...(saved.crash || {}) },
       projects: { enabled: true, ...(saved.projects || {}) },
       // When the once-a-day summary goes out, in your own time zone. Governs
       // both the daily push batch and the daily email digest.
@@ -231,4 +239,7 @@ export const storage = {
 
   getCrashKit: () => ({ ...CRASH_KIT_SCALARS, ...(get(KEYS.CRASH_KIT) || {}) }),
   setCrashKit: (v) => set(KEYS.CRASH_KIT, v),
+
+  getCrashDoses: () => get(KEYS.CRASH_DOSES) || [],
+  setCrashDoses: (v) => set(KEYS.CRASH_DOSES, v),
 };

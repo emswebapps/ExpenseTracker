@@ -7,7 +7,14 @@ admin.initializeApp();
 const db = admin.firestore();
 const messaging = admin.messaging();
 
-const ICON = 'https://pairamedic.github.io/ExpenseTracker/app-icon.jpeg';
+// Where the app is actually served. This repo is emswebapps/ExpenseTracker with
+// Pages enabled, so the project site is https://emswebapps.github.io/ExpenseTracker/
+// — the old pairamedic host predates a rename. Override with the APP_ORIGIN
+// env var at deploy time rather than editing this, and keep it in one place:
+// a wrong value here silently breaks every notification icon and every tap.
+const SITE_ORIGIN = process.env.APP_ORIGIN || 'https://emswebapps.github.io';
+const SITE_BASE = `${SITE_ORIGIN}/ExpenseTracker/`;
+const ICON = `${SITE_BASE}app-icon.jpeg`;
 const DEFAULT_TZ = 'America/New_York';
 
 /**
@@ -21,7 +28,9 @@ async function sendPush(userPath, token, msg) {
       notification: { title: msg.title, body: msg.body },
       data: { tag: msg.tag, url: msg.url || '/ExpenseTracker/' },
       webpush: {
-        fcmOptions: { link: msg.url || 'https://pairamedic.github.io/ExpenseTracker/' },
+        // fcmOptions.link has to be absolute — msg.url is a site-relative path,
+        // so joining it is what makes the tap land anywhere at all.
+        fcmOptions: { link: msg.url ? new URL(msg.url, SITE_ORIGIN).href : SITE_BASE },
         notification: {
           icon: ICON,
           badge: ICON,
@@ -733,9 +742,155 @@ exports.todoReminders = onSchedule(
   },
 );
 
+// ── Crash Protocol reminders ────────────────────────────────────────────────
+// Two notifications, both of which have to arrive with the app closed.
+//
+// Neither ever carries content. The user's crash notes, held drafts and
+// sessions are the most private thing in this app, and a lock-screen preview is
+// visible to whoever is holding the phone — including the person the note is
+// about. These say only that there is something to look at.
+//
+// Push only, by design: there is deliberately no collectCrashEmails, and
+// nothing crash-related is added to the daily digest.
+
+// Taps land in the standalone Reset app rather than the finance app, since that
+// is the one installed on the home screen. The /crash route inside the main app
+// stays for when they're already in there.
+const RESET_APP_URL = '/ExpenseTracker/reset/';
+
+const CRASH_HOUR_MS = 60 * 60 * 1000;
+const CRASH_HEADSUP_MS = 30 * 60 * 1000;
+const CRASH_DOSE_LOOKBACK_MS = 24 * CRASH_HOUR_MS;
+const CRASH_ESCROW_GRACE_MS = 24 * CRASH_HOUR_MS;
+
+function crashPositive(value, fallback) {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+// Mirrors latestDose/predictWindow in src/pages/crash/window.js. The client is
+// ESM and this file is CommonJS, so the arithmetic is repeated rather than
+// shared — keep the two in step if the rule ever changes.
+function crashLatestDose(doses, now) {
+  if (!Array.isArray(doses)) return null;
+  let best = null;
+  for (const d of doses) {
+    if (!d || typeof d.takenAt !== 'number') continue;
+    if (d.takenAt > now || now - d.takenAt > CRASH_DOSE_LOOKBACK_MS) continue;
+    if (!best || d.takenAt > best.takenAt) best = d;
+  }
+  return best;
+}
+
+/**
+ * Which crash notifications are due for this user right now.
+ *
+ * Pure, so the privacy guarantee above can be asserted in a test rather than
+ * assumed. `sent` is the dedupe map kept on the user's notifState doc.
+ */
+function collectCrashMessages(data, sent, now, tz) {
+  const prefs = (data.notifPrefs && data.notifPrefs.crash) || {};
+  const out = [];
+
+  // ── The window is about to open ──
+  if (prefs.windowHeadsUp !== false) {
+    const kit = data.crashKit || {};
+    if (kit.doseTracking !== false) {
+      const dose = crashLatestDose(data.crashDoses, now);
+      if (dose) {
+        const start = dose.takenAt + crashPositive(kit.onsetHours, 4) * CRASH_HOUR_MS;
+        const tag = `crash-window-${dose.id}`;
+        // Only in the half hour before it opens — a late tick shouldn't fire a
+        // warning about something already underway.
+        if (now >= start - CRASH_HEADSUP_MS && now < start && !sent[tag]) {
+          out.push({
+            tag,
+            title: 'Your window starts soon',
+            body: 'About half an hour. If there’s anything hard to say, now’s the better time.',
+            url: RESET_APP_URL,
+          });
+        }
+      }
+    }
+  }
+
+  // ── Something held overnight has opened ──
+  if (prefs.escrowOpened !== false) {
+    const drafts = Array.isArray(data.crashDrafts) ? data.crashDrafts : [];
+    const ready = drafts.filter(
+      (d) => d && d.status === 'held' && typeof d.releaseAt === 'number'
+        && now >= d.releaseAt && now - d.releaseAt <= CRASH_ESCROW_GRACE_MS,
+    );
+    if (ready.length > 0) {
+      // Keyed by local day so this is a single morning nudge, and bounded by
+      // the grace window above so an ignored draft never becomes a nag.
+      const tag = `crash-escrow-${localDateAndMinutes(new Date(now), tz).date}`;
+      if (!sent[tag]) {
+        out.push({
+          tag,
+          title: 'It’s tomorrow now',
+          body: ready.length === 1
+            ? 'Something you held last night is open.'
+            : `${ready.length} things you held are open.`,
+          url: RESET_APP_URL,
+        });
+      }
+    }
+  }
+
+  return out;
+}
+
+exports.crashReminders = onSchedule(
+  { schedule: 'every 15 minutes', timeZone: DEFAULT_TZ },
+  async () => {
+    const now = Date.now();
+    const userRefs = await db.collection('users').listDocuments();
+
+    for (const userRef of userRefs) {
+      try {
+        const dataSnap = await db.doc(`${userRef.path}/data/app`).get();
+        if (!dataSnap.exists) continue;
+
+        const data = dataSnap.data();
+        // Push only — someone with email alone gets nothing from this function.
+        if (!data.fcmToken) continue;
+
+        const stateRef = db.doc(`${userRef.path}/data/notifState`);
+        const stateSnap = await stateRef.get();
+        const stateData = stateSnap.exists ? stateSnap.data() : {};
+        const sent = stateData.crashSent || {};
+
+        const tz = (data.settings && data.settings.timeZone) || DEFAULT_TZ;
+        const messages = collectCrashMessages(data, sent, now, tz);
+        if (messages.length === 0) continue;
+
+        const delivered = [];
+        for (const msg of messages) {
+          const alive = await sendPush(userRef.path, data.fcmToken, msg);
+          if (!alive) break; // token revoked — leave the rest unmarked so they retry
+          delivered.push(msg.tag);
+        }
+
+        if (delivered.length > 0) {
+          const merged = { ...sent };
+          for (const tag of delivered) merged[tag] = now;
+          for (const [key, ts] of Object.entries(merged)) {
+            if (now - ts > SENT_KEY_TTL_MS) delete merged[key];
+          }
+          await stateRef.set({ crashSent: merged }, { merge: true });
+        }
+      } catch (err) {
+        console.error(`crashReminders: error for user ${userRef.id}:`, err.message);
+      }
+    }
+  },
+);
+
 // Exported for unit tests only.
 exports._internal = {
   collectTodoMessages, collectTodoEmails, wallClockToMs,
   collectDailyMessages, filterDailyForPush, filterDailyForEmail,
   localDateAndMinutes, daysBetween, tomorrowDayOfMonth,
+  collectCrashMessages, crashLatestDose, RESET_APP_URL,
 };

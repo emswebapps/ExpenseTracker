@@ -117,14 +117,83 @@ Supporting pieces:
 - **My kit** — warning signs, the agreed phrase, timer length, and whether to
   get a buzz when time is up. Set this up on a day you feel fine.
 
+### Dose timing and the predicted window
+
+The crash is a schedule, not a surprise. Log when you took your meds — one tap
+at the top of the Crash tab, time editable — and the app shows tonight's likely
+window on a small timeline, and pushes a heads-up about half an hour before it
+opens, while there's still time to finish a hard conversation.
+
+Onset and duration default to 4 hours and 5 hours and are editable in **My
+Kit**. Once there are five or more dose-and-crash pairs, *What usually happens*
+works out your real number from your own record — "your last 8 crashes started
+about 4h 20m after your dose" — and offers to use it. It never changes the
+setting on its own.
+
+**The app never advises on medication.** It does arithmetic on a time you
+entered and shows you the result. There is no dose reminder, no adherence
+tracking and no missed-dose guilt; with nothing logged, the feature says
+nothing at all.
+
+### What he needs to know
+
+A message in **My Kit** to send him once, on a good day, explaining what the
+phrase means, that you're coming back, and — the part he otherwise has to guess
+— that checking in, following you or trying to fix it makes a crash louder.
+This is what lets the in-the-moment message afford to be four words long.
+Nothing of yours is shared; it's a message you choose to send.
+
+### What actually helps you
+
+Options in the crash menu are logged alongside the before-and-after numbers, so
+after a few weeks the app can say which ones actually move yours. The best one
+gets a quiet "usually helps you most" tag; the full ranking is in *What usually
+happens*. Tile order never changes — a menu that reshuffles under a
+dysregulated thumb is worse than one that doesn't. Nothing is claimed about an
+option used fewer than three times.
+
+### Installing it as its own app
+
+The protocol is also built as a **separate installable app called Reset**, at
+
+```
+https://emswebapps.github.io/ExpenseTracker/reset/
+```
+
+Open that on your phone and add it to the home screen — iPhone: Safari →
+Share → *Add to Home Screen*. Android: Chrome → *Install app*. It gets its own
+anchor icon and opens straight into the protocol, with no bottom nav and no
+route into the rest of the app.
+
+It's the same origin as the main app, so it shares your login, your
+localStorage cache and your Firestore document — the same data behind a second
+icon, not a second account. Long-pressing its icon offers *Start now*, which
+begins a session immediately.
+
+The main app keeps its own Crash tab for when you're already in there.
+
+### Reminders
+
+Two pushes, both from the `crashReminders` Cloud Function so they arrive with
+the app closed: the window heads-up, and a nudge the morning after when
+something you held in escrow opens. Both are **push only** — never in the email
+digest — and neither ever contains a word you wrote, since a lock-screen
+preview is visible to whoever is holding the phone. Both are switchable in
+My Kit.
+
+Both notifications open the standalone Reset app. Long-pressing either app's
+icon also offers a shortcut straight into a session.
+
 Everything is private to your login and deliberately excluded from global
 Search and from shared view links. The timer is stored as an absolute
 timestamp and re-syncs on `visibilitychange`, so putting the phone down and
 walking the dogs — which step 6 tells you to do — doesn't lose the session.
 
 `test:unit` covers the step machine and timer math (`protocol.js`), the message
-builder and its tone checks (`message.js`), and the history stats and session
-pruning (`stats.js`).
+builder and its tone checks (`message.js`), the history stats, session pruning
+and move ranking (`stats.js`), and the window prediction and onset inference
+(`window.js`). `npm --prefix functions test` covers which reminders are due —
+including an assertion that no notification body can contain your own words.
 
 ## Push notification setup
 
@@ -154,6 +223,35 @@ Background push needs two things configured:
 On **iPhone**, iOS only delivers web push to apps installed to the Home Screen —
 open the site in Safari, *Share → Add to Home Screen*, then enable notifications
 from inside the installed app.
+
+## Two apps, one build
+
+`npm run build` produces two installable apps from one deployment:
+
+| Entry | URL | Manifest | What it is |
+|---|---|---|---|
+| `index.html` | `/ExpenseTracker/` | `public/manifest.json` | Finance Manager — the full app |
+| `reset/index.html` | `/ExpenseTracker/reset/` | `public/reset.webmanifest` | Reset — the Crash Protocol alone |
+
+They share an origin deliberately, so they share the Firebase login, the
+localStorage cache and the Firestore document. What makes the phone treat them
+as two separate installs is the manifests: distinct `id` values and different
+`scope`s. Both link their manifest explicitly — vite-plugin-pwa's own manifest
+generation is off (`manifest: false`), so there's exactly one manifest per page
+and nothing injected at build time.
+
+Two things to keep in mind when changing this:
+
+- `workbox.navigateFallbackDenylist` in `vite.config.js` keeps the service
+  worker from serving `index.html` for `/reset/` when offline. Without it, an
+  offline launch of Reset silently opens the finance app.
+- Reset's `scope` deliberately has **no** trailing slash. React Router
+  normalises the basename, so clearing a query string rewrites the URL to
+  `/ExpenseTracker/reset`; a trailing-slash scope would put that outside the
+  app and drop it out of standalone mode.
+
+Icons for Reset are generated by `node scripts/make-reset-icons.mjs` and
+committed, so CI never runs it.
 
 ## Dev
 

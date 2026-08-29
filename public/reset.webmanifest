@@ -1,0 +1,47 @@
+{
+  "id": "/ExpenseTracker/reset/",
+  "name": "Reset",
+  "short_name": "Reset",
+  "description": "A step-by-step way through a hard hour",
+  "start_url": "/ExpenseTracker/reset/",
+  "scope": "/ExpenseTracker/reset",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "icons": [
+    {
+      "src": "/ExpenseTracker/reset-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/ExpenseTracker/reset-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/ExpenseTracker/reset-icon-512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Start now",
+      "short_name": "Start",
+      "description": "Begin a session straight away",
+      "url": "/ExpenseTracker/reset/?start=1",
+      "icons": [
+        {
+          "src": "/ExpenseTracker/reset-icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    }
+  ]
+}

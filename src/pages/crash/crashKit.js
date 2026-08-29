@@ -96,3 +96,12 @@ export function mergeKit(saved = {}) {
     menu,
   };
 }
+
+/** Look up a menu option by id across every group. */
+export function findMove(kit, id) {
+  for (const group of Object.values(kit.menu || {})) {
+    const hit = (group || []).find((o) => o.id === id);
+    if (hit) return hit;
+  }
+  return null;
+}

@@ -18,25 +18,57 @@
   ],
   "shortcuts": [
     {
+      "name": "I’m crashing",
+      "short_name": "Reset",
+      "description": "Start the crash protocol",
+      "url": "/ExpenseTracker/crash?start=1",
+      "icons": [
+        {
+          "src": "/ExpenseTracker/reset-icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
       "name": "Log Purchase",
       "short_name": "Log",
       "description": "Quickly log a new purchase",
       "url": "/ExpenseTracker/purchases?new=1",
-      "icons": [{ "src": "/ExpenseTracker/app-icon.jpeg", "sizes": "512x512", "type": "image/jpeg" }]
+      "icons": [
+        {
+          "src": "/ExpenseTracker/app-icon.jpeg",
+          "sizes": "512x512",
+          "type": "image/jpeg"
+        }
+      ]
     },
     {
       "name": "View Bills",
       "short_name": "Bills",
       "description": "Check your bills and payments",
       "url": "/ExpenseTracker/bills",
-      "icons": [{ "src": "/ExpenseTracker/app-icon.jpeg", "sizes": "512x512", "type": "image/jpeg" }]
+      "icons": [
+        {
+          "src": "/ExpenseTracker/app-icon.jpeg",
+          "sizes": "512x512",
+          "type": "image/jpeg"
+        }
+      ]
     },
     {
       "name": "Upload Document",
       "short_name": "Upload",
       "description": "Go to the Document Vault to upload files",
       "url": "/ExpenseTracker/vault",
-      "icons": [{ "src": "/ExpenseTracker/app-icon.jpeg", "sizes": "512x512", "type": "image/jpeg" }]
+      "icons": [
+        {
+          "src": "/ExpenseTracker/app-icon.jpeg",
+          "sizes": "512x512",
+          "type": "image/jpeg"
+        }
+      ]
     }
-  ]
+  ],
+  "id": "/ExpenseTracker/"
 }

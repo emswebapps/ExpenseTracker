@@ -3,57 +3,47 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
+// Two installable apps from one build, on one origin:
+//
+//   index.html        → "Finance Manager" at /ExpenseTracker/
+//   reset/index.html  → "Reset"           at /ExpenseTracker/reset/
+//
+// Sharing an origin is deliberate: the standalone Reset app then shares the
+// Firebase login, the localStorage cache and the Firestore document with the
+// main app, so both see the same data. What makes the phone treat them as two
+// separate installs is the manifests — distinct `id` values and
+// non-overlapping `scope`s.
+//
+// VitePWA's manifest generation is switched off (`manifest: false`) so each
+// entry links its own static manifest from public/ instead. Previously the
+// generated manifest was injected while public/manifest.json sat unreferenced
+// and out of date; one manifest per page, visible as a plain file, is far
+// easier to reason about than injection plus a stale duplicate.
+
 export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
+      manifest: false,
       workbox: {
         clientsClaim: true,
         skipWaiting: true,
+        // Without this, an offline launch of the Reset app would fall back to
+        // index.html and quietly open the finance app instead.
+        navigateFallbackDenylist: [/^\/ExpenseTracker\/reset\//],
       },
       includeAssets: ['favicon.ico', 'apple-touch-icon.png'],
-      manifest: {
-        name: 'Finance Manager',
-        short_name: 'Finance',
-        description: 'Track bills, income, debts and savings',
-        theme_color: '#0f172a',
-        background_color: '#0f172a',
-        display: 'standalone',
-        orientation: 'portrait-primary',
-        start_url: '/ExpenseTracker/',
-        scope: '/ExpenseTracker/',
-        icons: [
-          { src: '/ExpenseTracker/pwa-192x192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
-          { src: '/ExpenseTracker/pwa-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
-          { src: '/ExpenseTracker/pwa-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
-        ],
-        shortcuts: [
-          {
-            name: 'Log Purchase',
-            short_name: 'Log',
-            description: 'Quickly log a new purchase',
-            url: '/ExpenseTracker/purchases?new=1',
-            icons: [{ src: '/ExpenseTracker/pwa-192x192.png', sizes: '192x192', type: 'image/png' }],
-          },
-          {
-            name: 'View Bills',
-            short_name: 'Bills',
-            description: 'Check your bills and payments',
-            url: '/ExpenseTracker/bills',
-            icons: [{ src: '/ExpenseTracker/pwa-192x192.png', sizes: '192x192', type: 'image/png' }],
-          },
-          {
-            name: 'Upload Document',
-            short_name: 'Upload',
-            description: 'Go to the Document Vault to upload files',
-            url: '/ExpenseTracker/vault',
-            icons: [{ src: '/ExpenseTracker/pwa-192x192.png', sizes: '192x192', type: 'image/png' }],
-          },
-        ],
-      },
     }),
   ],
+  build: {
+    rolldownOptions: {
+      input: {
+        main: 'index.html',
+        reset: 'reset/index.html',
+      },
+    },
+  },
   base: '/ExpenseTracker/',
 })

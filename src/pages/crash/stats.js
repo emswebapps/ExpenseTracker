@@ -111,3 +111,42 @@ export function historySentence(summary) {
   }
   return parts.join(' ');
 }
+
+// How many times a given option has to have been used before the app will say
+// anything about it. Three nights is not proof, but it's enough to stop the
+// tool making confident claims off a single good evening.
+export const MIN_MOVE_USES = 3;
+
+/**
+ * Which options actually move the number, from the user's own record.
+ *
+ * Only sessions that recorded both ratings can speak to this. A session is
+ * credited to every move logged in it — on a night with two, neither gets sole
+ * credit, which is honest about what the data can and can't separate.
+ */
+export function rankMoves(sessions = [], minUses = MIN_MOVE_USES) {
+  const list = Array.isArray(sessions) ? sessions.filter(Boolean) : [];
+  const byMove = new Map();
+
+  for (const s of list) {
+    if (typeof s.intensity !== 'number' || typeof s.intensityAfter !== 'number') continue;
+    const drop = s.intensity - s.intensityAfter;
+    for (const id of new Set(s.moves || [])) {
+      const entry = byMove.get(id) || { id, uses: 0, total: 0 };
+      entry.uses += 1;
+      entry.total += drop;
+      byMove.set(id, entry);
+    }
+  }
+
+  return [...byMove.values()]
+    .filter((e) => e.uses >= minUses)
+    .map((e) => ({ id: e.id, uses: e.uses, avgDrop: Math.round((e.total / e.uses) * 10) / 10 }))
+    .sort((a, b) => b.avgDrop - a.avgDrop || b.uses - a.uses);
+}
+
+/** The single option that has helped most, or null when nothing has earned it. */
+export function bestMove(sessions, minUses = MIN_MOVE_USES) {
+  const ranked = rankMoves(sessions, minUses);
+  return ranked.length > 0 && ranked[0].avgDrop > 0 ? ranked[0] : null;
+}

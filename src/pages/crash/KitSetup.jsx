@@ -133,6 +133,12 @@ export default function KitSetup({ onBack }) {
           Log when you take your meds and the Crash tab shows tonight’s likely window.
           These are just your own numbers — nothing here is advice about medication.
         </p>
+        <p style={{ fontSize: '0.8125rem', color: 'var(--subtle)', lineHeight: 1.5, marginBottom: '0.875rem' }}>
+          These two cover a dose that isn’t attached to anything on your{' '}
+          <strong style={{ color: 'var(--text)' }}>medications</strong> list — the
+          plain one-tap log, and everything you logged before that list existed.
+          Anything on the list uses its own numbers instead.
+        </p>
 
         <label className="app-label">The crash usually starts</label>
         <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
@@ -238,12 +244,41 @@ export default function KitSetup({ onBack }) {
             hint="Only once you've logged a dose. Nothing to log, nothing to send."
           />
           <Toggle
+            checked={notifPrefs.crash?.crashNote ?? true}
+            onChange={(v) => setCrashPref('crashNote', v)}
+            label="As my window opens"
+            hint="Opens straight onto your anchors. It never starts a session on its own."
+          />
+          <Toggle
             checked={notifPrefs.crash?.escrowOpened ?? true}
             onChange={(v) => setCrashPref('escrowOpened', v)}
             label="When something I held opens"
             hint="The morning after. Never quotes what you wrote."
           />
+          <Toggle
+            checked={notifPrefs.crash?.doseDue ?? true}
+            onChange={(v) => setCrashPref('doseDue', v)}
+            label="When a dose comes due"
+            hint="Once, at the time you set. It goes quiet after that rather than asking again."
+          />
+          <Toggle
+            checked={notifPrefs.crash?.ruleReminders ?? true}
+            onChange={(v) => setCrashPref('ruleReminders', v)}
+            label="My rules, at the time I set them"
+            hint="Your own words, buzzed back at you. A before-the-dose rule stops once you've logged it."
+          />
+          <Toggle
+            checked={notifPrefs.crash?.refillLow ?? true}
+            onChange={(v) => setCrashPref('refillLow', v)}
+            label="When a supply is running low"
+            hint="The day it crosses your threshold, and again when it's nearly gone."
+          />
         </div>
+        <p style={{ fontSize: '0.75rem', color: 'var(--subtle)', lineHeight: 1.5, marginTop: '0.75rem' }}>
+          None of these ever name a medication, a dose or a rule on the lock
+          screen. They say there’s something to look at; what it is stays behind
+          your login.
+        </p>
       </div>
 
       <p style={{

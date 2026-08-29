@@ -4,6 +4,7 @@ import { saveUserData, loadUserData, saveSharedView, saveFCMToken } from '../uti
 import { generateId, currentMonthKey, getBillStatus, nextBillStatus, isTaskList } from '../utils/helpers';
 import { createSession as createCrashSession, defaultReleaseAt } from '../pages/crash/protocol.js';
 import { pruneSessions } from '../pages/crash/stats.js';
+import { normalizeMed, supplyAfterDose, DEFAULT_MED } from '../pages/crash/meds.js';
 import { notificationPermission, requestNotificationPermission, sendNotification, computeDueAt, todoReminderAt, registerFCMToken, onForegroundMessage, scheduleShiftNotification, cancelShiftNotification } from '../utils/notifications';
 
 const AppContext = createContext(null);
@@ -17,12 +18,31 @@ const PERMANENT_BUDGET_CATEGORIES = [
   { name: 'Work Food Allowance', monthlyLimit: 200 },
 ];
 
-// Debounce Firestore writes so rapid changes don't spam the DB
+/**
+ * Debounce Firestore writes so rapid changes don't spam the DB.
+ *
+ * Patches are MERGED across the window rather than replaced. Two writes to
+ * different slices inside the same 1.5 seconds is not a rare case — logging a
+ * dose also counts one out of that medication's supply, and closing a session
+ * also resolves the drafts held under it — and with plain replace semantics the
+ * earlier slice was silently dropped from the cloud copy while localStorage
+ * kept it, which is the worst shape a sync bug can have: invisible on the
+ * device that made the change.
+ *
+ * Merging is safe for the same-slice case too, since a repeated key simply
+ * takes the newer value, and `saveUserData` already writes with `{merge:true}`.
+ */
 function useDebounce(fn, delay = 1500) {
   const timer = useRef(null);
-  return useCallback((...args) => {
+  const pending = useRef(null);
+  return useCallback((patch) => {
+    pending.current = { ...(pending.current || {}), ...patch };
     clearTimeout(timer.current);
-    timer.current = setTimeout(() => fn(...args), delay);
+    timer.current = setTimeout(() => {
+      const merged = pending.current;
+      pending.current = null;
+      fn(merged);
+    }, delay);
   }, [fn, delay]);
 }
 
@@ -57,6 +77,8 @@ export function AppProvider({ children, uid }) {
   const [crashAnchors, setCrashAnchorsState] = useState(() => storage.getCrashAnchors());
   const [crashKit, setCrashKitState] = useState(() => storage.getCrashKit());
   const [crashDoses, setCrashDosesState] = useState(() => storage.getCrashDoses());
+  const [crashMeds, setCrashMedsState] = useState(() => storage.getCrashMeds());
+  const [crashBehaviors, setCrashBehaviorsState] = useState(() => storage.getCrashBehaviors());
   const [cloudLoaded, setCloudLoaded] = useState(false);
   const [testMode, setTestMode] = useState(false);
   // Selected month shared across all pages so toggling the month on one page
@@ -67,7 +89,7 @@ export function AppProvider({ children, uid }) {
 
   // Use refs to always have fresh values for the save function
   const stateRef = useRef({});
-  stateRef.current = { bills, income, budget, settings, notes, debts, savings, commitments, purchases, plannedExpenses, jobs, shifts, budgetCategories, budgetSpends, agreements, shoppingLists, shoppingItems, planningSettings, recurringTemplates, paycheckActuals, notifPrefs, fcmToken, projects, vaultDocuments, billStickyNotes, crashSessions, crashDrafts, crashAnchors, crashKit, crashDoses };
+  stateRef.current = { bills, income, budget, settings, notes, debts, savings, commitments, purchases, plannedExpenses, jobs, shifts, budgetCategories, budgetSpends, agreements, shoppingLists, shoppingItems, planningSettings, recurringTemplates, paycheckActuals, notifPrefs, fcmToken, projects, vaultDocuments, billStickyNotes, crashSessions, crashDrafts, crashAnchors, crashKit, crashDoses, crashMeds, crashBehaviors };
 
   // Load from Firestore on login
   useEffect(() => {
@@ -115,6 +137,8 @@ export function AppProvider({ children, uid }) {
         if (data.crashAnchors) { setCrashAnchorsState(data.crashAnchors); storage.setCrashAnchors(data.crashAnchors); }
         if (data.crashKit) { const k = { ...storage.getCrashKit(), ...data.crashKit }; setCrashKitState(k); storage.setCrashKit(k); }
         if (data.crashDoses) { setCrashDosesState(data.crashDoses); storage.setCrashDoses(data.crashDoses); }
+        if (data.crashMeds) { setCrashMedsState(data.crashMeds); storage.setCrashMeds(data.crashMeds); }
+        if (data.crashBehaviors) { setCrashBehaviorsState(data.crashBehaviors); storage.setCrashBehaviors(data.crashBehaviors); }
       } else {
         // First login — upload existing localStorage data to Firestore
         saveUserData(uid, stateRef.current);
@@ -266,6 +290,8 @@ export function AppProvider({ children, uid }) {
       if (snap.crashAnchors) { setCrashAnchorsState(snap.crashAnchors); storage.setCrashAnchors(snap.crashAnchors); }
       if (snap.crashKit) { setCrashKitState(snap.crashKit); storage.setCrashKit(snap.crashKit); }
       if (snap.crashDoses) { setCrashDosesState(snap.crashDoses); storage.setCrashDoses(snap.crashDoses); }
+      if (snap.crashMeds) { setCrashMedsState(snap.crashMeds); storage.setCrashMeds(snap.crashMeds); }
+      if (snap.crashBehaviors) { setCrashBehaviorsState(snap.crashBehaviors); storage.setCrashBehaviors(snap.crashBehaviors); }
       testModeSnapshot.current = null;
     }
     testModeRef.current = false;
@@ -1078,6 +1104,20 @@ export function AppProvider({ children, uid }) {
     if (!testModeRef.current) { storage.setCrashDoses(kept); debouncedSync({ crashDoses: kept }); }
   }, [debouncedSync]);
 
+  const persistCrashMeds = useCallback((next) => {
+    setCrashMedsState(next);
+    if (!testModeRef.current) { storage.setCrashMeds(next); debouncedSync({ crashMeds: next }); }
+  }, [debouncedSync]);
+
+  // Behaviour checks accumulate daily like doses, so they get the same two-month
+  // cutoff for the same reason: all of this app's slices share one document.
+  const persistCrashBehaviors = useCallback((next) => {
+    const cutoff = Date.now() - 60 * 24 * 60 * 60 * 1000;
+    const kept = next.filter((b) => b && b.at >= cutoff).sort((a, b) => b.at - a.at);
+    setCrashBehaviorsState(kept);
+    if (!testModeRef.current) { storage.setCrashBehaviors(kept); debouncedSync({ crashBehaviors: kept }); }
+  }, [debouncedSync]);
+
   const persistCrashKit = useCallback((next) => {
     setCrashKitState(next);
     if (!testModeRef.current) { storage.setCrashKit(next); debouncedSync({ crashKit: next }); }
@@ -1095,6 +1135,10 @@ export function AppProvider({ children, uid }) {
       crashSessions: st.crashSessions,
       crashDrafts: st.crashDrafts,
       crashAnchors: st.crashAnchors,
+      // Doses and behaviour checks are logged with one tap and the phone is
+      // often put straight down afterwards, which is the same race.
+      crashDoses: st.crashDoses,
+      crashBehaviors: st.crashBehaviors,
     });
   }, [uid]);
 
@@ -1165,8 +1209,11 @@ export function AppProvider({ children, uid }) {
     persistCrashAnchors(crashAnchors.filter((a) => a.id !== id));
   }, [crashAnchors, persistCrashAnchors]);
 
-  const addCrashDose = useCallback((takenAt = Date.now()) => {
-    const dose = { id: generateId(), takenAt };
+  // `medId` is optional throughout: a dose logged before medications existed,
+  // or logged from the plain one-tap row, simply has none and falls back to the
+  // kit's own onset and duration wherever the window is computed.
+  const addCrashDose = useCallback((takenAt = Date.now(), medId = null) => {
+    const dose = { id: generateId(), takenAt, medId, status: 'taken' };
     persistCrashDoses([dose, ...crashDoses]);
     return dose;
   }, [crashDoses, persistCrashDoses]);
@@ -1182,6 +1229,64 @@ export function AppProvider({ children, uid }) {
   const updateCrashKit = useCallback((patch) => {
     persistCrashKit({ ...crashKit, ...patch });
   }, [crashKit, persistCrashKit]);
+
+  const addCrashMed = useCallback((med = {}) => {
+    const next = { ...DEFAULT_MED, ...med, id: generateId() };
+    persistCrashMeds([...crashMeds, next]);
+    return next;
+  }, [crashMeds, persistCrashMeds]);
+
+  const updateCrashMed = useCallback((id, patch) => {
+    persistCrashMeds(crashMeds.map((m) => (m.id === id ? { ...m, ...patch } : m)));
+  }, [crashMeds, persistCrashMeds]);
+
+  // Deleting a medication must not orphan a schedule that hangs off it, or the
+  // meds pointing at it silently stop resolving a time at all.
+  const deleteCrashMed = useCallback((id) => {
+    persistCrashMeds(
+      crashMeds
+        .filter((m) => m.id !== id)
+        .map((m) => (m.schedule && m.schedule.afterMedId === id
+          ? { ...m, schedule: { ...m.schedule, mode: 'clock', afterMedId: null } }
+          : m)),
+    );
+  }, [crashMeds, persistCrashMeds]);
+
+  /**
+   * Log a dose against a medication and count it out of the supply in the same
+   * step, so the pill count can't drift away from the dose log.
+   */
+  const logCrashDose = useCallback((medId, takenAt = Date.now()) => {
+    const dose = { id: generateId(), takenAt, medId: medId || null, status: 'taken' };
+    persistCrashDoses([dose, ...crashDoses]);
+
+    const med = crashMeds.find((m) => m.id === medId);
+    if (med) {
+      const supply = supplyAfterDose(med);
+      if (supply) persistCrashMeds(crashMeds.map((m) => (m.id === medId ? { ...m, supply } : m)));
+    }
+    return dose;
+  }, [crashDoses, crashMeds, persistCrashDoses, persistCrashMeds]);
+
+  /** Refilling resets the count and clears the fill-window date it just met. */
+  const refillCrashMed = useCallback((medId, onHand) => {
+    const med = crashMeds.find((m) => m.id === medId);
+    if (!med) return;
+    const supply = { ...normalizeMed(med).supply, onHand: Number(onHand), refillFrom: '', lastFilledAt: Date.now() };
+    persistCrashMeds(crashMeds.map((m) => (m.id === medId ? { ...m, supply } : m)));
+  }, [crashMeds, persistCrashMeds]);
+
+  const addCrashBehavior = useCallback((signIds, at = Date.now()) => {
+    const ids = Array.isArray(signIds) ? signIds.filter(Boolean) : [];
+    if (ids.length === 0) return null;
+    const entry = { id: generateId(), at, signIds: ids, source: 'check' };
+    persistCrashBehaviors([entry, ...crashBehaviors]);
+    return entry;
+  }, [crashBehaviors, persistCrashBehaviors]);
+
+  const deleteCrashBehavior = useCallback((id) => {
+    persistCrashBehaviors(crashBehaviors.filter((b) => b.id !== id));
+  }, [crashBehaviors, persistCrashBehaviors]);
 
   return (
     <AppContext.Provider value={{
@@ -1218,7 +1323,9 @@ export function AppProvider({ children, uid }) {
       crashDrafts, addCrashDraft, updateCrashDraft, resolveCrashDraft, deleteCrashDraft,
       crashAnchors, addCrashAnchor, updateCrashAnchor, deleteCrashAnchor,
       crashKit, updateCrashKit, flushCrashSync,
-      crashDoses, addCrashDose, updateCrashDose, deleteCrashDose,
+      crashDoses, addCrashDose, updateCrashDose, deleteCrashDose, logCrashDose,
+      crashMeds, addCrashMed, updateCrashMed, deleteCrashMed, refillCrashMed,
+      crashBehaviors, addCrashBehavior, deleteCrashBehavior,
     }}>
       {children}
     </AppContext.Provider>

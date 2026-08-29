@@ -1,6 +1,7 @@
 const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const admin = require('firebase-admin');
+const regimen = require('./crashRegimen');
 
 admin.initializeApp();
 
@@ -783,34 +784,106 @@ function crashLatestDose(doses, now) {
 }
 
 /**
+ * Should a low supply say so today?
+ *
+ * A reminder that fires every morning for a week stops being a reminder. This
+ * speaks on the day the threshold is crossed, then goes quiet until it's nearly
+ * gone, and again when the fill window opens on a supply that's already low —
+ * the three moments where there is actually something to do.
+ */
+function crashShouldWarnRefill(status) {
+  if (!status.tracked) return status.refillOpen;
+  if (!status.low) return false;
+  return status.daysLeft === status.lowDays || status.daysLeft <= 2 || status.refillOpen;
+}
+
+/**
  * Which crash notifications are due for this user right now.
  *
  * Pure, so the privacy guarantee above can be asserted in a test rather than
  * assumed. `sent` is the dedupe map kept on the user's notifState doc.
+ *
+ * Note what none of these bodies do: name a medication, a strength, a rule or a
+ * time. A body here is a fixed string, chosen so that the notification is
+ * useless to anyone reading the lock screen over her shoulder and complete to
+ * the person who tapped it open. `crashReminders.test.js` holds that line.
  */
 function collectCrashMessages(data, sent, now, tz) {
   const prefs = (data.notifPrefs && data.notifPrefs.crash) || {};
+  const kit = data.crashKit || {};
+  const meds = Array.isArray(data.crashMeds) ? data.crashMeds : [];
+  const doses = Array.isArray(data.crashDoses) ? data.crashDoses : [];
+  const today = localDateAndMinutes(new Date(now), tz).date;
+  const tracking = kit.doseTracking !== false;
   const out = [];
 
-  // ── The window is about to open ──
-  if (prefs.windowHeadsUp !== false) {
-    const kit = data.crashKit || {};
-    if (kit.doseTracking !== false) {
-      const dose = crashLatestDose(data.crashDoses, now);
-      if (dose) {
-        const start = dose.takenAt + crashPositive(kit.onsetHours, 4) * CRASH_HOUR_MS;
-        const tag = `crash-window-${dose.id}`;
-        // Only in the half hour before it opens — a late tick shouldn't fire a
-        // warning about something already underway.
-        if (now >= start - CRASH_HEADSUP_MS && now < start && !sent[tag]) {
-          out.push({
-            tag,
-            title: 'Your window starts soon',
-            body: 'About half an hour. If there’s anything hard to say, now’s the better time.',
-            url: RESET_APP_URL,
-          });
-        }
+  const push = (tag, title, body, url) => {
+    if (!sent[tag]) out.push({ tag, title, body, url: url || RESET_APP_URL });
+  };
+
+  // ── The window ──
+  // Computed off the whole regimen, so a booster that was taken pushes the
+  // evening later and a booster that was skipped leaves it where it was.
+  //
+  // While a dose is still expected, the window is `provisional` and BOTH of
+  // these stay quiet. Warning her that the hard hours start at five, when
+  // taking the two o'clock one would have moved them to six, is worse than
+  // saying nothing — it's a false alarm about the exact thing she is trying to
+  // learn to trust. Once the grace passes with nothing logged the window is
+  // real and this fires against it; logging it late recomputes and this fires
+  // against the later one instead.
+  const w = tracking ? regimen.effectiveWindow(meds, doses, kit, now, tz) : null;
+
+  if (w && !w.provisional) {
+    if (prefs.windowHeadsUp !== false) {
+      const tag = `crash-window-${w.doseId}`;
+      // Only in the half hour before it opens — a late tick shouldn't fire a
+      // warning about something already underway.
+      if (now >= w.start - CRASH_HEADSUP_MS && now < w.start) {
+        push(tag, 'Your window starts soon',
+          'About half an hour. If there’s anything hard to say, now’s the better time.');
       }
+    }
+
+    // As it actually opens, and pointed at the anchors rather than the home
+    // screen: the note is the thing that's hard to reach for at this exact
+    // moment, so it should already be open. One a day, never a session start —
+    // this says "read this", not "you are crashing".
+    if (prefs.crashNote !== false) {
+      const tag = `crash-note-${today}`;
+      if (now >= w.start && now < w.end) {
+        push(tag, 'You’re heading into it',
+          'Tap to read your note before it lands.', `${RESET_APP_URL}?open=anchors`);
+      }
+    }
+  }
+
+  // ── A dose is due ──
+  // Only inside its grace. Past that it counts as skipped, and the app has
+  // nothing useful left to say about it — a second buzz would only be guilt.
+  if (tracking && prefs.doseDue !== false) {
+    for (const e of regimen.expectedDosesToday(meds, doses, now, tz)) {
+      if (e.state !== 'due') continue;
+      push(`crash-dose-${e.medId}-${today}`, 'Time for the next one',
+        'Tap to log it.');
+    }
+  }
+
+  // ── A rule attached to a dose ──
+  if (tracking && prefs.ruleReminders !== false) {
+    for (const r of regimen.dueRules(meds, doses, now, tz)) {
+      push(`crash-rule-${r.medId}-${r.ruleId}-${today}`, 'One of your rules',
+        'Something you set for around this time. Tap to read it.');
+    }
+  }
+
+  // ── Running low ──
+  if (tracking && prefs.refillLow !== false) {
+    for (const med of regimen.activeMeds(meds)) {
+      const status = regimen.supplyStatus(med, now, tz);
+      if (!crashShouldWarnRefill(status)) continue;
+      push(`crash-refill-${med.id}-${today}`, 'Worth sorting this week',
+        'One of your supplies needs attention. Tap to check.');
     }
   }
 
@@ -824,20 +897,12 @@ function collectCrashMessages(data, sent, now, tz) {
     if (ready.length > 0) {
       // Keyed by local day so this is a single morning nudge, and bounded by
       // the grace window above so an ignored draft never becomes a nag.
-      const tag = `crash-escrow-${localDateAndMinutes(new Date(now), tz).date}`;
-      if (!sent[tag]) {
-        out.push({
-          tag,
-          title: 'It’s tomorrow now',
-          body: ready.length === 1
-            ? 'Something you held last night is open.'
-            : `${ready.length} things you held are open.`,
-          url: RESET_APP_URL,
-        });
-      }
+      push(`crash-escrow-${today}`, 'It’s tomorrow now',
+        ready.length === 1
+          ? 'Something you held last night is open.'
+          : `${ready.length} things you held are open.`);
     }
   }
-
   return out;
 }
 
@@ -892,5 +957,6 @@ exports._internal = {
   collectTodoMessages, collectTodoEmails, wallClockToMs,
   collectDailyMessages, filterDailyForPush, filterDailyForEmail,
   localDateAndMinutes, daysBetween, tomorrowDayOfMonth,
-  collectCrashMessages, crashLatestDose, RESET_APP_URL,
+  collectCrashMessages, crashLatestDose, crashShouldWarnRefill, RESET_APP_URL,
+  crashRegimen: regimen,
 };

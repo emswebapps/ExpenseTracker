@@ -4,6 +4,7 @@ import { summarize, historySentence, rankMoves } from './stats.js';
 import { formatClock } from './protocol.js';
 import { suggestedOnset, formatHours } from './window.js';
 import { mergeKit, findMove } from './crashKit.js';
+import { signTimings } from './behaviors.js';
 
 const OUTCOME_LABEL = {
   'let-it-go': 'It settled',
@@ -19,13 +20,19 @@ const OUTCOME_LABEL = {
  * reads as discouraging, and showing nothing is better than showing "1 of 2".
  */
 export default function HistoryView({ onBack }) {
-  const { crashSessions, crashDrafts, crashDoses, crashKit } = useApp();
+  const { crashSessions, crashDrafts, crashDoses, crashKit, crashBehaviors } = useApp();
   const kit = mergeKit(crashKit);
   const finished = crashSessions.filter((s) => s.endedAt).sort((a, b) => b.startedAt - a.startedAt);
   const summary = summarize(crashSessions, crashDrafts);
   const sentence = finished.length >= 3 ? historySentence(summary) : null;
   const inferred = suggestedOnset(crashSessions, crashDoses);
   const ranked = rankMoves(crashSessions);
+
+  // Which signs arrive earliest, measured from the dose rather than the clock.
+  // Empty until a sign has been tagged enough times to mean something — see
+  // the sample floor in behaviors.js.
+  const timings = signTimings(crashBehaviors, crashSessions, crashDoses, kit.warningSigns);
+  const latest = timings.length ? timings[timings.length - 1].hours : 0;
 
   // When your evenings actually go wrong, by hour. Unlike the crash screens,
   // nothing here is urgent, so a real chart is affordable.
@@ -108,6 +115,52 @@ export default function HistoryView({ onBack }) {
               <strong style={{ color: 'var(--text)' }}>{formatHours(inferred.hours)}</strong> after your dose.
             </p>
           )}
+        </div>
+      )}
+
+      {timings.length > 0 && (
+        <div style={{ marginBottom: '1.75rem' }}>
+          <h2 style={{ fontSize: '0.75rem', fontWeight: 800, letterSpacing: '0.06em', color: 'var(--muted)', marginBottom: '0.5rem' }}>
+            WHAT SHOWS UP FIRST
+          </h2>
+          <p style={{ fontSize: '0.875rem', color: 'var(--subtle)', lineHeight: 1.5, marginBottom: '0.875rem' }}>
+            How long after a dose each one tends to arrive. The one at the top is
+            the earliest warning you actually get.
+          </p>
+          {/* Plain divs again, for the reason given above the chart. */}
+          <div style={{ display: 'grid', gap: '0.625rem' }}>
+            {timings.map((t, i) => (
+              <div key={t.signId}>
+                <div style={{
+                  display: 'flex', alignItems: 'baseline', gap: '0.5rem', marginBottom: '0.3125rem',
+                }}>
+                  <span style={{
+                    flex: 1, fontSize: '0.875rem', lineHeight: 1.4,
+                    color: i === 0 ? 'var(--text)' : 'var(--subtle)',
+                    fontWeight: i === 0 ? 700 : 500,
+                  }}>
+                    {t.text}
+                  </span>
+                  <span style={{
+                    fontSize: '0.8125rem', color: 'var(--subtle)', flexShrink: 0,
+                    fontVariantNumeric: 'tabular-nums',
+                  }}>
+                    {formatHours(t.hours)} · {t.count}×
+                  </span>
+                </div>
+                <div style={{
+                  height: '0.3125rem', borderRadius: '9999px',
+                  backgroundColor: 'var(--surface2)', overflow: 'hidden',
+                }}>
+                  <div style={{
+                    width: `${latest > 0 ? Math.max(4, (t.hours / latest) * 100) : 100}%`,
+                    height: '100%',
+                    backgroundColor: i === 0 ? 'var(--accent)' : 'var(--accent-soft)',
+                  }} />
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

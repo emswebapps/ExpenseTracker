@@ -114,26 +114,86 @@ Supporting pieces:
 - **What usually happens** — the point of the whole thing: your own record
   showing how often the 30 minutes changed the answer. Hidden until there are
   three sessions, since a thin number reads as discouraging.
-- **My kit** — warning signs, the agreed phrase, timer length, and whether to
-  get a buzz when time is up. Set this up on a day you feel fine.
+- **My kit** — warning signs, the agreed phrase, timer length, fallback dose
+  timing, and which of the seven notifications are allowed to buzz you. Set
+  this up on a day you feel fine.
 
-### Dose timing and the predicted window
+### Medications, and the predicted window
 
-The crash is a schedule, not a surprise. Log when you took your meds — one tap
-at the top of the Crash tab, time editable — and the app shows tonight's likely
-window on a small timeline, and pushes a heads-up about half an hour before it
-opens, while there's still time to finish a hard conversation.
+The crash is a schedule, not a surprise. **My medications** holds what you take:
+a name, a strength, when it's due, how long it takes to wear off and how long
+the crash then lasts. A dose can be scheduled at a wall-clock time, or hung off
+another one — "six hours after the morning one" — in which case a late morning
+drags the afternoon one late with it.
 
-Onset and duration default to 4 hours and 5 hours and are editable in **My
-Kit**. Once there are five or more dose-and-crash pairs, *What usually happens*
-works out your real number from your own record — "your last 8 crashes started
-about 4h 20m after your dose" — and offers to use it. It never changes the
-setting on its own.
+Today's doses sit at the top of the Crash tab: one row each, with a Log button,
+a tick once it's in, and the rules you wrote for that dose while it's still
+ahead of you. Logging a dose counts one out of the supply in the same step, so
+the pill count can't drift away from the log. There's still a plain one-tap Log
+for anyone who hasn't set a list up.
 
-**The app never advises on medication.** It does arithmetic on a time you
-entered and shows you the result. There is no dose reminder, no adherence
-tracking and no missed-dose guilt; with nothing logged, the feature says
-nothing at all.
+**The window is worked out from the whole regimen, not the last dose.** Each
+logged dose gets a span — its own onset, its own duration — and the one that
+ends last is the one that governs the evening. That's what makes a second dose
+matter: take the afternoon one and the hard hours move later; skip it and they
+stay where the morning one put them.
+
+The interesting case is the one that hasn't happened yet. While a dose is still
+expected — not yet due, or inside the grace you set for it — the honest answer
+is "it depends", so the timeline shows the earlier window with the later one
+dotted in behind it, and **both notifications stay quiet**. Warning you that the
+hard hours start at five, when taking the two o'clock one would have moved them
+to six, is a false alarm about the exact thing this feature is asking you to
+trust. Once the grace passes with nothing logged, the dose counts as skipped and
+the earlier window is the real one. Log it late, at any point, and everything
+recomputes back out.
+
+Two things then fire: a heads-up half an hour before the window opens, and — as
+it actually opens — a note that opens straight onto your anchors, because that's
+the thing that's hard to reach for at that exact moment. It never starts a
+session on its own; it says "read this", not "you are crashing".
+
+Onset and duration default to 4 and 5 hours per medication, and the pair in
+**My Kit** covers a dose that isn't attached to anything on the list. Once there
+are five or more dose-and-crash pairs, *What usually happens* works out your
+real number from your own record — "your last 8 crashes started about 4h 20m
+after your dose" — and offers to use it. It never changes the setting on its own.
+
+### Refills and rules
+
+Enter how many you have on hand and how many you take per dose, and the count
+comes down as you log. A supply speaks up on the day it crosses the threshold
+you set, and again when it's nearly gone — not every morning in between, because
+a reminder that fires seven days running stops being a reminder. There's also an
+optional **can refill from** date, for when the fill window is the constraint
+rather than the pill count.
+
+Rules are yours, in your words, attached to a dose and fired at an offset you
+pick: *"1h before — eat first, nothing too high in fat"*. They show on the dose
+card while it's still ahead of you and buzz at their moment. A before-the-dose
+rule stops mattering the moment you log the dose, because telling you to eat
+first after you've swallowed it is worse than saying nothing.
+
+**The app never advises on medication.** Every name, time, threshold and rule on
+these screens was typed in by you. It does arithmetic on your numbers and hands
+the result back — there is no default medication, no suggested dose, and no
+opinion about either. With nothing logged, the feature says nothing at all.
+
+Every one of these notifications can be switched off on its own in **My Kit**,
+and none of them ever names a medication, a strength or a rule: the lock screen
+says there's something to look at, and what it is stays behind your login.
+`crashReminders.test.js` sweeps a full day of every message kind and fails if
+any of them interpolates a word you wrote.
+
+### Recognising it earlier
+
+The warning signs are one vocabulary used in two places: Step 1 of a session,
+and **How am I doing?** on the home screen — tap what's true, nothing starts, it
+just goes in the record. Having the quiet evenings in there as well as the loud
+ones is what lets *What usually happens* show **what shows up first**: each sign
+with the median time it tends to arrive *after a dose*, earliest at the top. The
+one at the top is the earliest warning you actually get. Nothing is said about a
+sign tagged fewer than four times.
 
 ### What he needs to know
 

@@ -7,7 +7,7 @@ const { test } = require('node:test');
 
 process.env.GOOGLE_CLOUD_PROJECT = process.env.GOOGLE_CLOUD_PROJECT || 'test-project';
 const { _internal } = require('../index');
-const { collectCrashMessages, crashLatestDose, RESET_APP_URL } = _internal;
+const { collectCrashMessages, crashLatestDose, crashShouldWarnRefill, RESET_APP_URL } = _internal;
 
 const TZ = 'America/New_York';
 const HOUR = 60 * 60 * 1000;
@@ -54,8 +54,22 @@ test('does not fire while the window is still hours away', () => {
   assert.deepStrictEqual(collectCrashMessages(data, {}, NOW, TZ), []);
 });
 
-test('does not fire once the window is already open', () => {
+test('the heads-up does not fire once the window is already open', () => {
+  const data = withDose(NOW - 5 * HOUR, {
+    notifPrefs: { crash: { windowHeadsUp: true, escrowOpened: true, crashNote: false } },
+  });
+  assert.deepStrictEqual(collectCrashMessages(data, {}, NOW, TZ), []);
+});
+
+test('the note fires as the window opens, and opens onto the anchors', () => {
   const data = withDose(NOW - 5 * HOUR); // opened an hour ago
+  const msgs = collectCrashMessages(data, {}, NOW, TZ);
+  assert.deepStrictEqual(tags(msgs), ['crash-note-2026-07-26']);
+  assert.strictEqual(msgs[0].url, `${RESET_APP_URL}?open=anchors`);
+});
+
+test('the note does not fire once the window has passed', () => {
+  const data = withDose(NOW - 10 * HOUR); // onset 4h + duration 5h, so long over
   assert.deepStrictEqual(collectCrashMessages(data, {}, NOW, TZ), []);
 });
 
@@ -185,4 +199,211 @@ test('both notifications open the installed Reset app', () => {
     // app in a browser tab instead of the installed one.
     assert.ok(m.url.startsWith('/ExpenseTracker/reset/'), m.tag);
   }
+});
+
+// ── The regimen: doses, rules, refills and the smart window ─────────────────
+//
+// The whole reason the medication list exists. NOW is 14:00 in New York, so a
+// morning dose at 08:00 and a booster expected six hours later put "right now"
+// exactly on the booster.
+
+const MIN = 60 * 1000;
+// 2026-07-26 is EDT (UTC-4).
+const localAt = (h, m = 0) => new Date(Date.UTC(2026, 6, 26, h + 4, m)).getTime();
+
+const XR = {
+  id: 'xr', name: 'Adderall XR', strength: '20 mg', kind: 'long',
+  schedule: { mode: 'clock', time: '08:00' },
+  graceMinutes: 45, onsetHours: 9, durationHours: 5,
+  supply: { onHand: 30, perDose: 1, lowDays: 7, refillFrom: '' },
+  rules: [{ id: 'eat', text: 'Eat first — nothing too high in fat', offsetMinutes: -60 }],
+  active: true,
+};
+const IR = {
+  id: 'ir', name: 'Adderall IR', strength: '10 mg', kind: 'booster',
+  schedule: { mode: 'offset', afterMedId: 'xr', offsetHours: 6 },
+  graceMinutes: 45, onsetHours: 4, durationHours: 5,
+  supply: { onHand: 30, perDose: 1, lowDays: 7, refillFrom: '' },
+  rules: [], active: true,
+};
+
+const ALL_ON = {
+  timerEnd: true, windowHeadsUp: true, escrowOpened: true, crashNote: true,
+  doseDue: true, ruleReminders: true, refillLow: true,
+};
+
+const withRegimen = (over = {}) => ({
+  fcmToken: 'tok',
+  crashKit: { onsetHours: 4, durationHours: 5, doseTracking: true },
+  crashMeds: [XR, IR],
+  crashDoses: [{ id: 'd-xr', takenAt: localAt(8), medId: 'xr', status: 'taken' }],
+  crashDrafts: [],
+  notifPrefs: { crash: ALL_ON },
+  ...over,
+});
+
+test('a dose that has come due says so, once', () => {
+  const at = localAt(14, 10); // ten minutes into the booster's 45-minute grace
+  const msgs = collectCrashMessages(withRegimen(), {}, at, TZ);
+  assert.deepStrictEqual(tags(msgs), ['crash-dose-ir-2026-07-26']);
+
+  const sent = { 'crash-dose-ir-2026-07-26': at };
+  assert.deepStrictEqual(collectCrashMessages(withRegimen(), sent, at + 15 * MIN, TZ), []);
+});
+
+test('a dose past its grace goes quiet rather than nagging', () => {
+  // 15:00 is well past 14:00 + 45 minutes. Nothing about the missed booster,
+  // and — because it counts as skipped — the window is now real.
+  const msgs = collectCrashMessages(withRegimen(), {}, localAt(15), TZ);
+  assert.deepStrictEqual(tags(msgs), []);
+  const headsUp = collectCrashMessages(withRegimen(), {}, localAt(16, 40), TZ);
+  assert.deepStrictEqual(tags(headsUp), ['crash-window-d-xr']);
+});
+
+// ── the case this whole feature turns on ────────────────────────────────────
+
+test('a skipped booster puts the window where the long-acting dose left it', () => {
+  const data = withRegimen();
+  // XR at 08:00, onset 9h → 17:00. Heads-up half an hour before.
+  assert.deepStrictEqual(tags(collectCrashMessages(data, {}, localAt(16, 40), TZ)), ['crash-window-d-xr']);
+  assert.deepStrictEqual(tags(collectCrashMessages(data, {}, localAt(17, 5), TZ)), ['crash-note-2026-07-26']);
+});
+
+test('a booster that was taken pushes the same two later, not earlier', () => {
+  const data = withRegimen({
+    crashDoses: [
+      { id: 'd-ir', takenAt: localAt(14), medId: 'ir', status: 'taken' },
+      { id: 'd-xr', takenAt: localAt(8), medId: 'xr', status: 'taken' },
+    ],
+  });
+  // IR at 14:00, onset 4h → 18:00, an hour later than the XR-only answer.
+  assert.deepStrictEqual(tags(collectCrashMessages(data, {}, localAt(16, 40), TZ)), []);
+  assert.deepStrictEqual(tags(collectCrashMessages(data, {}, localAt(17, 40), TZ)), ['crash-window-d-ir']);
+  assert.deepStrictEqual(tags(collectCrashMessages(data, {}, localAt(18, 5), TZ)), ['crash-note-2026-07-26']);
+});
+
+test('nothing fires about the window while a booster is still expected', () => {
+  const data = withRegimen();
+  // 13:50 — the booster is still ahead, so where the evening lands is genuinely
+  // not known yet. A heads-up here would be a false alarm about the one thing
+  // this feature is asking her to trust.
+  assert.deepStrictEqual(tags(collectCrashMessages(data, {}, localAt(13, 50), TZ)), []);
+});
+
+test('a booster logged late moves the window back out', () => {
+  const late = withRegimen({
+    crashDoses: [
+      { id: 'd-ir', takenAt: localAt(15, 30), medId: 'ir', status: 'taken' },
+      { id: 'd-xr', takenAt: localAt(8), medId: 'xr', status: 'taken' },
+    ],
+  });
+  // Logged past its grace, but logged: 15:30 + 4h → 19:30, not 17:00.
+  assert.deepStrictEqual(tags(collectCrashMessages(late, {}, localAt(16, 40), TZ)), []);
+  assert.deepStrictEqual(tags(collectCrashMessages(late, {}, localAt(19, 5), TZ)), ['crash-window-d-ir']);
+});
+
+// ── rules ───────────────────────────────────────────────────────────────────
+
+test('a rule fires at its offset before the dose', () => {
+  const data = withRegimen({ crashDoses: [] });
+  assert.deepStrictEqual(tags(collectCrashMessages(data, {}, localAt(7, 5), TZ)), ['crash-rule-xr-eat-2026-07-26']);
+});
+
+test('an eat-first rule stops mattering once the dose is taken', () => {
+  const data = withRegimen({
+    crashDoses: [{ id: 'd-xr', takenAt: localAt(7), medId: 'xr', status: 'taken' }],
+  });
+  assert.deepStrictEqual(tags(collectCrashMessages(data, {}, localAt(7, 5), TZ)), []);
+});
+
+// ── refills ─────────────────────────────────────────────────────────────────
+
+test('a refill speaks on the crossing day, then not again until it is nearly gone', () => {
+  const days = (n) => ({ onHand: n, perDose: 1, lowDays: 7, refillFrom: '' });
+  const warns = (n) => crashShouldWarnRefill({ tracked: true, low: n <= 7, daysLeft: n, lowDays: 7, refillOpen: false });
+  assert.strictEqual(warns(8), false, 'above the threshold');
+  assert.strictEqual(warns(7), true, 'the day it crosses');
+  assert.strictEqual(warns(5), false, 'quiet in between');
+  assert.strictEqual(warns(2), true, 'nearly gone');
+  assert.strictEqual(warns(0), true, 'gone');
+
+  const data = withRegimen({ crashMeds: [{ ...XR, supply: days(2) }, IR] });
+  assert.deepStrictEqual(tags(collectCrashMessages(data, {}, localAt(11), TZ)), ['crash-refill-xr-2026-07-26']);
+});
+
+test('an untracked count still warns when the fill window opens', () => {
+  const data = withRegimen({
+    crashMeds: [{ ...XR, supply: { onHand: null, perDose: 1, lowDays: 7, refillFrom: '2026-07-26' } }, IR],
+  });
+  assert.deepStrictEqual(tags(collectCrashMessages(data, {}, localAt(11), TZ)), ['crash-refill-xr-2026-07-26']);
+});
+
+// ── the switches, and the line that must not move ───────────────────────────
+
+test('each of the new notifications can be switched off on its own', () => {
+  const off = (key, at, over = {}) => collectCrashMessages(
+    withRegimen({ notifPrefs: { crash: { ...ALL_ON, [key]: false } }, ...over }), {}, at, TZ,
+  );
+  assert.deepStrictEqual(tags(off('doseDue', localAt(14, 10))), []);
+  assert.deepStrictEqual(tags(off('ruleReminders', localAt(7, 5), { crashDoses: [] })), []);
+  assert.deepStrictEqual(tags(off('crashNote', localAt(17, 5))), []);
+  assert.deepStrictEqual(
+    tags(off('refillLow', localAt(11), { crashMeds: [{ ...XR, supply: { onHand: 1, perDose: 1, lowDays: 7 } }, IR] })),
+    [],
+  );
+});
+
+test('switching dose tracking off silences every medication notification', () => {
+  const data = withRegimen({ crashKit: { onsetHours: 4, doseTracking: false } });
+  for (const at of [localAt(7, 5), localAt(11), localAt(14, 10), localAt(16, 40), localAt(17, 5)]) {
+    assert.deepStrictEqual(tags(collectCrashMessages(data, {}, at, TZ)), [], `should be silent at ${at}`);
+  }
+});
+
+test('no medication notification ever names the medication', () => {
+  // Every user-authored string on the regimen, made distinctive so that any
+  // notification interpolating one of them fails loudly here.
+  const secrets = [
+    'Adderall XR', 'Adderall IR', '20 mg', '10 mg',
+    'Eat first — nothing too high in fat', 'Walgreens on Fifth',
+  ];
+  const lowSupply = {
+    crashMeds: [
+      { ...XR, supply: { onHand: 1, perDose: 1, lowDays: 7, refillFrom: '2026-07-26' }, note: 'Walgreens on Fifth' },
+      IR,
+    ],
+    crashDrafts: [{ id: 'x1', text: 'the giant text I nearly sent', status: 'held', releaseAt: NOW - HOUR }],
+  };
+
+  // Two timelines rather than one, because a single fixed dose list can't be
+  // true at every hour of a day: the morning-of state (nothing logged yet)
+  // produces the rule and dose nudges, and the afternoon state produces the
+  // window ones. Between them every message kind is generated.
+  const days = [
+    withRegimen({ ...lowSupply, crashDoses: [] }),
+    withRegimen(lowSupply),
+  ];
+
+  // Sweep both, at every quarter hour, rather than trusting a single instant.
+  const seen = new Set();
+  for (const data of days) {
+    for (let h = 0; h < 24; h += 1) {
+      for (const m of [0, 15, 30, 45]) {
+        for (const msg of collectCrashMessages(data, {}, localAt(h, m), TZ)) {
+          seen.add(msg.tag.replace(/-\d{4}-\d{2}-\d{2}$/, ''));
+          const blob = `${msg.title} ${msg.body}`;
+          for (const secret of secrets) {
+            assert.ok(!blob.includes(secret), `${msg.tag} leaked ${JSON.stringify(secret)}`);
+          }
+        }
+      }
+    }
+  }
+
+  // If a future message kind is added and this list isn't, the sweep above
+  // silently stops covering it — so assert what the two days actually produced.
+  assert.deepStrictEqual([...seen].sort(), [
+    'crash-dose-ir', 'crash-dose-xr', 'crash-escrow', 'crash-note',
+    'crash-refill-xr', 'crash-rule-xr-eat', 'crash-window-d-xr',
+  ].sort());
 });

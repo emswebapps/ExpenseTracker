@@ -6,6 +6,7 @@ import {
 import { getDueDateMs, localTodayISO, notificationPermission } from '../../utils/notifications';
 import { listTypeMeta, ListDueBadge, fmtDate, MENU_BTN, useTicker } from './listMeta';
 import { groupTasks } from './taskGroups';
+import { indexChildren, topLevelItems, isHeading } from './subtasks';
 import { parseTaskInput } from '../../utils/parseTaskInput.js';
 import { pasteAsItems } from './pasteImport';
 import TaskRow from './TaskRow';
@@ -25,7 +26,7 @@ export function TaskListCard({
   list, listItems,
   onEditList, onDeleteList, onArchiveList,
   onAddTodoItem, onAddTodoItems, onDeleteItem, onUpdateItem, onEditItem, onExport,
-  onOpenAttachment, onToggleStatus, onSetBlocked, onAddTaskDetailed,
+  onOpenAttachment, onToggleStatus, onSetBlocked, onAddTaskDetailed, onAddSubtask,
   defaultExpanded = false,
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
@@ -36,19 +37,28 @@ export function TaskListCard({
 
   const { Icon: ListIcon } = listTypeMeta(list.type);
   const today = localTodayISO();
-  const groups = useMemo(() => groupTasks(listItems), [listItems]);
 
+  // Subtasks render under their parent, so only top-level rows get bucketed.
+  // The children map is handed to `groupTasks` as well, which is what lets an
+  // undated heading sit in the bucket its work is actually due in.
+  const childrenById = useMemo(() => indexChildren(listItems), [listItems]);
+  const roots = useMemo(() => topLevelItems(listItems), [listItems]);
+  const groups = useMemo(() => groupTasks(roots, Date.now(), childrenById), [roots, childrenById]);
+
+  // Headings are labels for the work under them, not work — counting them would
+  // report "0/8 done" on a week whose seven day rows are all that exist yet.
+  const work = useMemo(() => listItems.filter((i) => !isHeading(i)), [listItems]);
   const isPending = (i) => i.status !== 'done' && i.status !== 'blocked';
-  const done = listItems.filter((i) => i.status === 'done');
-  const blocked = listItems.filter((i) => i.status === 'blocked');
-  const overdue = listItems.filter((i) =>
+  const done = work.filter((i) => i.status === 'done');
+  const blocked = work.filter((i) => i.status === 'blocked');
+  const overdue = work.filter((i) =>
     isPending(i) && i.dueDate && getDueDateMs(i.dueDate, i.dueTime) < Date.now()
   );
-  const dueToday = listItems.filter((i) => isPending(i) && i.dueDate === today);
+  const dueToday = work.filter((i) => isPending(i) && i.dueDate === today);
 
   // Badges inside the last hour count down in minutes, so keep the clock live
   // while the card is open and something still has a deadline.
-  useTicker(expanded && listItems.some((i) => isPending(i) && i.dueDate));
+  useTicker(expanded && work.some((i) => isPending(i) && i.dueDate));
 
   const makeItem = (name, due = {}) => ({
     listId: list.id, name, status: 'pending', notes: null, address: null,
@@ -76,7 +86,7 @@ export function TaskListCard({
     current: quickAdd, setCurrent: setQuickAdd, makeItem, addItems: onAddTodoItems,
   });
 
-  const progress = listItems.length > 0 ? done.length / listItems.length : 0;
+  const progress = work.length > 0 ? done.length / work.length : 0;
 
   return (
     <div style={{ position: 'relative', backgroundColor: 'var(--surface)', border: `1px solid ${overdue.length > 0 ? 'rgba(244,63,94,0.4)' : 'var(--border)'}`, borderRadius: '1rem', overflow: menuOpen ? 'visible' : 'hidden' }}>
@@ -99,9 +109,9 @@ export function TaskListCard({
               )}
             </div>
             <div style={{ fontSize: '0.8125rem', color: 'var(--muted)', display: 'flex', gap: '0.625rem', flexWrap: 'wrap' }}>
-              {listItems.length === 0 ? <span>No tasks</span> : (
+              {work.length === 0 ? <span>No tasks</span> : (
                 <>
-                  <span>{done.length}/{listItems.length} done</span>
+                  <span>{done.length}/{work.length} done</span>
                   {blocked.length > 0 && <span style={{ color: '#f59e0b' }}>{blocked.length} blocked</span>}
                   {dueToday.length > 0 && (
                     <span style={{ display: 'flex', alignItems: 'center', gap: '0.2rem', color: 'var(--accent-text)' }}>
@@ -111,7 +121,7 @@ export function TaskListCard({
                 </>
               )}
             </div>
-            {listItems.length > 0 && (
+            {work.length > 0 && (
               <div style={{ marginTop: '0.5rem', height: '3px', backgroundColor: 'var(--border)', borderRadius: '2px', overflow: 'hidden' }}>
                 <div style={{ height: '100%', width: `${progress * 100}%`, backgroundColor: progress === 1 ? 'var(--positive)' : 'var(--accent)', borderRadius: '2px', transition: 'width 0.3s ease' }} />
               </div>
@@ -165,12 +175,14 @@ export function TaskListCard({
                     <TaskRow
                       key={item.id}
                       item={item}
+                      childItems={childrenById.get(item.id) || []}
                       onEdit={onEditItem}
                       onUpdate={onUpdateItem}
                       onDelete={onDeleteItem}
                       onToggleStatus={onToggleStatus}
                       onSetBlocked={onSetBlocked}
                       onOpenAttachment={onOpenAttachment}
+                      onAddSubtask={onAddSubtask}
                     />
                   ))}
                 </div>

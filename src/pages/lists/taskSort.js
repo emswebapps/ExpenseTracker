@@ -24,8 +24,12 @@ const isFinished = (item) => item.status === 'done';
  * Epoch ms this task is due, or null when it carries no deadline. Almost every
  * task carries `dueAt`; the fallback covers the handful saved before that field
  * existed.
+ *
+ * Exported because the bucketing in `taskGroups` and the subtask roll-up in
+ * `subtasks` have to agree with this comparator about when a task is due —
+ * three copies of the same fallback is how they'd quietly drift apart.
  */
-function dueMs(item) {
+export function dueMs(item) {
   if (item.dueAt != null) return item.dueAt;
   if (!item.dueDate) return null;
   return getDueDateMs(item.dueDate, item.dueTime);

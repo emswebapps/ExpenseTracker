@@ -560,6 +560,23 @@ export function AppProvider({ children, uid }) {
   ), [shoppingItems, persistShoppingItems]);
 
   /**
+   * Patch several items with the same change in one write. Completing a parent
+   * task closes its subtasks too, and doing that as N calls to
+   * `updateShoppingItem` would lose all but the last — each closes over the
+   * same `shoppingItems`.
+   */
+  const updateShoppingItems = useCallback((ids, u) => {
+    const target = new Set(ids);
+    if (target.size === 0) return;
+    persistShoppingItems(shoppingItems.map((i) => {
+      if (!target.has(i.id)) return i;
+      const next = { ...i, ...u };
+      if ('dueDate' in u || 'dueTime' in u) next.dueAt = computeDueAt(next.dueDate, next.dueTime);
+      return next;
+    }));
+  }, [shoppingItems, persistShoppingItems]);
+
+  /**
    * Patch one item and append another in a single write — completing a
    * repeating task marks it done *and* creates its next occurrence.
    *
@@ -567,29 +584,46 @@ export function AppProvider({ children, uid }) {
    * over the same `shoppingItems` array, so the second call would be built
    * from a list that never had the first change in it, and one of the two
    * would be lost.
+   *
+   * `alsoIds` take the same patch — a repeating parent closes its subtasks on
+   * the way out, which has to happen in this write for the same reason.
+   *
+   * `newItems` is an array because a repeating parent brings copies of its
+   * subtasks with it, so one completion can create several tasks.
    */
-  const completeAndRepeatShoppingItem = useCallback((id, patch, newItem) => {
+  const completeAndRepeatShoppingItem = useCallback((id, patch, newItems, alsoIds = []) => {
     const now = new Date().toISOString();
+    const alsoPatched = new Set([id, ...alsoIds]);
     const patched = shoppingItems.map((i) => {
-      if (i.id !== id) return i;
-      const next = { ...i, ...patch };
-      if ('dueDate' in patch || 'dueTime' in patch) next.dueAt = computeDueAt(next.dueDate, next.dueTime);
+      if (!alsoPatched.has(i.id)) return i;
+      // Only the completed task itself spawns the follow-up; its subtasks are
+      // just being closed, so the marker doesn't belong on them.
+      const own = i.id === id ? patch : { ...patch, spawnedNextId: i.spawnedNextId ?? null };
+      const next = { ...i, ...own };
+      if ('dueDate' in own || 'dueTime' in own) next.dueAt = computeDueAt(next.dueDate, next.dueTime);
       return next;
     });
     persistShoppingItems([
       ...patched,
-      {
-        ...newItem,
-        id: newItem.id ?? generateId(),
+      ...(Array.isArray(newItems) ? newItems : [newItems]).map((item) => ({
+        ...item,
+        id: item.id ?? generateId(),
         createdAt: now,
-        dueAt: newItem.dueAt ?? computeDueAt(newItem.dueDate, newItem.dueTime),
-      },
+        dueAt: item.dueAt ?? computeDueAt(item.dueDate, item.dueTime),
+      })),
     ]);
   }, [shoppingItems, persistShoppingItems]);
 
   const deleteShoppingItem = useCallback((id) => persistShoppingItems(
     shoppingItems.filter((i) => i.id !== id)
   ), [shoppingItems, persistShoppingItems]);
+
+  /** Remove several items in one write — a parent and the subtasks under it. */
+  const deleteShoppingItems = useCallback((ids) => {
+    const doomed = new Set(ids);
+    if (doomed.size === 0) return;
+    persistShoppingItems(shoppingItems.filter((i) => !doomed.has(i.id)));
+  }, [shoppingItems, persistShoppingItems]);
 
   const toggleShoppingItem = useCallback((id) => persistShoppingItems(
     shoppingItems.map((i) => i.id === id ? { ...i, checked: !i.checked } : i)
@@ -1307,7 +1341,8 @@ export function AppProvider({ children, uid }) {
       budgetSpends, addBudgetSpend, updateBudgetSpend, deleteBudgetSpend,
       agreements, addAgreement, updateAgreement, deleteAgreement,
       shoppingLists, addShoppingList, updateShoppingList, deleteShoppingList,
-      shoppingItems, addShoppingItem, addShoppingItems, updateShoppingItem, deleteShoppingItem, toggleShoppingItem, importList,
+      shoppingItems, addShoppingItem, addShoppingItems, updateShoppingItem, updateShoppingItems,
+      deleteShoppingItem, deleteShoppingItems, toggleShoppingItem, importList,
       completeAndRepeatShoppingItem,
       planningSettings, updatePlanningSettings,
       recurringTemplates, addRecurringTemplate, updateRecurringTemplate, deleteRecurringTemplate,

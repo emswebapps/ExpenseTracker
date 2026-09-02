@@ -46,7 +46,7 @@ export default function TodayView({
 }) {
   const [showTomorrow, setShowTomorrow] = useState(false);
 
-  const { overdue, dueToday, dueTomorrow, listById } = useMemo(
+  const { overdue, dueToday, dueTomorrow, listById, parentById } = useMemo(
     () => collectAgenda(lists, items),
     [lists, items]
   );
@@ -56,11 +56,14 @@ export default function TodayView({
 
   const total = overdue.length + dueToday.length;
 
+  // Flattened out of their lists, so each row says where it came from: the
+  // list name, plus the heading it sits under when it has one ("MONDAY").
   const rows = (group) => group.map((item) => (
     <TaskRow
       key={item.id}
       item={item}
       listLabel={listById.get(item.listId)?.name}
+      parentLabel={parentById.get(item.id)?.name}
       {...rowProps}
     />
   ));

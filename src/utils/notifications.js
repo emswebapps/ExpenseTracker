@@ -5,7 +5,7 @@ import { messaging, FCM_VAPID_KEY } from '../firebase';
 // site the rest of the app already uses.
 export {
   REMINDER_LEAD_OPTIONS, localISO, localTodayISO, isoInDays, getDueDateMs,
-  computeDueAt, todoReminderAt, formatDueMoment, formatDueBadge,
+  computeDueAt, todoReminderAt, formatDueMoment, formatDueBadge, formatCalendarDate,
 } from './dueDates';
 import { getToken, onMessage } from 'firebase/messaging';
 

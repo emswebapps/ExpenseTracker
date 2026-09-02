@@ -10,7 +10,8 @@ import { isTaskList, isWishlist, generateId } from '../utils/helpers';
 import { LIST_TYPES } from './lists/listMeta';
 import TodayView from './lists/TodayView';
 import { collectAgenda } from './lists/agenda';
-import { buildNextOccurrence } from './lists/recurrence.js';
+import { buildNextOccurrenceGroup } from './lists/recurrence.js';
+import { descendantIds, isHeading } from './lists/subtasks.js';
 import { ExportModal } from './lists/shareText';
 import { PasteImportModal } from './lists/pasteImport';
 import { GroceryListCard } from './lists/GroceryListCard';
@@ -25,7 +26,8 @@ import { TaskEditorModal } from './lists/forms/TaskEditorModal';
 export default function ShoppingLists() {
   const {
     shoppingLists, addShoppingList, updateShoppingList, deleteShoppingList,
-    shoppingItems, addShoppingItem, addShoppingItems, updateShoppingItem, deleteShoppingItem, toggleShoppingItem, importList,
+    shoppingItems, addShoppingItem, addShoppingItems, updateShoppingItem, updateShoppingItems,
+    deleteShoppingItem, deleteShoppingItems, toggleShoppingItem, importList,
     completeAndRepeatShoppingItem,
     notifPrefs, cloudLoaded,
   } = useApp();
@@ -129,10 +131,15 @@ export default function ShoppingLists() {
     });
   };
 
+  // Deleting a parent takes its subtasks with it. Leaving them behind would
+  // strand them: `topLevelItems` promotes orphans, so they'd reappear at the
+  // top of the list with no hint of what they belonged to.
   const handleDeleteItem = (id) => {
-    const item = shoppingItems.find((i) => i.id === id);
-    deleteShoppingItem(id);
-    if (item) removeAttachmentFiles([item]);
+    const doomed = descendantIds(shoppingItems, id);
+    doomed.add(id);
+    const gone = shoppingItems.filter((i) => doomed.has(i.id));
+    deleteShoppingItems([...doomed]);
+    removeAttachmentFiles(gone);
   };
 
   const handleDeleteList = (id) => {
@@ -146,21 +153,62 @@ export default function ShoppingLists() {
   // occurrence on the list.
   const handleToggleStatus = (item) => {
     if (item.status === 'done' || item.status === 'blocked') {
+      // Re-opening a parent deliberately leaves its subtasks alone: the ones
+      // that were genuinely finished before it was ticked off shouldn't be
+      // resurrected just because the parent came back.
       updateShoppingItem(item.id, { status: 'pending', completedAt: null });
       return;
     }
 
-    // `spawnedNextId` is the guard: un-completing and re-completing a repeating
-    // task must not keep minting occurrences.
-    const nextId = generateId();
-    const next = item.spawnedNextId ? null : buildNextOccurrence(item, nextId);
+    const stamp = new Date().toISOString();
+    const donePatch = { status: 'done', completedAt: stamp };
 
-    const donePatch = { status: 'done', completedAt: new Date().toISOString() };
+    // Closing a parent closes everything under it — ticking off "MONDAY" with
+    // three open errands beneath it and having them survive is never what was
+    // meant. Blocked subtasks are left as they are; they're a flag that
+    // something couldn't be done, not work in progress.
+    const below = descendantIds(shoppingItems, item.id);
+    const subtree = shoppingItems.filter((i) => below.has(i.id));
+    const closing = subtree
+      .filter((i) => i.status !== 'done' && i.status !== 'blocked')
+      .map((i) => i.id);
+
+    // `spawnedNextId` is the guard: un-completing and re-completing a repeating
+    // task must not keep minting occurrences. The next occurrence takes copies
+    // of the subtasks with it, so a repeating day heading arrives populated.
+    const next = item.spawnedNextId
+      ? null
+      : buildNextOccurrenceGroup(item, subtree.filter((i) => i.parentId === item.id), generateId);
+
     if (next) {
-      completeAndRepeatShoppingItem(item.id, { ...donePatch, spawnedNextId: nextId }, next);
+      completeAndRepeatShoppingItem(item.id, { ...donePatch, spawnedNextId: next[0].id }, next, closing);
+    } else if (closing.length > 0) {
+      updateShoppingItems([item.id, ...closing], donePatch);
     } else {
       updateShoppingItem(item.id, donePatch);
     }
+  };
+
+  // A task added under a heading inherits the heading's date — the whole point
+  // of "MONDAY 9/7" is that what sits under it belongs to that day. The time is
+  // left blank so it lands as end-of-day until someone sets one, and the
+  // reminder stays off: an inherited date is not a request to be buzzed.
+  const handleAddSubtask = (parent, name) => {
+    addShoppingItem({
+      listId: parent.listId,
+      parentId: parent.id,
+      sectionId: parent.sectionId ?? null,
+      name,
+      status: 'pending',
+      notes: null,
+      address: null,
+      dueDate: isHeading(parent) ? (parent.dueDate ?? null) : null,
+      dueTime: null,
+      notifyEnabled: false,
+      remindOffsetMinutes: 0,
+      flagged: false,
+      completedAt: null,
+    });
   };
 
   const handleSetBlocked = (item) => {
@@ -197,6 +245,7 @@ export default function ShoppingLists() {
     onToggleStatus: handleToggleStatus,
     onSetBlocked: handleSetBlocked,
     onAddTaskDetailed: handleAddTaskDetailed,
+    onAddSubtask: handleAddSubtask,
   });
 
   const wishlistCardProps = (list) => ({

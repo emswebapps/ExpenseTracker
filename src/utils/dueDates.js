@@ -34,6 +34,24 @@ export function isoInDays(days, from = new Date()) {
   return localISO(d);
 }
 
+/**
+ * "Today" / "Tomorrow" / "9/7/26" — a date on its own, the way a calendar row
+ * reads it rather than the way a deadline does.
+ *
+ * `formatDueBadge` is about urgency: it says "Overdue" and counts down in
+ * minutes. That's right for a task and wrong for a day heading, which is a
+ * label for a date that has simply been and gone.
+ */
+export function formatCalendarDate(dateISO, from = new Date()) {
+  if (!dateISO) return null;
+  if (dateISO === localISO(from)) return 'Today';
+  if (dateISO === isoInDays(1, from)) return 'Tomorrow';
+  if (dateISO === isoInDays(-1, from)) return 'Yesterday';
+  const d = new Date(`${dateISO}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: '2-digit' });
+}
+
 export function getDueDateMs(dueDate, dueTime) {
   if (!dueDate) return null;
   return new Date(`${dueDate}T${dueTime || '23:59'}`).getTime();

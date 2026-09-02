@@ -16,8 +16,12 @@ on:
       # Pages workflow only builds the site, and this one used to say
       # `--only functions`. A feature whose rules never shipped is a feature
       # that 403s in production while working perfectly on a dev machine.
+      #
+      # Indexes are deliberately NOT deployed. firestore.indexes.json is empty,
+      # and `--only firestore:indexes` with `--force` reads that as "there
+      # should be no composite indexes" and deletes any that exist. Add them to
+      # the file first if this ever needs to manage them.
       - 'firestore.rules'
-      - 'firestore.indexes.json'
       - 'storage.rules'
       - 'firebase.json'
       - '.firebaserc'
@@ -108,7 +112,7 @@ jobs:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/gcp-key.json
         run: |
           npx --yes firebase-tools deploy \
-            --only functions,firestore:rules,firestore:indexes,storage \
+            --only functions,firestore:rules,storage \
             --project billtracker-256ef \
             --non-interactive \
             --force \

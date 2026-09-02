@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   sectionsOf, hasSections, plannerSort, splitBySection,
-  defaultSectionIndex, nextSectionOrder,
+  defaultSectionIndex, nextSectionOrder, splitByAge,
 } from './sections.js';
 
 const at = (iso) => new Date(iso).getTime();
@@ -122,4 +122,42 @@ test('finished work never decides which column opens', () => {
 test('nextSectionOrder appends past whatever is there', () => {
   assert.equal(nextSectionOrder({}), 0);
   assert.equal(nextSectionOrder({ sections: [{ order: 3 }, { order: 7 }] }), 8);
+});
+
+// ── Folding away weeks that have gone by ────────────────────────────────────
+
+test('sections older than the window fold away, newer ones stay', () => {
+  const now = new Date('2026-09-09T12:00:00');
+  const groups = [
+    { section: { id: 'a', endDate: '2026-08-16' }, items: [] }, // 24 days back
+    { section: { id: 'b', endDate: '2026-08-30' }, items: [] }, // 10 days back
+    { section: { id: 'c', endDate: '2026-09-06' }, items: [] },
+    { section: { id: 'd', endDate: '2026-09-13' }, items: [] }, // this week
+  ];
+  const { current, earlier } = splitByAge(groups, now);
+  assert.deepEqual(earlier.map((g) => g.section.id), ['a']);
+  assert.deepEqual(current.map((g) => g.section.id), ['b', 'c', 'd']);
+});
+
+test('the unfiled inbox and hand-made sections never age out', () => {
+  const now = new Date('2026-09-09T12:00:00');
+  const groups = [
+    { section: null, items: [] },
+    { section: { id: 'named', name: 'Someday' }, items: [] }, // no endDate
+    { section: { id: 'old', endDate: '2026-01-04' }, items: [] },
+  ];
+  const { current, earlier } = splitByAge(groups, now);
+  assert.deepEqual(current.map((g) => g.section?.id ?? null), [null, 'named']);
+  assert.deepEqual(earlier.map((g) => g.section.id), ['old']);
+});
+
+test('a list of nothing but old weeks still shows them', () => {
+  const now = new Date('2026-09-09T12:00:00');
+  const groups = [
+    { section: { id: 'old1', endDate: '2026-01-04' }, items: [] },
+    { section: { id: 'old2', endDate: '2026-01-11' }, items: [] },
+  ];
+  const { current, earlier } = splitByAge(groups, now);
+  assert.deepEqual(current.map((g) => g.section.id), ['old1', 'old2']);
+  assert.deepEqual(earlier, []);
 });

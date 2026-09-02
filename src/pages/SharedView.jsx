@@ -245,7 +245,7 @@ function ReadOnlyDashboard({ data }) {
   const mk = monthKey(new Date());
   const {
     settings = {}, bills = [], income = [], purchases = [],
-    debts = [], savings = [], commitments = [],
+    debts = [], savings = [],
     shoppingLists = [], shoppingItems = [],
   } = data;
   const { myName = 'Me', spouseName = 'Partner' } = settings;

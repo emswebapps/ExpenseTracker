@@ -33,7 +33,7 @@ const TYPE_LABEL = {
 };
 
 export default function SearchPage() {
-  const { purchases, bills, income, notes, debts, settings, shoppingLists, shoppingItems } = useApp();
+  const { purchases, bills, income, notes, debts, shoppingLists, shoppingItems } = useApp();
   const [q, setQ] = useState('');
   const navigate = useNavigate();
 

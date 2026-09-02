@@ -1900,7 +1900,13 @@ function EstimateTab({ jobs, shifts, addIncome }) {
     const text = buildExportText();
     if (!text) return;
     if (navigator.share) {
-      try { await navigator.share({ title: 'Paycheck Estimate', text }); return; } catch (_) {}
+      try {
+        await navigator.share({ title: 'Paycheck Estimate', text });
+        return;
+      } catch {
+        // Cancelled, or the share sheet is unavailable — fall through to the
+        // clipboard rather than leaving the tap doing nothing.
+      }
     }
     await navigator.clipboard.writeText(text);
     setCopied(true);

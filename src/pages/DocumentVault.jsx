@@ -4,8 +4,8 @@ import { useAuth } from '../context/AuthContext';
 import {
   FileText, Image, File, ExternalLink, Search, Receipt, TrendingUp,
   ShoppingBag, ChevronDown, ChevronUp, Plus, Trash2, Pencil, X,
-  Camera, Upload, AlertTriangle, Clock, FolderOpen, Tag, Calendar,
-  Check, Filter, ScanLine,
+  Upload, AlertTriangle, FolderOpen, 
+  ScanLine,
 } from 'lucide-react';
 import { fileCategory, formatFileSize, uploadFile, deleteFile } from '../utils/storageUtils';
 

@@ -1,25 +1,40 @@
+import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
-import { AuthGate } from './AppFrame';
+import { AuthGate, LoadingScreen } from './AppFrame';
 import BottomNav from './components/BottomNav';
-import Dashboard from './pages/Dashboard';
-import BillsDebts from './pages/BillsDebts';
-import Income from './pages/Income';
-import Notes from './pages/Notes';
-import Settings from './pages/Settings';
-import Purchases from './pages/Purchases';
-import WorkTime from './pages/WorkTime';
-import SearchPage from './pages/Search';
-import ShoppingLists from './pages/ShoppingLists';
-import Planning from './pages/Planning';
-import SharedView from './pages/SharedView';
-import SharedList from './pages/SharedList';
-import DocumentVault from './pages/DocumentVault';
+
+// Every page is split out, including the Dashboard.
+//
+// The reason to split the landing route too is the two *public* routes: a
+// share link used to hand whoever opened it the entire finance app —
+// dashboard, charts and all — before it could draw a to-do list. Splitting
+// everything else while leaving the Dashboard eager would have left most of
+// that in the guest's download.
+//
+// It costs installed users nothing: the service worker precaches every chunk
+// on first visit, so the "lazy" pages are already on disk by the time they're
+// asked for.
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+
+const BillsDebts = lazy(() => import('./pages/BillsDebts'));
+const Income = lazy(() => import('./pages/Income'));
+const Notes = lazy(() => import('./pages/Notes'));
+const Settings = lazy(() => import('./pages/Settings'));
+const Purchases = lazy(() => import('./pages/Purchases'));
+const WorkTime = lazy(() => import('./pages/WorkTime'));
+const SearchPage = lazy(() => import('./pages/Search'));
+const ShoppingLists = lazy(() => import('./pages/ShoppingLists'));
+const Planning = lazy(() => import('./pages/Planning'));
+const DocumentVault = lazy(() => import('./pages/DocumentVault'));
+const SharedView = lazy(() => import('./pages/SharedView'));
+const SharedList = lazy(() => import('./pages/SharedList'));
 
 function AuthenticatedApp() {
   return (
     <AuthGate>
       <div className="min-h-screen">
+        <Suspense fallback={<LoadingScreen />}>
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/bills" element={<BillsDebts />} />
@@ -39,6 +54,7 @@ function AuthenticatedApp() {
               `/crash`, which the Reset notifications used to open. */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        </Suspense>
       </div>
       <BottomNav />
     </AuthGate>
@@ -47,6 +63,7 @@ function AuthenticatedApp() {
 
 function AppShell() {
   return (
+    <Suspense fallback={<LoadingScreen />}>
     <Routes>
       {/* Public route — accessible without login */}
       <Route path="/share/:token" element={<SharedView />} />
@@ -57,6 +74,7 @@ function AppShell() {
       {/* All other routes require auth */}
       <Route path="*" element={<AuthenticatedApp />} />
     </Routes>
+    </Suspense>
   );
 }
 

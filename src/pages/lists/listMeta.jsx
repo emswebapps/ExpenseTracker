@@ -65,6 +65,28 @@ export function useTicker(active) {
   }, [active]);
 }
 
+/**
+ * The same ticker, but handing back the moment it last ticked.
+ *
+ * For anything that has to *sort or group* by the clock rather than just
+ * re-render on it. Reading `Date.now()` inside a render pass is impure: two
+ * renders of the same state can disagree about which bucket a task belongs in,
+ * and React is free to render twice. Taking the time from state instead makes a
+ * render pass deterministic, and the interval is what keeps it current.
+ */
+export function useNow(active) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!active) return;
+    // Catch up immediately: a card opened after sitting closed for an hour
+    // would otherwise group against the stale time until the first tick.
+    setNow(Date.now());
+    const id = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(id);
+  }, [active]);
+  return now;
+}
+
 // ── Shared menu button style ──────────────────────────────────────────────────
 export const MENU_BTN = {
   width: '100%', display: 'flex', alignItems: 'center', gap: '0.625rem',

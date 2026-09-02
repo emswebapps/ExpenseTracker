@@ -49,10 +49,10 @@ export function parseListText(raw) {
   let dueDate = null;
 
   // Match trailing date: "- 06-24-26" or "- 06/24/2026"
-  const dateMatch = firstLine.match(/[-–]\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})\s*$/);
+  const dateMatch = firstLine.match(/[-–]\s*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\s*$/);
   if (dateMatch) {
     listName = firstLine.slice(0, firstLine.lastIndexOf(dateMatch[0])).trim();
-    const parts = dateMatch[1].split(/[\/\-]/);
+    const parts = dateMatch[1].split(/[/-]/);
     if (parts.length === 3) {
       let [m, d, y] = parts;
       if (y.length === 2) y = '20' + y;
@@ -77,7 +77,7 @@ export function parseListText(raw) {
     const match = line.match(/^[-•*]\s*(.+)$/) || line.match(/^\d+[.)]\s*(.+)$/);
     if (match) {
       items.push(match[1].trim());
-    } else if (line && !line.match(/^[#=\-]{2,}/)) {
+    } else if (line && !line.match(/^[#=-]{2,}/)) {
       items.push(line);
     }
   }

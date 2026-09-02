@@ -4,7 +4,7 @@ import {
   CalendarDays, Plus, Pencil, Trash2, CheckSquare, Square,
   MoreVertical, Bell, LayoutDashboard, Link, Plane, AlertTriangle,
   Wallet, PiggyBank, Settings, BarChart2, Users, LayoutGrid,
-  ChevronDown, ChevronUp, FileText, Zap, Share2, Check, RefreshCw, FolderOpen,
+  ChevronDown, ChevronUp, Zap, Share2, Check, FolderOpen,
   ClipboardList, CalendarClock,
 } from 'lucide-react';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
@@ -238,13 +238,13 @@ function PlannedExpenseCard({ pe, savings, onEdit, onDelete }) {
 
 export default function Dashboard() {
   const {
-    bills, income, budget, setBudgetForMonth, debts, savings, addSaving, updateSaving, deleteSaving,
+    bills, income, debts, savings, addSaving, updateSaving, deleteSaving,
     commitments, addCommitment, updateCommitment, deleteCommitment, toggleCommitment,
     plannedExpenses, addPlannedExpense, updatePlannedExpense, deletePlannedExpense,
     notes, settings, setSettings, purchases,
     budgetCategories, budgetSpends, addBudgetSpend,
     agreements, addAgreement, updateAgreement, deleteAgreement,
-    setBillStatusDirect, addBill,
+    setBillStatusDirect, 
     shoppingLists, shoppingItems,
     selectedMonth: mk, setSelectedMonth: setMk,
   } = useApp();
@@ -332,7 +332,6 @@ export default function Dashboard() {
   const paidTotal = paidBills.reduce((s, b) => s + b.amount, 0);
   const unpaidTotal = unpaidBills.reduce((s, b) => s + b.amount, 0);
 
-  const myIncome = monthIncome.filter((i) => i.person !== 'spouse').reduce((s, i) => s + monthlyAmount(i), 0);
   const partnerIncome = monthIncome.filter((i) => i.person === 'spouse').reduce((s, i) => s + monthlyAmount(i), 0);
   const monthlyIncome = viewIncome.reduce((s, i) => s + monthlyAmount(i), 0);
 

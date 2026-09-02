@@ -30,6 +30,15 @@ jobs:
 
       - run: npm install
 
+      # Nothing ran these before, so a push that broke every one of them still
+      # deployed. They gate the deploy now: a broken reminder or a mis-sorted
+      # task list is worse than a late deploy.
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm run test:unit
+
       - run: npm run build
         env:
           # Web Push certificate public key from Firebase Console → Project

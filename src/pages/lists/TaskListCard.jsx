@@ -4,10 +4,10 @@ import {
   Calendar, CalendarClock, Columns3, Rows3, CalendarPlus, Users,
 } from 'lucide-react';
 import { getDueDateMs, localTodayISO, notificationPermission } from '../../utils/notifications';
-import { listTypeMeta, ListDueBadge, fmtDate, MENU_BTN, useTicker } from './listMeta';
+import { listTypeMeta, ListDueBadge, fmtDate, MENU_BTN, useTicker, useNow } from './listMeta';
 import { groupTasks } from './taskGroups';
 import { indexChildren, topLevelItems, isHeading } from './subtasks';
-import { hasSections, splitBySection, defaultSectionIndex } from './sections';
+import { hasSections, splitBySection, defaultSectionIndex, splitByAge } from './sections';
 import SectionBoard from './SectionBoard';
 import { parseTaskInput } from '../../utils/parseTaskInput.js';
 import { pasteAsItems } from './pasteImport';
@@ -40,29 +40,43 @@ export function TaskListCard({
 
   const { Icon: ListIcon } = listTypeMeta(list.type);
   const today = localTodayISO();
+  // Grouping and the landing column both depend on the clock, so it comes from
+  // state rather than being read mid-render — see `useNow`.
+  const now = useNow(expanded);
 
   // Subtasks render under their parent, so only top-level rows get bucketed.
   // The children map is handed to `groupTasks` as well, which is what lets an
   // undated heading sit in the bucket its work is actually due in.
   const childrenById = useMemo(() => indexChildren(listItems), [listItems]);
   const roots = useMemo(() => topLevelItems(listItems), [listItems]);
-  const groups = useMemo(() => groupTasks(roots, Date.now(), childrenById), [roots, childrenById]);
+  const groups = useMemo(() => groupTasks(roots, now, childrenById), [roots, now, childrenById]);
 
   // ── Sections ──
   // A sectioned list is one that's already been arranged, so it's shown as its
   // columns rather than re-triaged into Overdue/Today/Later buckets.
   const sectioned = hasSections(list);
-  const sectionGroups = useMemo(
+  const allSectionGroups = useMemo(
     () => (sectioned ? splitBySection(list, roots) : []),
     [sectioned, list, roots],
   );
+
+  // Weeks that have gone by fold away behind a button. A weekly planner only
+  // ever adds columns, so a year in, finding this week means swiping past
+  // fifty-one others. They're hidden rather than deleted — they're the record
+  // of what actually got done.
+  const [showEarlier, setShowEarlier] = useState(false);
+  const { current: recentGroups, earlier: earlierGroups } = useMemo(
+    () => splitByAge(allSectionGroups, new Date(now)),
+    [allSectionGroups, now],
+  );
+  const sectionGroups = showEarlier ? allSectionGroups : recentGroups;
   // 'columns' is the default for a weekly planner — swiping between weeks is
   // the whole point of it — and stacked for anything else.
   const columns = (list.viewMode || (list.weekly?.enabled ? 'columns' : 'stack')) === 'columns';
   const [activeSection, setActiveSection] = useState(null);
   const landedSection = useMemo(
-    () => defaultSectionIndex(sectionGroups),
-    [sectionGroups],
+    () => defaultSectionIndex(sectionGroups, now),
+    [sectionGroups, now],
   );
   // Opens on the live week, then follows the swipe.
   const activeIndex = activeSection ?? landedSection;
@@ -75,7 +89,7 @@ export function TaskListCard({
   const done = work.filter((i) => i.status === 'done');
   const blocked = work.filter((i) => i.status === 'blocked');
   const overdue = work.filter((i) =>
-    isPending(i) && i.dueDate && getDueDateMs(i.dueDate, i.dueTime) < Date.now()
+    isPending(i) && i.dueDate && getDueDateMs(i.dueDate, i.dueTime) < now
   );
   const dueToday = work.filter((i) => isPending(i) && i.dueDate === today);
 
@@ -177,6 +191,23 @@ export function TaskListCard({
 
       {expanded && (
         <div style={{ borderTop: '1px solid var(--border)' }}>
+          {sectioned && earlierGroups.length > 0 && (
+            <button
+              onClick={() => { setShowEarlier((v) => !v); setActiveSection(null); }}
+              style={{
+                width: '100%', minHeight: '2.5rem', padding: '0.5rem 1rem',
+                display: 'flex', alignItems: 'center', gap: '0.375rem',
+                background: 'var(--surface2)', border: 'none',
+                borderBottom: '1px solid var(--border)', cursor: 'pointer',
+                textAlign: 'left', fontSize: '0.8125rem', fontWeight: 600, color: 'var(--muted)',
+              }}
+            >
+              <Archive size={13} />
+              {showEarlier
+                ? `Hide ${earlierGroups.length} earlier ${earlierGroups.length === 1 ? 'week' : 'weeks'}`
+                : `Show ${earlierGroups.length} earlier ${earlierGroups.length === 1 ? 'week' : 'weeks'}`}
+            </button>
+          )}
           {sectioned ? (
             <SectionBoard
               groups={sectionGroups}

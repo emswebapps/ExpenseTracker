@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { Camera, X, Loader, ScanLine } from 'lucide-react';
+import { X, Loader, ScanLine } from 'lucide-react';
 
 const QUICK_CATEGORIES = [
   'Food & Dining', 'Groceries', 'Gas', 'Shopping',
@@ -23,7 +23,7 @@ function extractMerchant(text) {
   for (const line of lines.slice(0, 5)) {
     // Skip lines that are mostly numbers/dates
     if (/^\d/.test(line) || line.length < 3 || line.length > 50) continue;
-    if (/^\d{1,2}[\/\-]\d{1,2}/.test(line)) continue;
+    if (/^\d{1,2}[/-]\d{1,2}/.test(line)) continue;
     return line.replace(/[^a-zA-Z0-9 &'.,-]/g, '').trim();
   }
   return null;

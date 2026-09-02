@@ -32,7 +32,7 @@ export default function ShoppingLists() {
   const {
     shoppingLists, addShoppingList, updateShoppingList, deleteShoppingList,
     shoppingItems, addShoppingItem, addShoppingItems, updateShoppingItem, updateShoppingItems,
-    deleteShoppingItem, deleteShoppingItems, toggleShoppingItem, importList,
+    deleteShoppingItems, toggleShoppingItem, importList,
     completeAndRepeatShoppingItem,
     shareList, revokeListShare, deleteListShareLink,
     notifPrefs, cloudLoaded,

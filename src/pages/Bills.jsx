@@ -36,14 +36,6 @@ function ownerBadge(owner, myName, spouseName) {
   );
 }
 
-const STATUS_CYCLE = { unpaid: 'pending', pending: 'paid', paid: 'unpaid' };
-
-function statusBadgeStyle(status, overdue) {
-  if (status === 'paid') return { backgroundColor: 'var(--positive-text)', color: '#fff' };
-  if (status === 'pending') return { backgroundColor: 'var(--warn)', color: '#000' };
-  if (overdue) return { backgroundColor: 'var(--danger)', color: '#fff' };
-  return { backgroundColor: 'var(--surface2)', color: 'var(--muted)' };
-}
 
 function BillCard({ bill, mk, onSetStatus, onEdit, onDelete, myName, spouseName }) {
   const [menuOpen, setMenuOpen] = useState(false);

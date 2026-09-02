@@ -18,6 +18,9 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       manifest: false,
+      // Registered by hand in src/main.jsx rather than injected here, so the
+      // public share routes can opt out — see the comment there.
+      injectRegister: false,
       workbox: {
         clientsClaim: true,
         skipWaiting: true,

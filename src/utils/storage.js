@@ -161,39 +161,11 @@ export const storage = {
   },
   setNotifPrefs: (v) => set(KEYS.NOTIF_PREFS, v),
 
+  // Defaults, then whatever was saved, then a per-section merge so a saved
+  // `tax` that predates a new field still gets that field's default. The
+  // per-section merge is what does the real work — a bare spread of the saved
+  // object would replace a whole section and lose any key added since.
   getPlanningSettings: () => ({
-    tax: {
-      filingStatus: 'single',
-      useStandardDeduction: true,
-      itemizedDeductions: 0,
-      extraPreTaxDeductions: 0,
-      dependentsUnder17: 0,
-      otherCredits: 0,
-      useIncomeData: true,
-      manualGrossIncome: '',
-      manualFedWithheld: '',
-      manualStateWithheld: '',
-    },
-    ira: {
-      currentBalance: '',
-      currentAge: '',
-      useJobIRA: true,
-      manualAnnualContribution: '',
-      employerMatchPercent: 100,
-      expectedReturnPercent: 7,
-      iraType: 'traditional',
-      projectionYears: 30,
-      targetBalance: '',
-    },
-    pto: {
-      jobId: '',
-      baseDate: '',
-      baseBalance: '',
-      accrualRate: 24,
-      capHours: '',
-      targetHours: '',
-      hoursPerShift: 24,
-    },
     ...(get(KEYS.PLANNING_SETTINGS) || {}),
     tax: { ...{ filingStatus: 'single', useStandardDeduction: true, itemizedDeductions: 0, deductions: [], dependentsUnder17: 0, otherCredits: 0, useIncomeData: true, manualGrossIncome: '', manualNetIncome: '', manualFedWithheld: '', manualStateWithheld: '' }, ...((get(KEYS.PLANNING_SETTINGS) || {}).tax || {}) },
     ira: { ...{ currentBalance: '', currentAge: '', useJobIRA: true, manualAnnualContribution: '', employerMatchPercent: 100, expectedReturnPercent: 7, iraType: 'traditional', projectionYears: 30, targetBalance: '' }, ...((get(KEYS.PLANNING_SETTINGS) || {}).ira || {}) },

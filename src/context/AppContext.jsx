@@ -37,6 +37,9 @@ const PERMANENT_BUDGET_CATEGORIES = [
 // is adopted over the top of it.
 const LOCAL_WRITE_SETTLE_MS = 3000;
 
+/** Firestore's hard per-document limit. Not a setting — it's the platform's. */
+export const DOC_SIZE_LIMIT = 1024 * 1024;
+
 function useDebounce(fn, delay = 1500) {
   const timer = useRef(null);
   const pending = useRef(null);
@@ -823,6 +826,32 @@ export function AppProvider({ children, uid }) {
     return { ok: true };
   }, [buildSnapshot, settings]);
 
+  // ── How full the Firestore document is ────────────────────────────────────
+  // Everything this app stores lives in one document, `users/{uid}/data/app`,
+  // and Firestore hard-caps a document at 1 MiB. Past that, writes fail — and
+  // the first thing anyone would notice is changes silently not saving.
+  //
+  // So it's measured and surfaced (Settings → Data) rather than left to be
+  // discovered. Measuring is a full serialise, which is not free, so it runs
+  // on a long timer and after the cloud load rather than on every keystroke.
+  const [docSize, setDocSize] = useState(null);
+
+  useEffect(() => {
+    if (uid && !cloudLoaded) return;
+    const measure = () => {
+      try {
+        setDocSize(new TextEncoder().encode(JSON.stringify(stateRef.current)).length);
+      } catch {
+        // A circular or unserialisable value would throw here — but it would
+        // also break the sync, which reports its own errors. Not this job.
+        setDocSize(null);
+      }
+    };
+    measure();
+    const id = setInterval(measure, 5 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [cloudLoaded, uid]);
+
   // ── Shared lists ──────────────────────────────────────────────────────────
   // A list can be handed to someone else by link. The list itself stays here,
   // in this user's document; `listShares/{token}` holds a *mirror* of it that
@@ -1387,6 +1416,7 @@ export function AppProvider({ children, uid }) {
       vaultDocuments, addVaultDocument, updateVaultDocument, deleteVaultDocument,
       billStickyNotes, setBillStickyNote,
       testMode, enterTestMode, exitTestMode,
+      docSize, DOC_SIZE_LIMIT,
     }}>
       {children}
     </AppContext.Provider>

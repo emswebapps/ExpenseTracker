@@ -1,4 +1,5 @@
 import { dueMs } from './taskSort.js';
+import { localISO } from '../../utils/dueDates.js';
 
 /**
  * Sections — the columns you swipe between at the top of a list.
@@ -115,4 +116,40 @@ export function defaultSectionIndex(groups = [], now = Date.now()) {
 export function nextSectionOrder(list) {
   const orders = (list?.sections || []).map((s) => Number(s.order) || 0);
   return orders.length === 0 ? 0 : Math.max(...orders) + 1;
+}
+
+// How far back a section stays in the main run of columns. Two weeks is enough
+// to still be tidying up last week without carrying the whole year.
+export const RECENT_SECTION_DAYS = 14;
+
+/**
+ * Split columns into the current run and the ones that have gone by.
+ *
+ * A weekly planner only ever adds: after a year it is fifty-two columns, and
+ * finding this week means swiping past all of them. Older weeks are folded away
+ * rather than deleted — they hold real history of what was actually done, and
+ * a planner that quietly bins last month's record is worse than one with too
+ * many columns.
+ *
+ * Only *dated* sections (the generated weeks, which carry `endDate`) can age
+ * out. A hand-made section has no date and no implied lifetime, so it stays.
+ *
+ * @returns {{current: object[], earlier: object[]}}
+ */
+export function splitByAge(groups = [], now = new Date(), days = RECENT_SECTION_DAYS) {
+  const cutoff = new Date(now);
+  cutoff.setDate(cutoff.getDate() - days);
+  const cutoffISO = localISO(cutoff);
+
+  const current = [];
+  const earlier = [];
+  for (const group of groups) {
+    const endDate = group.section?.endDate;
+    if (endDate && endDate < cutoffISO) earlier.push(group);
+    else current.push(group);
+  }
+
+  // Never fold everything away: a list whose only columns are old should still
+  // show them rather than opening on an empty board behind a button.
+  return current.length === 0 ? { current: earlier, earlier: [] } : { current, earlier };
 }

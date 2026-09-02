@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { User, Trash2, AlertTriangle, Wallet, PiggyBank, DollarSign, Sun, Moon, LogOut, Mail, Download, Share2, RefreshCw, Copy, Check, X, Bell, BellOff, Lock, FolderOpen, ChevronRight, FlaskConical } from 'lucide-react';
+import { User, Trash2, AlertTriangle, Wallet, PiggyBank, DollarSign, Sun, Moon, LogOut, Mail, Download, Share2, RefreshCw, Copy, Check, X, Bell, BellOff, Lock, FolderOpen, ChevronRight, FlaskConical, Database } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
 import Modal from '../components/Modal';
@@ -45,6 +45,53 @@ const EMAIL_DIGEST_CATEGORIES = [
   { key: 'projects', label: 'Projects', sublabel: 'Review and due dates' },
   { key: 'workLog', label: 'Work log reminder', sublabel: 'Nudge to log your hours' },
 ];
+
+// The card chrome every section on this screen uses. Module scope so the small
+// components in this file share one copy rather than rebuilding it per render.
+const sectionLabelStyle = { color: 'var(--muted)', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em' };
+const cardStyle = { backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '1rem', padding: '1rem' };
+
+/**
+ * How full the one Firestore document is.
+ *
+ * Everything the app stores — bills, income, tasks, vault records — lives in a
+ * single document, and Firestore caps a document at 1 MiB. Past that, writes
+ * start failing, and the symptom is changes appearing to save and then not
+ * being there. That is a bad way to find out, so it's on this screen from the
+ * start: quiet under 60%, amber past that, and explicit about what to do.
+ */
+function StorageMeter() {
+  const { docSize, DOC_SIZE_LIMIT: limit } = useApp();
+  if (!docSize || !limit) return null;
+
+  const fraction = docSize / limit;
+  const pct = fraction * 100;
+  const tone = fraction >= 0.85 ? 'var(--danger)' : fraction >= 0.6 ? '#f59e0b' : 'var(--accent)';
+  const kb = (n) => `${Math.round(n / 1024)} kB`;
+
+  return (
+    <section className="mb-4" style={cardStyle}>
+      <div className="flex items-center gap-2 mb-1">
+        <Database size={15} style={{ color: 'var(--accent-text)' }} />
+        <span style={sectionLabelStyle}>Stored Data</span>
+      </div>
+      <p className="text-xs mb-3" style={{ color: 'var(--muted)' }}>
+        Everything syncs as one record. {kb(docSize)} of {kb(limit)} used
+        {pct >= 1 ? ` (${pct.toFixed(0)}%)` : ''}.
+      </p>
+      <div style={{ height: '6px', backgroundColor: 'var(--border)', borderRadius: '3px', overflow: 'hidden' }}>
+        <div style={{ height: '100%', width: `${Math.min(100, Math.max(1, pct))}%`, backgroundColor: tone, borderRadius: '3px', transition: 'width 0.3s ease' }} />
+      </div>
+      {fraction >= 0.6 && (
+        <p className="text-xs" style={{ color: tone, marginTop: '0.625rem', lineHeight: 1.5 }}>
+          {fraction >= 0.85
+            ? 'Close to the limit. Once it is reached, changes stop saving. Archive or delete old purchases, work shifts and finished lists — or ask for the storage to be split up.'
+            : 'Worth keeping an eye on. Old purchases, work shifts and finished lists are usually the bulk of it.'}
+        </p>
+      )}
+    </section>
+  );
+}
 
 /**
  * Sends a real test email through the same path a reminder takes — the Cloud
@@ -150,7 +197,10 @@ export default function Settings() {
         const keys = await caches.keys();
         await Promise.all(keys.map((k) => caches.delete(k)));
       }
-    } catch {}
+    } catch {
+      // A cache that won't clear shouldn't stop the reload — that's the part
+      // that actually fixes a stuck app.
+    }
     window.location.reload(true);
   };
 
@@ -165,8 +215,6 @@ export default function Settings() {
   const save = () => { setSettings(form); setSaved(true); setTimeout(() => setSaved(false), 2000); };
   const clearAll = () => { localStorage.clear(); window.location.reload(); };
 
-  const sectionLabelStyle = { color: 'var(--muted)', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em' };
-  const cardStyle = { backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '1rem', padding: '1rem' };
 
   return (
     <div style={{ paddingBottom: '7rem', backgroundColor: 'var(--bg)', minHeight: '100svh' }}>
@@ -683,6 +731,9 @@ export default function Settings() {
             </>
           )}
         </section>
+
+        {/* Stored data */}
+        <StorageMeter />
 
         {/* Export */}
         <section className="mb-4" style={cardStyle}>

@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
-import { ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Calculator, TrendingUp, Clock, Check, Wallet } from 'lucide-react';
+import { ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Check, Wallet } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { formatCurrency, getPayDatesForMonth, getBillsForMonth, getBillStatus, monthKey, monthLabel } from '../utils/helpers';
 

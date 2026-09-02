@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Pencil, Trash2, MoreVertical, TrendingUp, RefreshCw, ChevronLeft, ChevronRight, Plus, Calculator, Clock, Paperclip } from 'lucide-react';
+import { Pencil, Trash2, MoreVertical, TrendingUp, RefreshCw, ChevronLeft, ChevronRight, Plus, Paperclip } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
 import { formatCurrency, monthKey, monthLabel, getIncomeForMonth } from '../utils/helpers';

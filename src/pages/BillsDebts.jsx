@@ -11,7 +11,7 @@ import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
 import {
   formatCurrency, monthKey, monthLabel, getDueDateLabel,
-  getBillsForMonth, getBillStatus, getBillStatusColor, isBillOverdueUnpaid,
+  getBillsForMonth, getBillStatus, isBillOverdueUnpaid,
   calcDebtPayoff, getPayDatesForMonth,
 } from '../utils/helpers';
 import Modal from '../components/Modal';
@@ -43,9 +43,7 @@ function OwnerBadge({ owner, myName, spouseName }) {
   );
 }
 
-const STATUS_CYCLE = { unpaid: 'pending', pending: 'paid', paid: 'unpaid' };
 const STATUS_COLORS = { paid: 'var(--positive)', pending: 'var(--warn)', unpaid: 'var(--danger)' };
-const STATUS_BG = { paid: 'var(--positive-soft)', pending: '#451a03', unpaid: 'var(--danger-soft)' };
 
 function StatusControl({ status, onSet }) {
   return (
@@ -708,11 +706,6 @@ export default function BillsDebts() {
     return (a.dueDay || 99) - (b.dueDay || 99);
   });
 
-  const billTotals = {
-    unpaid: monthBills.filter((b) => getBillStatus(b, mk) === 'unpaid').reduce((s, b) => s + b.amount, 0),
-    pending: monthBills.filter((b) => getBillStatus(b, mk) === 'pending').reduce((s, b) => s + b.amount, 0),
-    paid: monthBills.filter((b) => getBillStatus(b, mk) === 'paid').reduce((s, b) => s + b.amount, 0),
-  };
   const overdueCount = monthBills.filter((b) => isBillOverdueUnpaid(b, mk)).length;
 
   const filteredDebts = ownerFilter ? debts.filter((d) => normalizeOwner(d.owner) === ownerFilter) : debts;
@@ -753,7 +746,6 @@ export default function BillsDebts() {
   }), [budgetCategories, monthBudgetSpends]);
   const catIds = useMemo(() => new Set(budgetCategories.map((c) => c.id)), [budgetCategories]);
   const orphanedSpends = useMemo(() => monthBudgetSpends.filter((s) => !catIds.has(s.categoryId)), [monthBudgetSpends, catIds]);
-  const totalBudgetLimit = budgetCategories.reduce((s, c) => s + c.monthlyLimit, 0);
   const totalBudgetSpent = monthBudgetSpends.reduce((s, sp) => s + sp.amount, 0);
   const hardSetAmount = budget?.[mk] || 0;
 

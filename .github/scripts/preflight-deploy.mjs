@@ -52,6 +52,10 @@ const REQUIRED_PERMISSIONS = [
   ['eventarc.triggers.create', 'Eventarc Admin'],
   ['cloudscheduler.jobs.create', 'Cloud Scheduler Admin'],
   ['firebase.projects.get', 'Firebase Admin'],
+  // The deploy ships the security rules alongside the functions, so a missing
+  // rules role should be named here rather than surfacing half way through.
+  ['firebaserules.releases.create', 'Firebase Admin'],
+  ['firebaserules.rulesets.create', 'Firebase Admin'],
 ];
 
 const apiLink = (api) => `https://console.cloud.google.com/apis/library/${api}?project=${project}`;

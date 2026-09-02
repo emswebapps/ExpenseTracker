@@ -1,9 +1,10 @@
-name: Deploy Cloud Functions
+name: Deploy Cloud Functions & Rules
 
-# The web app deploys itself to Pages, but the reminder logic lives in Cloud
-# Functions, which used to need a local Firebase CLI. This does that deploy on
-# merge instead — and can be run by hand from the Actions tab, which is how you
-# trigger the very first deploy without pushing anything.
+# The web app deploys itself to Pages, but the backend — the reminder logic in
+# Cloud Functions, plus the Firestore and Storage security rules — used to need
+# a local Firebase CLI. This does that deploy on merge instead, and can be run
+# by hand from the Actions tab, which is how you trigger the very first deploy
+# without pushing anything.
 
 on:
   push:
@@ -11,6 +12,13 @@ on:
       - main
     paths:
       - 'functions/**'
+      # Security rules are backend too, and they were deploying nowhere: the
+      # Pages workflow only builds the site, and this one used to say
+      # `--only functions`. A feature whose rules never shipped is a feature
+      # that 403s in production while working perfectly on a dev machine.
+      - 'firestore.rules'
+      - 'firestore.indexes.json'
+      - 'storage.rules'
       - 'firebase.json'
       - '.firebaserc'
       - '.github/workflows/deploy-functions.yml'
@@ -91,7 +99,7 @@ jobs:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/gcp-key.json
         run: |
           npx --yes firebase-tools deploy \
-            --only functions \
+            --only functions,firestore:rules,firestore:indexes,storage \
             --project billtracker-256ef \
             --non-interactive \
             --force \

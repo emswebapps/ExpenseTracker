@@ -65,6 +65,24 @@ export function nextOccurrence(item, now = Date.now()) {
   return date;
 }
 
+/** Shift a "YYYY-MM-DD" by a whole number of days. */
+function shiftDays(dateISO, days) {
+  if (!dateISO || !days) return dateISO ?? null;
+  const [y, m, d] = dateISO.split('-').map(Number);
+  const date = new Date(y, m - 1, d, 12); // midday, so DST can't shift the day
+  date.setDate(date.getDate() + days);
+  return localISO(date);
+}
+
+/** Whole days from one "YYYY-MM-DD" to another. */
+function daysBetween(fromISO, toISO) {
+  const parse = (iso) => {
+    const [y, m, d] = iso.split('-').map(Number);
+    return Date.UTC(y, m - 1, d);
+  };
+  return Math.round((parse(toISO) - parse(fromISO)) / 86400000);
+}
+
 /**
  * The follow-up task to create when `item` is completed, or null.
  *
@@ -78,6 +96,9 @@ export function buildNextOccurrence(item, nextId, now = Date.now()) {
   return {
     id: nextId,
     listId: item.listId,
+    parentId: item.parentId ?? null,
+    sectionId: item.sectionId ?? null,
+    header: !!item.header,
     name: item.name,
     notes: item.notes ?? null,
     address: item.address ?? null,
@@ -91,4 +112,47 @@ export function buildNextOccurrence(item, nextId, now = Date.now()) {
     remindOffsetMinutes: Number(item.remindOffsetMinutes) || 0,
     repeat: { freq: item.repeat.freq, interval: Math.max(1, Number(item.repeat.interval) || 1) },
   };
+}
+
+/**
+ * The whole next occurrence of a repeating task — the task itself plus fresh
+ * copies of its subtasks — or null if it doesn't repeat.
+ *
+ * The subtasks move with the parent rather than keeping their own dates: a
+ * weekly "MONDAY" heading rolling from the 7th to the 14th has to take "EMS
+ * class, 8:00 AM" to the 14th at 8:00 AM, not leave it behind on the 7th. The
+ * shift is the same whole number of days the parent moved, so a subtask
+ * deliberately dated two days after its parent stays two days after it.
+ *
+ * `newId` is called once per task created, so the caller controls id
+ * generation (and can hand out the id it already used for the parent).
+ */
+export function buildNextOccurrenceGroup(item, children = [], newId, now = Date.now()) {
+  const parent = buildNextOccurrence(item, newId(), now);
+  if (!parent) return null;
+
+  const delta = daysBetween(item.dueDate, parent.dueDate);
+  const clones = children.map((child) => ({
+    id: newId(),
+    listId: child.listId,
+    parentId: parent.id,
+    sectionId: child.sectionId ?? null,
+    name: child.name,
+    notes: child.notes ?? null,
+    address: child.address ?? null,
+    header: !!child.header,
+    attachments: [],
+    status: 'pending',
+    completedAt: null,
+    flagged: !!child.flagged,
+    dueDate: shiftDays(child.dueDate, delta),
+    dueTime: child.dueTime ?? null,
+    notifyEnabled: !!child.notifyEnabled,
+    remindOffsetMinutes: Number(child.remindOffsetMinutes) || 0,
+    repeat: child.repeat?.freq
+      ? { freq: child.repeat.freq, interval: Math.max(1, Number(child.repeat.interval) || 1) }
+      : null,
+  }));
+
+  return [parent, ...clones];
 }

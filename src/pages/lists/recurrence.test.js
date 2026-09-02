@@ -2,7 +2,7 @@
 // Run with: npm run test:unit  (from the repo root)
 import assert from 'node:assert';
 import { test } from 'node:test';
-import { nextOccurrence, buildNextOccurrence, repeatLabel } from './recurrence.js';
+import { nextOccurrence, buildNextOccurrence, repeatLabel, buildNextOccurrenceGroup } from './recurrence.js';
 
 const at = (iso) => new Date(iso).getTime();
 const NOW = at('2026-08-12T09:00:00');
@@ -97,4 +97,55 @@ test('labels read naturally for both single and multiple intervals', () => {
   assert.strictEqual(repeatLabel({ freq: 'monthly', interval: 2 }), 'Repeats every 2 months');
   assert.strictEqual(repeatLabel(null), null);
   assert.strictEqual(repeatLabel({ freq: null }), null);
+});
+
+// ── Repeating a task that has subtasks ───────────────────────────────────────
+
+test('buildNextOccurrenceGroup moves the subtasks with the parent', () => {
+  let n = 0;
+  const newId = () => `new-${n += 1}`;
+  const parent = {
+    id: 'monday', listId: 'l1', name: '📅 MONDAY 📅', header: true,
+    status: 'pending', dueDate: '2026-09-07', dueTime: null,
+    repeat: { freq: 'weekly', interval: 1 },
+  };
+  const children = [
+    {
+      id: 'class', listId: 'l1', parentId: 'monday', name: 'EMS Instructor Class',
+      status: 'done', completedAt: '2026-09-07T13:00:00.000Z',
+      dueDate: '2026-09-07', dueTime: '08:00', notifyEnabled: true, remindOffsetMinutes: 30,
+      attachments: [{ id: 'a1', url: 'x' }],
+    },
+    // Deliberately dated two days after its parent — the offset has to survive.
+    { id: 'gear', listId: 'l1', parentId: 'monday', name: 'Return gear', status: 'pending', dueDate: '2026-09-09' },
+    { id: 'someday', listId: 'l1', parentId: 'monday', name: 'No date', status: 'pending', dueDate: null },
+  ];
+
+  const group = buildNextOccurrenceGroup(parent, children, newId, Date.parse('2026-09-07T20:00:00Z'));
+  assert.equal(group.length, 4);
+
+  const [next, ...clones] = group;
+  assert.equal(next.dueDate, '2026-09-14');
+  assert.equal(next.header, true);
+
+  // Every clone hangs off the new parent, opens as pending, and keeps no photos.
+  assert.ok(clones.every((c) => c.parentId === next.id));
+  assert.ok(clones.every((c) => c.status === 'pending' && c.completedAt === null));
+  assert.deepEqual(clones[0].attachments, []);
+
+  // Dates shift by the same seven days the parent moved; a blank stays blank.
+  assert.equal(clones[0].dueDate, '2026-09-14');
+  assert.equal(clones[0].dueTime, '08:00');
+  assert.equal(clones[0].notifyEnabled, true);
+  assert.equal(clones[0].remindOffsetMinutes, 30);
+  assert.equal(clones[1].dueDate, '2026-09-16');
+  assert.equal(clones[2].dueDate, null);
+
+  // Ids are unique, and the caller's factory is what produced them.
+  assert.equal(new Set(group.map((i) => i.id)).size, 4);
+});
+
+test('buildNextOccurrenceGroup returns null for a task that does not repeat', () => {
+  const parent = { id: 'p', listId: 'l1', name: 'once', dueDate: '2026-09-07', repeat: null };
+  assert.equal(buildNextOccurrenceGroup(parent, [], () => 'n'), null);
 });

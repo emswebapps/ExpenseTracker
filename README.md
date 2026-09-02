@@ -59,6 +59,101 @@ one alert per reminder.
   Dashboard lists what's overdue or due today. Turn the tile off under
   *Customize Dashboard*.
 
+## Subtasks, sections, and the weekly planner
+
+A task list can be arranged the way a paper week is: a section per week, a
+heading per day, and the actual work nested underneath.
+
+- **Subtasks** — any task can hold subtasks, one level deep. They collapse
+  behind *Show 3 subtasks*, and the parent shows how many are done. Completing
+  a parent closes what's still open under it; re-opening it leaves them alone,
+  since the ones you genuinely finished shouldn't come back. Deleting a parent
+  deletes its subtasks. A repeating parent takes copies of its subtasks to the
+  next occurrence, shifted by the same number of days it moved.
+- **Headings** — in a task's ⋯ menu, *Use as a heading* turns it into a label
+  for the work under it rather than work itself. A heading reads its date as a
+  plain calendar date ("Today", "Tomorrow", "9/7/26") instead of counting down
+  to Overdue, is skipped by the Today view and by reminders, and doesn't count
+  towards a list's progress. A day that has been and gone is not a task anyone
+  failed to do.
+- **Sections** — a list can hold sections, shown either stacked or as columns
+  you swipe between. Inside a section, tasks run in date order rather than by
+  urgency: a section is a list you've already arranged, and re-triaging it
+  would split Monday from Tuesday. Deleting a section keeps its tasks — they
+  move to *Unfiled*.
+- **Weekly planner** — tick it on when creating or editing a to-do or work
+  list. It keeps the current week and the next one built: a section named the
+  way you'd write it ("September 7th–13th") holding a dated heading per day.
+  Choose which day weeks start on, which days to include, and whether the day
+  names get 📅 around them. Add your tasks as subtasks under the day they
+  belong to.
+
+  It runs when the app opens and again when you come back to it on a new day.
+  A week whose section you renamed is never rebuilt, and a week you deleted
+  stays deleted rather than growing back tomorrow. *Add another week* in the
+  list's ⋮ menu builds one further ahead.
+
+Reminders understand all of this: a push names the heading a task sits under
+("Weekly To Do · MONDAY"), day headings never notify, and a list reminder counts
+the work under its headings rather than the headings themselves. The daily
+summary gained a **Today's plan** entry — one push and one email section with
+everything due today and anything overdue, on by default under
+*Notifications → To-Do & Work Lists*.
+
+## Sharing a list with someone
+
+A list can be handed to someone who doesn't have the app at all. Their ⋮ menu →
+*Share with someone…* creates a link like
+`https://…/ExpenseTracker/list/<token>`. Whoever opens it can add tasks, tick
+them off, rename them and set dates, in a browser, with no account and no
+install.
+
+**The link is the permission.** Anyone holding it can edit, exactly like a
+document shared by link — so send it to the people you mean to. *Pause* stops it
+without losing anything (the same link works again when you resume); *Delete
+link* kills it for good. The share panel lists who changed what.
+
+What a guest deliberately **cannot** do: set reminders, add photos, change
+repeats, edit or delete a day heading, or touch the list's settings. Those stay
+with you, so a leaked link is a nuisance rather than a disaster.
+
+You're told when they've been in: one push and one email per sitting rather than
+one per tap, a couple of minutes after they stop. Both are switchable —
+*Notifications → To-Do & Work Lists → Shared list activity*, and *Email me about
+shared list changes*.
+
+### How it works, and why
+
+Your data lives in a single Firestore document, `users/{uid}/data/app`. Letting
+an anonymous browser write that would hand over every bill, debt and note in the
+app along with the shopping list. So it doesn't:
+
+1. Your app writes a **mirror** of the shared list to `listShares/{token}` —
+   the list, its sections and its items, minus photos (their URLs point at
+   storage only you can read).
+2. A guest reads that mirror and appends their edits to
+   `listShares/{token}/ops` — a create-only queue they can't even read back.
+3. The `applyListOps` Cloud Function validates each op and applies it to your
+   document in a transaction, then refreshes the mirror and deletes the op.
+4. Your app is subscribed to the mirror and picks the change up.
+
+Your document stays the single source of truth, which is what lets the offline
+cache and all four reminder functions carry on working with no special case for
+a shared list. The rules pin the *shape* of an op; `functions/listOps.js`
+decides what it's allowed to mean, and `src/pages/lists/shareOps.parity.test.js`
+asserts that the guest's own screen agrees with what actually gets saved.
+
+**Setup:** shared lists need **Anonymous sign-in** enabled in the Firebase
+Console (*Authentication → Sign-in method → Anonymous*). Guests are signed in
+silently — they see no account and no prompt — which is what puts an auth uid on
+every edit so the rules can require one and each change can say who made it.
+Without it the link opens to an explanatory error rather than the list. The
+rules and the two new functions also need deploying:
+
+```bash
+firebase deploy --only firestore:rules,functions
+```
+
 ## Addresses & photos on to-do items
 
 Tap a task on a to-do or work list to open it — alongside notes and the due
@@ -335,9 +430,18 @@ npm --prefix functions test  # Cloud Function reminder selection
 
 `test:unit` covers the pure pieces of the to-do list: task ordering
 (`src/pages/lists/taskSort.js`), the Today view's grouping (`agenda.js`),
+subtask trees and heading rules (`subtasks.js`), section ordering
+(`sections.js`), the weekly planner's week maths (`weeks.js`),
 repeat scheduling (`recurrence.js`), quick-add date parsing
 (`src/utils/parseTaskInput.js`) and the Crash Protocol's step machine, message
 builder and history stats (`src/pages/crash/`). These modules deliberately import only from
 `src/utils/dueDates.js` and `helpers.js`, both free of the Firebase SDK, which
 is what lets plain Node run them. They use explicit `.js` extensions in their
 imports for the same reason.
+
+Two of them are *parity* tests, which assert that code duplicated across the
+ESM bundle and the CommonJS functions hasn't drifted apart:
+`src/pages/crash/regimen.parity.test.js` (against a recorded fixture) and
+`src/pages/lists/shareOps.parity.test.js` (by running both implementations).
+If either goes red, decide which side is right and change both — relaxing the
+assertion is how the two quietly disagree in production.

@@ -1,5 +1,6 @@
-import { localISO, getDueDateMs } from '../../utils/dueDates.js';
-import { sortTasks } from './taskSort.js';
+import { localISO } from '../../utils/dueDates.js';
+import { sortTasks, dueMs } from './taskSort.js';
+import { earliestChildDue } from './subtasks.js';
 
 /**
  * Tasks inside a list card, split into the buckets you actually plan around.
@@ -24,6 +25,11 @@ import { sortTasks } from './taskSort.js';
  * Blocked tasks are *not* pulled out the way `collectAgenda` pulls them: inside
  * their own list they're still something you have to deal with, so they stay in
  * their date bucket (matching `compareTasks`, which only sinks 'done').
+ *
+ * Only top-level tasks are bucketed — subtasks render under their own parent,
+ * so bucketing them too would show the same work twice. A parent with no date
+ * of its own borrows the soonest date among its open children, which is what
+ * keeps an undated heading out of "No date" when there's work due under it.
  */
 
 export const TASK_BUCKETS = [
@@ -36,35 +42,45 @@ export const TASK_BUCKETS = [
   { key: 'done', label: 'Done' },
 ];
 
-/** Epoch ms this task is due, or null. Mirrors `taskSort`'s fallback. */
-function dueMs(item) {
-  if (item.dueAt != null) return item.dueAt;
-  if (!item.dueDate) return null;
-  return getDueDateMs(item.dueDate, item.dueTime);
-}
-
-/** Which bucket a single task belongs in. Exported for tests. */
-export function bucketOf(item, now = Date.now()) {
+/**
+ * Which bucket a single task belongs in. Exported for tests.
+ *
+ * `inheritedDue` is the roll-up from a parent's children (epoch ms or null);
+ * it's only consulted for a task carrying no date of its own.
+ */
+export function bucketOf(item, now = Date.now(), inheritedDue = null) {
   if (item.status === 'done') return 'done';
-  if (!item.dueDate) return 'undated';
+
+  if (!item.dueDate) {
+    if (inheritedDue == null) return 'undated';
+    // Bucket by the child's date, without pretending the parent has one: the
+    // calendar comparisons below all read `item.dueDate`, so they're done here
+    // against the inherited instant instead.
+    if (inheritedDue < now) return 'overdue';
+    return bucketOfDate(localISO(new Date(inheritedDue)), now);
+  }
 
   const due = dueMs(item);
   // Being late wins over the calendar bucket, same rule the Today view uses:
   // a task due at 9am today, seen at 6pm, is Overdue rather than Today.
   if (due != null && due < now) return 'overdue';
 
+  return bucketOfDate(item.dueDate, now);
+}
+
+/** The calendar bucket for a "YYYY-MM-DD" that isn't overdue. */
+function bucketOfDate(dateISO, now) {
   const ref = new Date(now);
-  const today = localISO(ref);
-  if (item.dueDate === today) return 'today';
+  if (dateISO === localISO(ref)) return 'today';
 
   const dayAfter = (days) => {
     const d = new Date(ref);
     d.setDate(d.getDate() + days);
     return localISO(d);
   };
-  if (item.dueDate === dayAfter(1)) return 'tomorrow';
+  if (dateISO === dayAfter(1)) return 'tomorrow';
   // Through the next 6 days — day+7 and beyond reads as "Later".
-  if (item.dueDate < dayAfter(7)) return 'thisWeek';
+  if (dateISO < dayAfter(7)) return 'thisWeek';
   return 'later';
 }
 
@@ -76,11 +92,18 @@ export function bucketOf(item, now = Date.now()) {
  * flat list it replaces. Empty buckets are dropped, so the caller can render
  * the result directly without filtering.
  *
+ * `items` should be the top-level rows only (see `topLevelItems`). Pass
+ * `childrenById` — the map from `indexChildren` — to let an undated parent
+ * inherit its children's soonest date.
+ *
  * @returns {{key: string, label: string, items: object[]}[]}
  */
-export function groupTasks(items = [], now = Date.now()) {
+export function groupTasks(items = [], now = Date.now(), childrenById = null) {
   const byKey = new Map(TASK_BUCKETS.map(({ key }) => [key, []]));
-  for (const item of items) byKey.get(bucketOf(item, now)).push(item);
+  for (const item of items) {
+    const inherited = childrenById ? earliestChildDue(childrenById.get(item.id) || []) : null;
+    byKey.get(bucketOf(item, now, inherited)).push(item);
+  }
 
   return TASK_BUCKETS
     .filter(({ key }) => byKey.get(key).length > 0)

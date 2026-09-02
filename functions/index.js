@@ -1,7 +1,9 @@
 const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
+const { onDocumentCreated } = require('firebase-functions/v2/firestore');
 const admin = require('firebase-admin');
 const regimen = require('./crashRegimen');
+const listOps = require('./listOps');
 
 admin.initializeApp();
 
@@ -164,13 +166,75 @@ function tomorrowDayOfMonth(localDate) {
  * @returns {Array<{title, body, tag, category, kind?}>}
  */
 function collectDailyMessages(data, localDate) {
-  const { bills = [], commitments = [], plannedExpenses = [], projects = [], notifPrefs } = data;
+  const {
+    bills = [], commitments = [], plannedExpenses = [], projects = [],
+    shoppingLists = [], shoppingItems = [], notifPrefs,
+  } = data;
   const daysBefore = notifPrefs?.commitments?.daysBefore ?? 3;
   const mk = localDate.slice(0, 7);
   const todayDay = Number(localDate.slice(8, 10));
   const tomorrowDay = tomorrowDayOfMonth(localDate);
 
   const messages = [];
+
+  // ── Today's plan ──
+  // One message for the whole day rather than one per list: the digest sends
+  // each message as its own push, and four task lists would otherwise mean four
+  // notifications before breakfast.
+  //
+  // This is the counterpart to a weekly planner list. The per-task reminders
+  // fire at their own due times through `todoReminders`; this is the morning
+  // read of what the day holds, which is the thing a paper week gave you and a
+  // pile of individual alerts doesn't.
+  const taskLists = new Map(
+    shoppingLists.filter((l) => TASK_LIST_TYPES.includes(l.type) && !l.archived).map((l) => [l.id, l]),
+  );
+  const dueToday = [];
+  let overdueCount = 0;
+  for (const item of shoppingItems) {
+    if (!taskLists.has(item.listId)) continue;
+    if (itemIsHeading(item)) continue;                    // a day label, not work
+    if (item.status && item.status !== 'pending') continue;
+    if (!item.dueDate) continue;
+    if (item.dueDate === localDate) dueToday.push(item);
+    else if (item.dueDate < localDate) overdueCount += 1;
+  }
+
+  if (dueToday.length > 0 || overdueCount > 0) {
+    const named = dueToday.slice(0, 4).map((i) => i.name);
+    const unnamed = dueToday.length - named.length;
+    const summary = [
+      named.join(', '),
+      unnamed > 0 ? `+${unnamed} more` : '',
+    ].filter(Boolean).join(' ');
+    const late = overdueCount > 0
+      ? `${overdueCount} ${overdueCount === 1 ? 'task is' : 'tasks are'} overdue`
+      : '';
+
+    messages.push({
+      title: dueToday.length > 0
+        ? `Today: ${dueToday.length} ${dueToday.length === 1 ? 'task' : 'tasks'}`
+        : `${overdueCount} ${overdueCount === 1 ? 'task is' : 'tasks are'} overdue`,
+      body: [summary, late].filter(Boolean).join(' · ') || 'Nothing due today',
+      // The email gets the full list rather than the truncated one — there's
+      // room for it there, and the point of the digest is not having to open
+      // the app to find out.
+      lines: [
+        dueToday.length > 0
+          ? `${dueToday.length === 1 ? '1 task is' : `${dueToday.length} tasks are`} due today:`
+          : 'Nothing is due today.',
+        ...dueToday.map((i) => {
+          const list = taskLists.get(i.listId);
+          const parent = i.parentId ? shoppingItems.find((p) => p.id === i.parentId) : null;
+          const where = parent ? `${list.name} · ${parent.name}` : list.name;
+          return `• ${i.name} — ${where}${i.dueTime ? ` at ${i.dueTime}` : ''}`;
+        }),
+        ...(late ? [`And ${late}.`] : []),
+      ],
+      tag: `todo-plan-${localDate}`,
+      category: 'todos',
+    });
+  }
 
   // ── Bills ──
   for (const bill of bills) {
@@ -266,9 +330,13 @@ function filterDailyForPush(messages, notifPrefs) {
   const bills = { overdue: true, dayBefore: true, sameDay: true, ...(notifPrefs?.bills || {}) };
   const commitments = { expiring: true, ...(notifPrefs?.commitments || {}) };
   const shifts = { reminder: false, ...(notifPrefs?.shifts || {}) };
+  const todos = { enabled: true, dailyPlan: true, ...(notifPrefs?.todos || {}) };
   return messages.filter((m) => {
     switch (m.category) {
       case 'bills': return !!bills[m.kind];
+      // Suppressed by either switch: turning to-do notifications off entirely
+      // has to turn this off too, whatever the plan toggle says.
+      case 'todos': return todos.enabled !== false && todos.dailyPlan !== false;
       case 'commitments': return !!commitments.expiring;
       case 'goals': return notifPrefs?.goals?.enabled !== false;
       case 'projects': return notifPrefs?.projects?.enabled !== false;
@@ -332,7 +400,10 @@ exports.dailyNotifications = onSchedule(
         if (emailMessages.length > 0) {
           const recipient = await resolveRecipient(userRef.id, data);
           if (recipient) {
-            const lines = emailMessages.map((m) => `${m.title} — ${m.body}`);
+            // A message may carry its own `lines` when one summary line can't
+            // hold it — the day's plan lists every task rather than the four
+            // that fit in a push body.
+            const lines = emailMessages.flatMap((m) => m.lines ?? [`${m.title} — ${m.body}`]);
             const subject = `ExpenseTracker: ${emailMessages.length} reminder${emailMessages.length !== 1 ? 's' : ''} for today`;
             try {
               await enqueueEmail(recipient, subject, "Today's reminders", lines);
@@ -403,9 +474,34 @@ function itemIsFinished(list, item) {
   return TASK_LIST_TYPES.includes(list.type) ? item.status === 'done' : !!item.checked;
 }
 
-/** The items still outstanding on a list. */
+/**
+ * A day heading — "📅 MONDAY 📅" — rather than work. Mirrors `isHeading` in
+ * src/pages/lists/subtasks.js.
+ *
+ * Headings never notify. One is a label for a date, so a push saying "Due now:
+ * MONDAY" is noise, and a week of them would fire seven of those. Nor do they
+ * count as outstanding: a list showing "7 items left" when all seven are day
+ * headings with nothing under them is a lie.
+ */
+function itemIsHeading(item) {
+  return !!item.header;
+}
+
+/** The items still outstanding on a list, headings aside. */
 function outstandingItems(list, shoppingItems) {
-  return shoppingItems.filter((i) => i.listId === list.id && !itemIsFinished(list, i));
+  return shoppingItems.filter((i) => (
+    i.listId === list.id && !itemIsHeading(i) && !itemIsFinished(list, i)
+  ));
+}
+
+/**
+ * Where a task sits, for the body of a reminder: the list, plus the heading
+ * it's filed under when it has one. "Weekly To Do · MONDAY" says considerably
+ * more from a lock screen than "Weekly To Do" alone.
+ */
+function taskContext(list, item, byId) {
+  const parent = item.parentId ? byId.get(item.parentId) : null;
+  return parent ? `${list.name} · ${parent.name}` : list.name;
 }
 
 /**
@@ -425,15 +521,20 @@ function listsDueFor(shoppingLists, shoppingItems, tz, now) {
     const dueAt = todoDueAt(list, tz);
     if (!dueAt) continue;
 
+    // Nothing outstanding means nothing to be reminded about — whether that's
+    // because everything is done or because the list holds only day headings.
+    // An *empty* list still fires: a list you haven't filled in yet is exactly
+    // the thing worth a nudge.
     const own = shoppingItems.filter((i) => i.listId === list.id);
-    if (own.length > 0 && own.every((i) => itemIsFinished(list, i))) continue;
+    const left = outstandingItems(list, shoppingItems);
+    if (own.length > 0 && left.length === 0) continue;
 
     // The lead was chosen on the list itself, so push and email land together.
     const lead = Math.max(0, Number(list.remindOffsetMinutes) || 0);
     const fireAt = dueAt - lead * 60 * 1000;
     if (fireAt > now || fireAt <= now - DUE_GRACE_MS) continue;
 
-    out.push({ list, dueAt, lead, fireAt, remaining: outstandingItems(list, shoppingItems) });
+    out.push({ list, dueAt, lead, fireAt, remaining: left });
   }
   return out;
 }
@@ -457,11 +558,14 @@ function collectTodoMessages(data, sent, now) {
     shoppingLists.filter((l) => TASK_LIST_TYPES.includes(l.type) && !l.archived).map((l) => [l.id, l]),
   );
 
+  const byId = new Map(shoppingItems.map((i) => [i.id, i]));
+
   const messages = [];
   for (const item of shoppingItems) {
     const list = todoLists.get(item.listId);
     if (!list) continue;
     if (item.status && item.status !== 'pending') continue;
+    if (itemIsHeading(item)) continue;
 
     // Due-date reminder (optionally ahead of the due time)
     if (item.notifyEnabled) {
@@ -474,9 +578,10 @@ function collectTodoMessages(data, sent, now) {
           const when = new Date(dueAt).toLocaleTimeString('en-US', {
             timeZone: tz, hour: 'numeric', minute: '2-digit',
           });
+          const where = taskContext(list, item, byId);
           messages.push({
             title: lead > 0 ? `Due soon: ${item.name}` : `Due now: ${item.name}`,
-            body: lead > 0 ? `${list.name} — due at ${when}` : list.name,
+            body: lead > 0 ? `${where} — due at ${when}` : where,
             tag: key,
           });
         }
@@ -545,11 +650,14 @@ function collectTodoEmails(data, sent, now) {
     shoppingLists.filter((l) => TASK_LIST_TYPES.includes(l.type) && !l.archived).map((l) => [l.id, l]),
   );
 
+  const byId = new Map(shoppingItems.map((i) => [i.id, i]));
+
   const out = [];
   for (const item of shoppingItems) {
     const list = todoLists.get(item.listId);
     if (!list) continue;
     if (item.status && item.status !== 'pending') continue; // done/blocked → no email
+    if (itemIsHeading(item)) continue;                      // a day label, not work
 
     const dueAt = todoDueAt(item, tz);
     if (!dueAt) continue;
@@ -568,7 +676,7 @@ function collectTodoEmails(data, sent, now) {
           ? `"${item.name}" is due ${describeLead(leadMinutes)}`
           : `"${item.name}" is due now`,
         lines: [
-          `Your task "${item.name}" on the list "${list.name}" is due at ${when}.`,
+          `Your task "${item.name}" on the list "${taskContext(list, item, byId)}" is due at ${when}.`,
           "It hasn't been marked complete yet.",
         ],
         tag: key,
@@ -738,6 +846,192 @@ exports.todoReminders = onSchedule(
         }
       } catch (err) {
         console.error(`todoReminders: error for user ${userRef.id}:`, err.message);
+      }
+    }
+  },
+);
+
+// ── Collaborative lists ─────────────────────────────────────────────────────
+// A guest holding a share link appends an op to `listShares/{token}/ops`; this
+// applies it to the owner's document.
+//
+// Why a function at all: the owner's data is one document. Letting an
+// anonymous browser write it directly would hand over every bill, debt and
+// note in the app along with the shopping list. So the guest writes a
+// create-only queue that they can't even read back, and the trust boundary
+// lives here and in listOps.js.
+//
+// The op document is deleted once applied — it's an instruction, not a record.
+// What the owner sees afterwards is the `activity` feed on the share.
+
+const SHARE_ACTIVITY_KEEP = 20;
+
+/** The mirror's view of a list's items: no attachments, just a flag. */
+function mirrorItems(items, listId) {
+  return items
+    .filter((i) => i.listId === listId)
+    .map(({ attachments, ...rest }) => ({ ...rest, hasPhotos: (attachments || []).length > 0 }));
+}
+
+exports.applyListOps = onDocumentCreated('listShares/{token}/ops/{opId}', async (event) => {
+  const { token } = event.params;
+  const opSnap = event.data;
+  if (!opSnap) return;
+  const op = opSnap.data();
+
+  const shareRef = db.doc(`listShares/${token}`);
+  try {
+    const shareSnap = await shareRef.get();
+    // No share, or the link has been turned off: drop the op on the floor.
+    // Rules already refuse writes to a revoked share, but a revoke racing an
+    // in-flight op has to lose here too.
+    if (!shareSnap.exists) { await opSnap.ref.delete(); return; }
+    const share = shareSnap.data();
+    if (share.revoked === true || !share.ownerUid || !share.listId) {
+      await opSnap.ref.delete();
+      return;
+    }
+
+    const appRef = db.doc(`users/${share.ownerUid}/data/app`);
+    let change = null;
+    let items = null;
+
+    // A transaction, because two people ticking things off at the same moment
+    // both rewrite the whole `shoppingItems` array — a read-modify-write on a
+    // single field is exactly the case it exists for.
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(appRef);
+      if (!snap.exists) return;
+      const data = snap.data();
+      const list = (data.shoppingLists || []).find((l) => l.id === share.listId);
+      if (!list) return; // the owner deleted the list out from under the share
+
+      const result = listOps.applyOp(data.shoppingItems || [], op, {
+        listId: share.listId,
+        tz: data.settings?.timeZone || DEFAULT_TZ,
+        wallClockToMs,
+        now: Date.now(),
+        sectionIds: (list.sections || []).map((sec) => sec.id),
+      });
+      if (!result) return; // refused — see listOps.js for why
+
+      tx.set(appRef, { shoppingItems: result.items }, { merge: true });
+      change = result.change;
+      items = result.items;
+    });
+
+    if (change) {
+      const now = Date.now();
+      await shareRef.set({
+        items: mirrorItems(items, share.listId),
+        // `appliedAt` marks a write this function made rather than an echo of
+        // the owner's own mirror push. That's what tells the owner's app there
+        // is something new to pick up.
+        appliedAt: now,
+        updatedAt: now,
+        activity: [
+          { line: listOps.describeChange(change), at: now },
+          ...(share.activity || []),
+        ].slice(0, SHARE_ACTIVITY_KEEP),
+        // Counters for the batched owner notification. Incremented atomically
+        // so simultaneous edits can't lose one.
+        pendingCount: admin.firestore.FieldValue.increment(1),
+        pendingNames: admin.firestore.FieldValue.arrayUnion(change.name || 'a task'),
+        pendingBy: admin.firestore.FieldValue.arrayUnion(change.by || 'Someone'),
+        pendingLastAt: now,
+      }, { merge: true });
+    }
+
+    await opSnap.ref.delete();
+  } catch (err) {
+    // The op stays put so a retry can pick it up. A permanently bad op is
+    // bounded by the rules' shape check, so it can't sit here doing damage.
+    console.error(`applyListOps: ${token} failed:`, err.message);
+    throw err;
+  }
+});
+
+// How long to let edits accumulate before telling the owner. Someone adding
+// five things to a shared list does it in one sitting; five pushes for one
+// sitting is what makes people turn notifications off.
+const SHARE_NOTIFY_QUIET_MS = 2 * 60 * 1000;
+
+/** "Chris added 3 things" / "Chris and Sam made 5 changes" */
+function describeShareActivity(share) {
+  const count = share.pendingCount || 0;
+  const people = (share.pendingBy || []).filter(Boolean);
+  const who = people.length === 0 ? 'Someone'
+    : people.length === 1 ? people[0]
+    : people.length === 2 ? `${people[0]} and ${people[1]}`
+    : `${people[0]} and ${people.length - 1} others`;
+  const what = count === 1 ? '1 change' : `${count} changes`;
+  const names = (share.pendingNames || []).filter(Boolean).slice(0, 4);
+  const more = (share.pendingNames || []).length - names.length;
+
+  return {
+    title: `${who} — ${what} to ${share.list?.name || 'a shared list'}`,
+    body: names.length > 0
+      ? `${names.join(', ')}${more > 0 ? ` +${more} more` : ''}`
+      : 'Open the list to see what changed.',
+    lines: [
+      `${who} made ${what} to your shared list "${share.list?.name || 'a shared list'}".`,
+      ...(share.activity || []).slice(0, count).map((a) => `• ${a.line}`),
+    ],
+  };
+}
+
+exports.shareActivityNotifications = onSchedule(
+  { schedule: 'every 1 minutes', timeZone: DEFAULT_TZ },
+  async () => {
+    const now = Date.now();
+    const pending = await db.collection('listShares').where('pendingCount', '>', 0).get();
+
+    for (const doc of pending.docs) {
+      const share = doc.data();
+      try {
+        // Still being edited — wait for the person to finish so one sitting
+        // makes one notification.
+        if (now - (share.pendingLastAt || 0) < SHARE_NOTIFY_QUIET_MS) continue;
+
+        const clear = {
+          pendingCount: 0,
+          pendingNames: admin.firestore.FieldValue.delete(),
+          pendingBy: admin.firestore.FieldValue.delete(),
+        };
+
+        const ownerSnap = await db.doc(`users/${share.ownerUid}/data/app`).get();
+        if (!ownerSnap.exists) { await doc.ref.set(clear, { merge: true }); continue; }
+        const owner = ownerSnap.data();
+        const prefs = { enabled: true, sharedActivity: true, ...(owner.notifPrefs?.todos || {}) };
+
+        if (prefs.enabled === false || prefs.sharedActivity === false) {
+          await doc.ref.set(clear, { merge: true });
+          continue;
+        }
+
+        const msg = describeShareActivity(share);
+
+        if (owner.fcmToken) {
+          await sendPush(`users/${share.ownerUid}`, owner.fcmToken, {
+            title: msg.title,
+            body: msg.body,
+            tag: `share-activity-${doc.id}-${share.pendingLastAt}`,
+            url: `/ExpenseTracker/lists?list=${share.listId}`,
+          });
+        }
+
+        const recipient = await resolveRecipient(share.ownerUid, owner);
+        if (recipient && owner.notifPrefs?.email?.sharedActivity !== false) {
+          try {
+            await enqueueEmail(recipient, msg.title, msg.title, msg.lines);
+          } catch (e) {
+            console.error(`shareActivityNotifications: email failed for ${doc.id}:`, e.message);
+          }
+        }
+
+        await doc.ref.set(clear, { merge: true });
+      } catch (err) {
+        console.error(`shareActivityNotifications: ${doc.id} failed:`, err.message);
       }
     }
   },
@@ -954,7 +1248,8 @@ exports.crashReminders = onSchedule(
 
 // Exported for unit tests only.
 exports._internal = {
-  collectTodoMessages, collectTodoEmails, wallClockToMs,
+  collectTodoMessages, collectTodoEmails, wallClockToMs, itemIsHeading, outstandingItems,
+  describeShareActivity, mirrorItems, listOps,
   collectDailyMessages, filterDailyForPush, filterDailyForEmail,
   localDateAndMinutes, daysBetween, tomorrowDayOfMonth,
   collectCrashMessages, crashLatestDose, crashShouldWarnRefill, RESET_APP_URL,

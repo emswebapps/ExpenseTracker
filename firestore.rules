@@ -7,11 +7,76 @@ service cloud.firestore {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
 
-    // Shared view snapshots — anyone can read, only authenticated users can write
-    // The token in the URL is the only "secret" — keep share tokens private
+    // Shared view snapshots — anyone holding the token can read one, only
+    // authenticated users can write. The token in the URL is the only
+    // "secret", so keep share links private.
+    //
+    // `get` rather than `read`: `read` also grants `list`, which would let
+    // anyone query the whole collection and walk every user's snapshot without
+    // knowing a single token.
     match /shared/{token} {
-      allow read: if true;
+      allow get: if true;
+      allow list: if false;
       allow write: if request.auth != null;
+    }
+
+    // ── Collaborative lists ────────────────────────────────────────────────
+    // One doc per shared list, holding a mirror of it. The token in the URL is
+    // the capability: anyone holding the link can read the list and add to it,
+    // the same trust model as a "anyone with the link can edit" document. The
+    // owner revokes by setting `revoked`, which the ops rule below enforces.
+    //
+    // Only the owner may write the doc itself, so a guest can neither rewrite
+    // the mirror nor un-revoke their own access.
+    match /listShares/{token} {
+      // `get`, not `read`: `read` would also grant `list`, and a query over
+      // this collection would hand out every shared list in the app without
+      // needing a token at all.
+      allow get: if true;
+      allow list: if false;
+
+      allow create: if request.auth != null
+                    && request.resource.data.ownerUid == request.auth.uid;
+
+      // `ownerUid` is immutable. Without that clause an owner could create a
+      // share with their own uid and then rewrite it to somebody else's — the
+      // function applies ops to `users/{ownerUid}/data/app` with admin rights,
+      // so that edit would be a way to write into another user's document.
+      allow update: if request.auth != null
+                    && resource.data.ownerUid == request.auth.uid
+                    && request.resource.data.ownerUid == resource.data.ownerUid;
+
+      allow delete: if request.auth != null
+                    && resource.data.ownerUid == request.auth.uid;
+
+      // Guests append edits here and a Cloud Function applies them to the
+      // owner's document. Create-only and never readable: an op queue is not a
+      // place to browse, and nothing a guest writes should be editable
+      // afterwards — including by them.
+      //
+      // The shape is pinned tightly because this is the one collection an
+      // unauthenticated-but-anonymous browser can write to. Anything past
+      // structure (does the item belong to this list, does the field mean
+      // anything) is the function's job.
+      match /ops/{opId} {
+        allow create: if request.auth != null
+          && get(/databases/$(database)/documents/listShares/$(token)).data.revoked != true
+          && request.resource.data.keys().hasOnly(['type', 'itemId', 'fields', 'by', 'uid', 'at'])
+          && request.resource.data.type is string
+          && request.resource.data.type in ['add', 'update', 'delete', 'toggle']
+          && request.resource.data.itemId is string
+          && request.resource.data.itemId.size() > 0
+          && request.resource.data.itemId.size() <= 64
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.at is int
+          && (!('by' in request.resource.data)
+              || (request.resource.data.by is string && request.resource.data.by.size() <= 60))
+          && (!('fields' in request.resource.data)
+              || (request.resource.data.fields is map
+                  && request.resource.data.fields.keys().hasOnly(
+                       ['name', 'notes', 'dueDate', 'dueTime', 'parentId', 'sectionId'])));
+        allow read, update, delete: if false;
+      }
     }
   }
 }

@@ -1,11 +1,14 @@
 import { useState, useMemo } from 'react';
 import {
   Plus, MoreVertical, Pencil, Trash2, Archive, ArchiveRestore, MessageSquare,
-  Calendar, CalendarClock,
+  Calendar, CalendarClock, Columns3, Rows3, CalendarPlus, Users,
 } from 'lucide-react';
 import { getDueDateMs, localTodayISO, notificationPermission } from '../../utils/notifications';
 import { listTypeMeta, ListDueBadge, fmtDate, MENU_BTN, useTicker } from './listMeta';
 import { groupTasks } from './taskGroups';
+import { indexChildren, topLevelItems, isHeading } from './subtasks';
+import { hasSections, splitBySection, defaultSectionIndex } from './sections';
+import SectionBoard from './SectionBoard';
 import { parseTaskInput } from '../../utils/parseTaskInput.js';
 import { pasteAsItems } from './pasteImport';
 import TaskRow from './TaskRow';
@@ -25,7 +28,8 @@ export function TaskListCard({
   list, listItems,
   onEditList, onDeleteList, onArchiveList,
   onAddTodoItem, onAddTodoItems, onDeleteItem, onUpdateItem, onEditItem, onExport,
-  onOpenAttachment, onToggleStatus, onSetBlocked, onAddTaskDetailed,
+  onOpenAttachment, onToggleStatus, onSetBlocked, onAddTaskDetailed, onAddSubtask,
+  onRenameSection, onDeleteSection, onAddWeek, onSetViewMode, onShareList,
   defaultExpanded = false,
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
@@ -36,22 +40,54 @@ export function TaskListCard({
 
   const { Icon: ListIcon } = listTypeMeta(list.type);
   const today = localTodayISO();
-  const groups = useMemo(() => groupTasks(listItems), [listItems]);
 
+  // Subtasks render under their parent, so only top-level rows get bucketed.
+  // The children map is handed to `groupTasks` as well, which is what lets an
+  // undated heading sit in the bucket its work is actually due in.
+  const childrenById = useMemo(() => indexChildren(listItems), [listItems]);
+  const roots = useMemo(() => topLevelItems(listItems), [listItems]);
+  const groups = useMemo(() => groupTasks(roots, Date.now(), childrenById), [roots, childrenById]);
+
+  // ── Sections ──
+  // A sectioned list is one that's already been arranged, so it's shown as its
+  // columns rather than re-triaged into Overdue/Today/Later buckets.
+  const sectioned = hasSections(list);
+  const sectionGroups = useMemo(
+    () => (sectioned ? splitBySection(list, roots) : []),
+    [sectioned, list, roots],
+  );
+  // 'columns' is the default for a weekly planner — swiping between weeks is
+  // the whole point of it — and stacked for anything else.
+  const columns = (list.viewMode || (list.weekly?.enabled ? 'columns' : 'stack')) === 'columns';
+  const [activeSection, setActiveSection] = useState(null);
+  const landedSection = useMemo(
+    () => defaultSectionIndex(sectionGroups),
+    [sectionGroups],
+  );
+  // Opens on the live week, then follows the swipe.
+  const activeIndex = activeSection ?? landedSection;
+  const activeSectionId = sectionGroups[activeIndex]?.section?.id ?? null;
+
+  // Headings are labels for the work under them, not work — counting them would
+  // report "0/8 done" on a week whose seven day rows are all that exist yet.
+  const work = useMemo(() => listItems.filter((i) => !isHeading(i)), [listItems]);
   const isPending = (i) => i.status !== 'done' && i.status !== 'blocked';
-  const done = listItems.filter((i) => i.status === 'done');
-  const blocked = listItems.filter((i) => i.status === 'blocked');
-  const overdue = listItems.filter((i) =>
+  const done = work.filter((i) => i.status === 'done');
+  const blocked = work.filter((i) => i.status === 'blocked');
+  const overdue = work.filter((i) =>
     isPending(i) && i.dueDate && getDueDateMs(i.dueDate, i.dueTime) < Date.now()
   );
-  const dueToday = listItems.filter((i) => isPending(i) && i.dueDate === today);
+  const dueToday = work.filter((i) => isPending(i) && i.dueDate === today);
 
   // Badges inside the last hour count down in minutes, so keep the clock live
   // while the card is open and something still has a deadline.
-  useTicker(expanded && listItems.some((i) => isPending(i) && i.dueDate));
+  useTicker(expanded && work.some((i) => isPending(i) && i.dueDate));
 
   const makeItem = (name, due = {}) => ({
     listId: list.id, name, status: 'pending', notes: null, address: null,
+    // Added into whichever column is on screen — typing into a week and having
+    // the task land in a different one would be indefensible.
+    sectionId: sectioned ? activeSectionId : null, parentId: null,
     dueDate: due.dueDate ?? null, dueTime: due.dueTime ?? null,
     notifyEnabled: due.notifyEnabled ?? false, remindOffsetMinutes: 0,
     flagged: false, completedAt: null,
@@ -76,7 +112,7 @@ export function TaskListCard({
     current: quickAdd, setCurrent: setQuickAdd, makeItem, addItems: onAddTodoItems,
   });
 
-  const progress = listItems.length > 0 ? done.length / listItems.length : 0;
+  const progress = work.length > 0 ? done.length / work.length : 0;
 
   return (
     <div style={{ position: 'relative', backgroundColor: 'var(--surface)', border: `1px solid ${overdue.length > 0 ? 'rgba(244,63,94,0.4)' : 'var(--border)'}`, borderRadius: '1rem', overflow: menuOpen ? 'visible' : 'hidden' }}>
@@ -87,6 +123,14 @@ export function TaskListCard({
               <ListIcon size={14} style={{ color: 'var(--accent-text)', flexShrink: 0 }} />
               <span style={{ fontWeight: '700', fontSize: '1rem', color: 'var(--text)' }}>{list.name}</span>
               <ListDueBadge list={list} />
+              {list.share?.token && !list.share.revoked && (
+                <span
+                  title="Shared by link"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '0.1875rem', flexShrink: 0, fontSize: '0.6875rem', fontWeight: 700, color: 'var(--accent-text)', backgroundColor: 'rgba(99,102,241,0.12)', borderRadius: '0.375rem', padding: '0.0625rem 0.3125rem' }}
+                >
+                  <Users size={9} /> Shared
+                </span>
+              )}
               {list.dueDate && (
                 <span style={{ display: 'flex', alignItems: 'center', gap: '0.2rem', fontSize: '0.75rem', color: 'var(--muted)' }}>
                   <Calendar size={10} /> {fmtDate(list.dueDate)}
@@ -99,9 +143,9 @@ export function TaskListCard({
               )}
             </div>
             <div style={{ fontSize: '0.8125rem', color: 'var(--muted)', display: 'flex', gap: '0.625rem', flexWrap: 'wrap' }}>
-              {listItems.length === 0 ? <span>No tasks</span> : (
+              {work.length === 0 ? <span>No tasks</span> : (
                 <>
-                  <span>{done.length}/{listItems.length} done</span>
+                  <span>{done.length}/{work.length} done</span>
                   {blocked.length > 0 && <span style={{ color: '#f59e0b' }}>{blocked.length} blocked</span>}
                   {dueToday.length > 0 && (
                     <span style={{ display: 'flex', alignItems: 'center', gap: '0.2rem', color: 'var(--accent-text)' }}>
@@ -111,7 +155,7 @@ export function TaskListCard({
                 </>
               )}
             </div>
-            {listItems.length > 0 && (
+            {work.length > 0 && (
               <div style={{ marginTop: '0.5rem', height: '3px', backgroundColor: 'var(--border)', borderRadius: '2px', overflow: 'hidden' }}>
                 <div style={{ height: '100%', width: `${progress * 100}%`, backgroundColor: progress === 1 ? 'var(--positive)' : 'var(--accent)', borderRadius: '2px', transition: 'width 0.3s ease' }} />
               </div>
@@ -133,7 +177,27 @@ export function TaskListCard({
 
       {expanded && (
         <div style={{ borderTop: '1px solid var(--border)' }}>
-          {listItems.length === 0 ? (
+          {sectioned ? (
+            <SectionBoard
+              groups={sectionGroups}
+              childrenById={childrenById}
+              columns={columns}
+              activeIndex={activeIndex}
+              onActiveIndexChange={setActiveSection}
+              rowProps={{
+                onEdit: onEditItem,
+                onUpdate: onUpdateItem,
+                onDelete: onDeleteItem,
+                onToggleStatus,
+                onSetBlocked,
+                onOpenAttachment,
+              }}
+              onAddSubtask={onAddSubtask}
+              onRenameSection={(id, name) => onRenameSection?.(list, id, name)}
+              onDeleteSection={(id) => onDeleteSection?.(list, id)}
+              onAddTaskTo={(sectionId) => onAddTaskDetailed(list, sectionId)}
+            />
+          ) : listItems.length === 0 ? (
             <div style={{ padding: '1rem', textAlign: 'center', color: 'var(--subtle)', fontSize: '0.875rem' }}>No tasks yet — add one below.</div>
           ) : (
             groups.map((group) => {
@@ -165,12 +229,14 @@ export function TaskListCard({
                     <TaskRow
                       key={item.id}
                       item={item}
+                      childItems={childrenById.get(item.id) || []}
                       onEdit={onEditItem}
                       onUpdate={onUpdateItem}
                       onDelete={onDeleteItem}
                       onToggleStatus={onToggleStatus}
                       onSetBlocked={onSetBlocked}
                       onOpenAttachment={onOpenAttachment}
+                      onAddSubtask={onAddSubtask}
                     />
                   ))}
                 </div>
@@ -198,8 +264,26 @@ export function TaskListCard({
         <>
           <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => setMenuOpen(false)} />
           <div style={{ position: 'absolute', right: '0.75rem', top: '3rem', zIndex: 50, backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '0.75rem', overflow: 'hidden', minWidth: '11rem', boxShadow: '0 8px 32px rgba(0,0,0,0.3)' }}>
+            <button onClick={() => { onShareList?.(list); setMenuOpen(false); }} style={MENU_BTN}>
+              <Users size={14} style={{ color: list.share?.token && !list.share.revoked ? 'var(--accent-text)' : undefined }} />
+              {list.share?.token ? 'Shared link…' : 'Share with someone…'}
+            </button>
             <button onClick={() => { onExport(list); setMenuOpen(false); }} style={MENU_BTN}><MessageSquare size={14} /> Share as text</button>
-            <button onClick={() => { onAddTaskDetailed(list); setMenuOpen(false); }} style={MENU_BTN}><Plus size={14} /> Add task with details</button>
+            <button onClick={() => { onAddTaskDetailed(list, activeSectionId); setMenuOpen(false); }} style={MENU_BTN}><Plus size={14} /> Add task with details</button>
+            {list.weekly?.enabled && (
+              <button onClick={() => { onAddWeek?.(list); setMenuOpen(false); }} style={MENU_BTN}>
+                <CalendarPlus size={14} /> Add another week
+              </button>
+            )}
+            {sectioned && (
+              <button
+                onClick={() => { onSetViewMode?.(list, columns ? 'stack' : 'columns'); setMenuOpen(false); }}
+                style={MENU_BTN}
+              >
+                {columns ? <Rows3 size={14} /> : <Columns3 size={14} />}
+                {columns ? 'Show as one list' : 'Show as columns'}
+              </button>
+            )}
             <button onClick={() => { onEditList(list); setMenuOpen(false); }} style={MENU_BTN}><Pencil size={14} /> Edit list</button>
             <button onClick={() => { onArchiveList(list.id); setMenuOpen(false); }} style={MENU_BTN}>
               {list.archived ? <ArchiveRestore size={14} /> : <Archive size={14} />}

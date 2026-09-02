@@ -1,11 +1,15 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import { storage } from '../utils/storage';
-import { saveUserData, loadUserData, saveSharedView, saveFCMToken } from '../utils/firestoreSync';
+import {
+  saveUserData, loadUserData, saveSharedView, saveFCMToken,
+  saveListShare, setListShareRevoked, deleteListShare, subscribeListShare,
+} from '../utils/firestoreSync';
 import { generateId, currentMonthKey, getBillStatus, nextBillStatus, isTaskList } from '../utils/helpers';
 import { createSession as createCrashSession, defaultReleaseAt } from '../pages/crash/protocol.js';
 import { pruneSessions } from '../pages/crash/stats.js';
 import { normalizeMed, supplyAfterDose, DEFAULT_MED } from '../pages/crash/meds.js';
-import { notificationPermission, requestNotificationPermission, sendNotification, computeDueAt, todoReminderAt, registerFCMToken, onForegroundMessage, scheduleShiftNotification, cancelShiftNotification } from '../utils/notifications';
+import { notificationPermission, requestNotificationPermission, sendNotification, computeDueAt, todoReminderAt, localTodayISO, registerFCMToken, onForegroundMessage, scheduleShiftNotification, cancelShiftNotification } from '../utils/notifications';
+import { planWeeks, weeklyConfig } from '../pages/lists/weeks.js';
 
 const AppContext = createContext(null);
 
@@ -32,6 +36,10 @@ const PERMANENT_BUDGET_CATEGORIES = [
  * Merging is safe for the same-slice case too, since a repeated key simply
  * takes the newer value, and `saveUserData` already writes with `{merge:true}`.
  */
+// How long a local write to the lists is given to settle before a guest's edit
+// is adopted over the top of it.
+const LOCAL_WRITE_SETTLE_MS = 3000;
+
 function useDebounce(fn, delay = 1500) {
   const timer = useRef(null);
   const pending = useRef(null);
@@ -310,6 +318,10 @@ export function AppProvider({ children, uid }) {
     return { ok: true, hasPush: !!token };
   }, [uid]);
 
+  // When this device last wrote items locally. A guest's edit arriving inside
+  // that window waits rather than overwriting a change still in flight.
+  const lastListWriteRef = useRef(0);
+
   const persistShoppingLists = useCallback((next) => {
     setShoppingListsState(next);
     if (!testModeRef.current) { storage.setShoppingLists(next); debouncedSync({ shoppingLists: next }); }
@@ -317,6 +329,7 @@ export function AppProvider({ children, uid }) {
 
   const persistShoppingItems = useCallback((next) => {
     setShoppingItemsState(next);
+    lastListWriteRef.current = Date.now();
     if (!testModeRef.current) { storage.setShoppingItems(next); debouncedSync({ shoppingItems: next }); }
   }, [debouncedSync]);
 
@@ -534,14 +547,18 @@ export function AppProvider({ children, uid }) {
   // each of those calls closes over the same `shoppingItems`, so N calls in a
   // row would all append to the same starting array and only the last would
   // survive.
-  const addShoppingItems = useCallback((items) => {
+  //
+  // `keepIds` is for generated rows — the weekly planner's day headings carry
+  // ids derived from their date, which is what stops a second run from
+  // building a duplicate Monday.
+  const addShoppingItems = useCallback((items, { keepIds = false } = {}) => {
     if (!items || items.length === 0) return;
     const now = new Date().toISOString();
     persistShoppingItems([
       ...shoppingItems,
       ...items.map((item) => ({
         ...item,
-        id: generateId(),
+        id: (keepIds && item.id) ? item.id : generateId(),
         createdAt: now,
         dueAt: item.dueAt ?? computeDueAt(item.dueDate, item.dueTime),
       })),
@@ -560,6 +577,23 @@ export function AppProvider({ children, uid }) {
   ), [shoppingItems, persistShoppingItems]);
 
   /**
+   * Patch several items with the same change in one write. Completing a parent
+   * task closes its subtasks too, and doing that as N calls to
+   * `updateShoppingItem` would lose all but the last — each closes over the
+   * same `shoppingItems`.
+   */
+  const updateShoppingItems = useCallback((ids, u) => {
+    const target = new Set(ids);
+    if (target.size === 0) return;
+    persistShoppingItems(shoppingItems.map((i) => {
+      if (!target.has(i.id)) return i;
+      const next = { ...i, ...u };
+      if ('dueDate' in u || 'dueTime' in u) next.dueAt = computeDueAt(next.dueDate, next.dueTime);
+      return next;
+    }));
+  }, [shoppingItems, persistShoppingItems]);
+
+  /**
    * Patch one item and append another in a single write — completing a
    * repeating task marks it done *and* creates its next occurrence.
    *
@@ -567,29 +601,46 @@ export function AppProvider({ children, uid }) {
    * over the same `shoppingItems` array, so the second call would be built
    * from a list that never had the first change in it, and one of the two
    * would be lost.
+   *
+   * `alsoIds` take the same patch — a repeating parent closes its subtasks on
+   * the way out, which has to happen in this write for the same reason.
+   *
+   * `newItems` is an array because a repeating parent brings copies of its
+   * subtasks with it, so one completion can create several tasks.
    */
-  const completeAndRepeatShoppingItem = useCallback((id, patch, newItem) => {
+  const completeAndRepeatShoppingItem = useCallback((id, patch, newItems, alsoIds = []) => {
     const now = new Date().toISOString();
+    const alsoPatched = new Set([id, ...alsoIds]);
     const patched = shoppingItems.map((i) => {
-      if (i.id !== id) return i;
-      const next = { ...i, ...patch };
-      if ('dueDate' in patch || 'dueTime' in patch) next.dueAt = computeDueAt(next.dueDate, next.dueTime);
+      if (!alsoPatched.has(i.id)) return i;
+      // Only the completed task itself spawns the follow-up; its subtasks are
+      // just being closed, so the marker doesn't belong on them.
+      const own = i.id === id ? patch : { ...patch, spawnedNextId: i.spawnedNextId ?? null };
+      const next = { ...i, ...own };
+      if ('dueDate' in own || 'dueTime' in own) next.dueAt = computeDueAt(next.dueDate, next.dueTime);
       return next;
     });
     persistShoppingItems([
       ...patched,
-      {
-        ...newItem,
-        id: newItem.id ?? generateId(),
+      ...(Array.isArray(newItems) ? newItems : [newItems]).map((item) => ({
+        ...item,
+        id: item.id ?? generateId(),
         createdAt: now,
-        dueAt: newItem.dueAt ?? computeDueAt(newItem.dueDate, newItem.dueTime),
-      },
+        dueAt: item.dueAt ?? computeDueAt(item.dueDate, item.dueTime),
+      })),
     ]);
   }, [shoppingItems, persistShoppingItems]);
 
   const deleteShoppingItem = useCallback((id) => persistShoppingItems(
     shoppingItems.filter((i) => i.id !== id)
   ), [shoppingItems, persistShoppingItems]);
+
+  /** Remove several items in one write — a parent and the subtasks under it. */
+  const deleteShoppingItems = useCallback((ids) => {
+    const doomed = new Set(ids);
+    if (doomed.size === 0) return;
+    persistShoppingItems(shoppingItems.filter((i) => !doomed.has(i.id)));
+  }, [shoppingItems, persistShoppingItems]);
 
   const toggleShoppingItem = useCallback((id) => persistShoppingItems(
     shoppingItems.map((i) => i.id === id ? { ...i, checked: !i.checked } : i)
@@ -796,6 +847,179 @@ export function AppProvider({ children, uid }) {
     return { ok: true };
   }, [buildSnapshot, settings]);
 
+  // ── Shared lists ──────────────────────────────────────────────────────────
+  // A list can be handed to someone else by link. The list itself stays here,
+  // in this user's document; `listShares/{token}` holds a *mirror* of it that
+  // the other person reads, and their edits arrive as ops that a Cloud
+  // Function applies back to this document. Keeping the blob authoritative is
+  // what lets the reminder functions, the offline cache and every sync path in
+  // this file carry on unchanged.
+
+  /** Start sharing a list, or hand back the link if it already has one. */
+  const shareList = useCallback(async (listId) => {
+    const list = stateRef.current.shoppingLists.find((l) => l.id === listId);
+    if (!list) return { ok: false, error: 'List not found' };
+    if (!uid) return { ok: false, error: 'Sign in to share a list' };
+
+    const token = list.share?.token || (generateId() + generateId());
+    try {
+      await saveListShare(token, {
+        ownerUid: uid,
+        list,
+        items: stateRef.current.shoppingItems.filter((i) => i.listId === listId),
+      });
+      await setListShareRevoked(token, false);
+    } catch (err) {
+      return { ok: false, error: err.message || 'Could not create the share' };
+    }
+
+    updateShoppingList(listId, {
+      share: { token, createdAt: list.share?.createdAt || new Date().toISOString(), revoked: false },
+    });
+    return { ok: true, token };
+  }, [uid, updateShoppingList]);
+
+  /**
+   * Turn a link off. The share document stays, so the activity feed survives
+   * and the same link works again if it's resumed — a revoke is a stop, not a
+   * delete.
+   */
+  const revokeListShare = useCallback(async (listId, revoked = true) => {
+    const list = stateRef.current.shoppingLists.find((l) => l.id === listId);
+    const token = list?.share?.token;
+    if (!token) return { ok: false, error: 'That list is not shared' };
+    try {
+      await setListShareRevoked(token, revoked);
+    } catch (err) {
+      return { ok: false, error: err.message || 'Could not change the share' };
+    }
+    updateShoppingList(listId, { share: { ...list.share, revoked } });
+    return { ok: true };
+  }, [updateShoppingList]);
+
+  /** Stop sharing for good: the link dies and the mirror goes with it. */
+  const deleteListShareLink = useCallback(async (listId) => {
+    const list = stateRef.current.shoppingLists.find((l) => l.id === listId);
+    const token = list?.share?.token;
+    if (!token) return { ok: true };
+    try {
+      await deleteListShare(token);
+    } catch (err) {
+      return { ok: false, error: err.message || 'Could not delete the share' };
+    }
+    updateShoppingList(listId, { share: null });
+    return { ok: true };
+  }, [updateShoppingList]);
+
+  // Push the mirror whenever a shared list changes. Debounced on its own timer
+  // rather than sharing `debouncedSync`'s: that one carries patches to this
+  // user's document, and a mirror is a different destination with a different
+  // shape.
+  //
+  // The signature is what stops this from writing on every render — a list is
+  // only mirrored when something a guest would see has actually changed.
+  const mirrorTimerRef = useRef(null);
+  const mirrorSentRef = useRef(new Map()); // token → last signature written
+
+  const sharedListSignature = shoppingLists
+    .filter((l) => l.share?.token && !l.share.revoked)
+    .map((l) => {
+      const items = shoppingItems.filter((i) => i.listId === l.id);
+      return `${l.share.token}:${l.name}:${(l.sections || []).length}:${items.length}:${
+        items.map((i) => `${i.id}${i.status}${i.name}${i.dueDate || ''}${i.dueTime || ''}`).join(',')
+      }`;
+    })
+    .join('|');
+
+  useEffect(() => {
+    if (!uid || testModeRef.current) return;
+    clearTimeout(mirrorTimerRef.current);
+    mirrorTimerRef.current = setTimeout(() => {
+      for (const list of stateRef.current.shoppingLists) {
+        const token = list.share?.token;
+        if (!token || list.share.revoked) continue;
+        const items = stateRef.current.shoppingItems.filter((i) => i.listId === list.id);
+        const signature = `${list.name}:${JSON.stringify(list.sections || [])}:${JSON.stringify(items)}`;
+        if (mirrorSentRef.current.get(token) === signature) continue;
+        mirrorSentRef.current.set(token, signature);
+        saveListShare(token, { ownerUid: uid, list, items }).catch((err) => {
+          // A failed mirror push is recoverable — the next change retries — so
+          // it must not take the app down with it.
+          mirrorSentRef.current.delete(token);
+          console.error('Could not update the shared copy of', list.name, err.message);
+        });
+      }
+    }, 1500);
+    return () => clearTimeout(mirrorTimerRef.current);
+  }, [uid, sharedListSignature]);
+
+  // Pick up a guest's edits. The Cloud Function has already applied them to
+  // this user's document and stamped `appliedAt` on the mirror, so adopting
+  // the mirror's items for that list is catching up to a change already
+  // committed here — not a merge of two competing versions.
+  //
+  // Only snapshots carrying a *newer* `appliedAt` are adopted, which is what
+  // distinguishes the function's write from an echo of our own mirror push.
+  // A local edit inside the last few seconds defers the adoption rather than
+  // being overwritten by it.
+  const adoptedRef = useRef(new Map()); // token → last appliedAt adopted
+  const shareTokens = shoppingLists
+    .filter((l) => l.share?.token && !l.share.revoked)
+    .map((l) => `${l.id}:${l.share.token}`)
+    .join('|');
+
+  useEffect(() => {
+    if (!uid || testModeRef.current || !shareTokens) return;
+
+    const retries = [];
+
+    const adopt = (listId, token, mirror) => {
+      const appliedAt = Number(mirror?.appliedAt) || 0;
+      if (!appliedAt || appliedAt <= (adoptedRef.current.get(token) || 0)) return;
+
+      // Our own write is still settling — come back to this rather than
+      // dropping it, since no further snapshot is coming to prompt a retry.
+      const sinceLocal = Date.now() - lastListWriteRef.current;
+      if (sinceLocal < LOCAL_WRITE_SETTLE_MS) {
+        retries.push(setTimeout(() => adopt(listId, token, mirror), LOCAL_WRITE_SETTLE_MS - sinceLocal + 100));
+        return;
+      }
+      adoptedRef.current.set(token, appliedAt);
+
+      const incoming = (mirror.items || []).map(({ hasPhotos, ...rest }) => rest);
+      const byId = new Map(incoming.map((i) => [i.id, i]));
+      const next = [
+        // Photos live only in this document, so they're taken from the local
+        // copy rather than the mirror, which never carries them.
+        ...stateRef.current.shoppingItems
+          .filter((i) => i.listId !== listId || byId.has(i.id))
+          .map((i) => (i.listId === listId && byId.has(i.id)
+            ? { ...byId.get(i.id), attachments: i.attachments || [] }
+            : i)),
+        ...incoming.filter((i) => !stateRef.current.shoppingItems.some((local) => local.id === i.id))
+          .map((i) => ({ ...i, attachments: [] })),
+      ];
+
+      setShoppingItemsState(next);
+      storage.setShoppingItems(next);
+      // Deliberately no cloud write: the function already wrote this to the
+      // document. Syncing it back would be a pointless round trip.
+    };
+
+    const unsubs = shareTokens.split('|').map((pair) => {
+      const [listId, token] = pair.split(':');
+      return subscribeListShare(
+        token,
+        (mirror) => adopt(listId, token, mirror),
+        (err) => console.error('Shared list subscription failed:', err.message),
+      );
+    });
+    return () => {
+      unsubs.forEach((fn) => fn?.());
+      retries.forEach(clearTimeout);
+    };
+  }, [uid, shareTokens]);
+
   // ── Firebase Cloud Messaging: register token + handle foreground messages ──
   useEffect(() => {
     if (notificationPermission() !== 'granted') return;
@@ -824,6 +1048,85 @@ export function AppProvider({ children, uid }) {
       debouncedSync({ settings: next });
     }
   }, [cloudLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Weekly planner: keep the standing weeks built ──
+  // A list with `weekly.enabled` always has the current week and the next one
+  // laid out, one section per week and one day heading per day. Building that
+  // by hand every Sunday is the chore the setting exists to remove.
+  //
+  // It runs on load and again whenever the app comes back to the foreground on
+  // a *different local date* — a phone left open across midnight is the normal
+  // case, not the exception, and the week has to be there when it's opened in
+  // the morning. `planWeeks` returns null when nothing is owed, so the common
+  // path costs one comparison per weekly list and no write at all.
+  const plannedRef = useRef(new Map()); // listId → the local date it was last planned
+
+  // Re-runs when a weekly list is created or its generated-through mark moves.
+  // Without this a list switched to weekly wouldn't lay itself out until the
+  // next foreground, which reads as the setting not working.
+  const weeklySignature = shoppingLists
+    .filter((l) => !l.archived && l.weekly?.enabled)
+    .map((l) => `${l.id}:${l.weekly.generatedThrough || ''}`)
+    .join('|');
+
+  useEffect(() => {
+    if (uid && !cloudLoaded) return;
+
+    const runPlanner = () => {
+      const today = localTodayISO();
+      const lists = stateRef.current.shoppingLists || [];
+      const items = stateRef.current.shoppingItems || [];
+
+      const due = lists.filter((l) => (
+        !l.archived && l.weekly?.enabled && plannedRef.current.get(l.id) !== today
+      ));
+      if (due.length === 0) return;
+
+      const plans = due
+        .map((list) => [list, planWeeks(list, items, new Date())])
+        .filter(([, plan]) => plan);
+
+      // Marked even when there was nothing to build, so a list that's already
+      // up to date isn't re-checked on every foreground of the day.
+      for (const list of due) plannedRef.current.set(list.id, today);
+      if (plans.length === 0) return;
+
+      const now = new Date().toISOString();
+      const listPatch = new Map();
+      const newItems = [];
+      for (const [list, plan] of plans) {
+        listPatch.set(list.id, {
+          sections: [...(list.sections || []), ...plan.sections],
+          weekly: { ...weeklyConfig(list), generatedThrough: plan.generatedThrough },
+          updatedAt: now,
+        });
+        newItems.push(...plan.items.map((item) => ({
+          ...item,
+          createdAt: now,
+          dueAt: computeDueAt(item.dueDate, item.dueTime),
+        })));
+      }
+
+      // One write for both halves: sections and the day headings that point at
+      // them must never be able to land separately.
+      const nextLists = (stateRef.current.shoppingLists || []).map((l) => (
+        listPatch.has(l.id) ? { ...l, ...listPatch.get(l.id) } : l
+      ));
+      const nextItems = [...(stateRef.current.shoppingItems || []), ...newItems];
+      setShoppingListsState(nextLists);
+      setShoppingItemsState(nextItems);
+      if (!testModeRef.current) {
+        storage.setShoppingLists(nextLists);
+        storage.setShoppingItems(nextItems);
+        debouncedSync({ shoppingLists: nextLists, shoppingItems: nextItems });
+      }
+    };
+
+    runPlanner();
+    const onVisible = () => { if (document.visibilityState === 'visible') runPlanner(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [cloudLoaded, uid, debouncedSync, weeklySignature]);
 
   // ── Back-fill dueAt on to-do items saved before absolute due instants ──
   // The Cloud Function schedules pushes off `dueAt`; without it, it has to fall
@@ -1307,8 +1610,10 @@ export function AppProvider({ children, uid }) {
       budgetSpends, addBudgetSpend, updateBudgetSpend, deleteBudgetSpend,
       agreements, addAgreement, updateAgreement, deleteAgreement,
       shoppingLists, addShoppingList, updateShoppingList, deleteShoppingList,
-      shoppingItems, addShoppingItem, addShoppingItems, updateShoppingItem, deleteShoppingItem, toggleShoppingItem, importList,
+      shoppingItems, addShoppingItem, addShoppingItems, updateShoppingItem, updateShoppingItems,
+      deleteShoppingItem, deleteShoppingItems, toggleShoppingItem, importList,
       completeAndRepeatShoppingItem,
+      shareList, revokeListShare, deleteListShareLink,
       planningSettings, updatePlanningSettings,
       recurringTemplates, addRecurringTemplate, updateRecurringTemplate, deleteRecurringTemplate,
       paycheckActuals, addPaycheckActual, updatePaycheckActual, deletePaycheckActual,

@@ -1,18 +1,19 @@
 import { useState } from 'react';
 import {
   MapPin, Paperclip, Bell, Ban, Circle, CheckCircle2, CalendarClock, Trash2, Star, Repeat,
-  MoreHorizontal, RotateCcw,
+  MoreHorizontal, RotateCcw, ChevronDown, ChevronRight, Plus, CornerDownRight, Heading,
 } from 'lucide-react';
 import { mapsHref, mapsAppName } from '../../utils/helpers';
 import { fileCategory } from '../../utils/storageUtils';
 import {
-  formatDueBadge, formatDueMoment, localTodayISO,
+  formatDueBadge, formatDueMoment, formatCalendarDate, localTodayISO,
   notificationPermission, requestNotificationPermission,
 } from '../../utils/notifications';
 import Modal from '../../components/Modal';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import { QUICK_DATES, isoInDays, MENU_BTN } from './listMeta';
 import { repeatLabel } from './recurrence.js';
+import { isHeading, subtaskStats, openChildren } from './subtasks.js';
 import { useSwipeRow, SWIPE_ROW_STYLE, DRAWER_WIDTH } from './useSwipeRow';
 
 // ── Task address & photos ─────────────────────────────────────────────────────
@@ -99,29 +100,64 @@ export function TaskPhotoStrip({ attachments = [], onOpen }) {
  * common actions also available as swipes — right to complete, left for delete.
  *
  * Props:
+ * Subtasks render *inside* this component rather than beside it, because the
+ * disclosure state ("Show 3 subtasks") belongs to the parent row and nothing
+ * above it needs to know. One level deep: children are handed `[]` for their
+ * own children, so a stray grandchild in the data promotes to top level (see
+ * `subtasks.js`) instead of indenting forever.
+ *
+ * A *heading* (`header: true`) is the Reminders-style day row — "📅 MONDAY 📅"
+ * with the day's work under it. It's a label, not work: its date reads as a
+ * plain calendar date rather than counting down to "Overdue", and it's skipped
+ * by the Today view and by reminders.
+ *
+ * Props:
  *   item             — the task
  *   listLabel        — list name badge, shown when the row is out of its card
+ *   childItems       — this task's subtasks, already sorted ([] for a subtask)
+ *   depth            — 0 for a top-level row, 1 for a subtask
+ *   parentLabel      — parent task name, shown when a subtask is out of its card
  *   onEdit           — open the full editor
  *   onUpdate(id,patch)
  *   onDelete(id)
  *   onToggleStatus(item) / onSetBlocked(item)
  *   onOpenAttachment(item, att)
+ *   onAddSubtask(parent, name) — omit to hide the add-subtask affordances
  */
 export default function TaskRow({
-  item, listLabel,
-  onEdit, onUpdate, onDelete, onToggleStatus, onSetBlocked, onOpenAttachment,
+  item, listLabel, childItems = [], depth = 0, parentLabel,
+  onEdit, onUpdate, onDelete, onToggleStatus, onSetBlocked, onOpenAttachment, onAddSubtask,
 }) {
   const [dueOpen, setDueOpen] = useState(false);
   const [dueDraft, setDueDraft] = useState({ date: '', time: '' });
   const [sheetOpen, setSheetOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [subAdd, setSubAdd] = useState(null); // the draft subtask name, or null
+
+  const heading = isHeading(item);
+  const stats = subtaskStats(childItems);
+  const hasChildren = childItems.length > 0;
+  // Open when there's something left to do under here, shut when the day is
+  // finished — the state you'd have set by hand either way.
+  const [showSubs, setShowSubs] = useState(() => openChildren(childItems).length > 0);
 
   const isDone = item.status === 'done';
   const isBlocked = item.status === 'blocked';
   const pendingItem = !isDone && !isBlocked;
   const due = item.dueDate ? formatDueBadge(item.dueDate, item.dueTime) : null;
-  const isOverdue = due?.label === 'Overdue';
+  // A heading's date is a label, never a countdown, so it never turns red.
+  const calendarDate = heading ? formatCalendarDate(item.dueDate) : null;
+  const isOverdue = !heading && due?.label === 'Overdue';
   const repeats = repeatLabel(item.repeat);
+
+  const startSubAdd = () => { setShowSubs(true); setSubAdd(''); };
+
+  const commitSubAdd = () => {
+    const name = (subAdd || '').trim();
+    if (!name) { setSubAdd(null); return; }
+    onAddSubtask?.(item, name);
+    setSubAdd(''); // stays open — a day usually gets more than one thing added
+  };
 
   // Swiping is suspended while the due-date panel is open, so dragging the
   // date inputs can't also drag the row out from under them.
@@ -169,11 +205,17 @@ export default function TaskRow({
 
   const runFromSheet = (fn) => { setSheetOpen(false); fn(); };
 
+  const childBlockOpen = showSubs && (hasChildren || subAdd !== null);
+
   return (
+    <>
     <div style={{
       position: 'relative',
       overflow: 'hidden',
-      borderBottom: '1px solid var(--border)',
+      // The divider belongs under the last *subtask*, not between a parent and
+      // its own children.
+      borderBottom: childBlockOpen ? 'none' : '1px solid var(--border)',
+      backgroundColor: heading ? 'var(--surface2)' : 'var(--surface)',
     }}>
       {/* Behind the row on the right — revealed by swiping left. */}
       <div style={{
@@ -194,15 +236,19 @@ export default function TaskRow({
         </button>
       </div>
 
-      {/* Behind the row on the left — revealed by swiping right. */}
-      <div style={{
-        position: 'absolute', top: 0, left: 0, bottom: 0, width: `${Math.max(0, swipe.dx)}px`,
-        backgroundColor: isDone ? 'var(--warn)' : 'var(--positive)',
-        display: 'flex', alignItems: 'center', justifyContent: 'flex-start',
-        paddingLeft: '1rem', color: '#fff', overflow: 'hidden',
-      }}>
-        {isDone ? <RotateCcw size={18} style={{ flexShrink: 0 }} /> : <CheckCircle2 size={18} style={{ flexShrink: 0 }} />}
-      </div>
+      {/* Behind the row on the left — revealed by swiping right. Rendered only
+          while the swipe is actually open: at rest its width is 0, but the
+          padding below still gives it a 1rem stripe of colour down the edge. */}
+      {swipe.dx > 0 && (
+        <div style={{
+          position: 'absolute', top: 0, left: 0, bottom: 0, width: `${swipe.dx}px`,
+          backgroundColor: isDone ? 'var(--warn)' : 'var(--positive)',
+          display: 'flex', alignItems: 'center', justifyContent: 'flex-start',
+          paddingLeft: '1rem', color: '#fff', overflow: 'hidden',
+        }}>
+          {isDone ? <RotateCcw size={18} style={{ flexShrink: 0 }} /> : <CheckCircle2 size={18} style={{ flexShrink: 0 }} />}
+        </div>
+      )}
 
       {/* The row itself. Opaque, so nothing behind it shows through at rest. */}
       <div
@@ -210,15 +256,14 @@ export default function TaskRow({
         style={{
           ...SWIPE_ROW_STYLE,
           position: 'relative',
-          padding: '0.75rem 0.5rem 0.75rem 1rem',
-          opacity: (isDone || isBlocked) ? 0.55 : 1,
-          backgroundColor: 'var(--surface)',
+          padding: `0.75rem 0.5rem 0.75rem ${1 + depth * 1.5}rem`,
+          backgroundColor: heading ? 'var(--surface2)' : 'var(--surface)',
           backgroundImage: isOverdue && pendingItem ? 'linear-gradient(rgba(244,63,94,0.06), rgba(244,63,94,0.06))' : 'none',
           transform: `translateX(${swipe.dx}px)`,
           transition: swipe.dragging ? 'none' : 'transform 0.2s ease',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', opacity: (isDone || isBlocked) ? 0.55 : 1 }}>
           <button
             onClick={() => onToggleStatus(item)}
             aria-label={isDone ? `Mark ${item.name} as not done` : `Complete ${item.name}`}
@@ -237,12 +282,36 @@ export default function TaskRow({
               {item.flagged && pendingItem && (
                 <Star size={12} fill="#f59e0b" style={{ color: '#f59e0b', flexShrink: 0 }} />
               )}
-              <span style={{ fontSize: '0.9375rem', color: isOverdue && pendingItem ? 'var(--danger)' : 'var(--text)', textDecoration: (isDone || isBlocked) ? 'line-through' : 'none', fontWeight: isOverdue && pendingItem ? '600' : '400' }}>
+              <span style={{
+                fontSize: heading ? '1rem' : '0.9375rem',
+                color: isOverdue && pendingItem ? 'var(--danger)' : 'var(--text)',
+                textDecoration: (isDone || isBlocked) ? 'line-through' : 'none',
+                fontWeight: heading ? '800' : (isOverdue && pendingItem ? '600' : '400'),
+                letterSpacing: heading ? '0.01em' : undefined,
+              }}>
                 {item.name}
               </span>
-              {due && pendingItem && (
+              {calendarDate && (
+                <span style={{ fontSize: '0.75rem', fontWeight: '700', color: 'var(--muted)' }}>
+                  {calendarDate}
+                </span>
+              )}
+              {!heading && due && pendingItem && (
                 <span style={{ fontSize: '0.75rem', fontWeight: '700', color: due.color, backgroundColor: `${due.color}18`, padding: '0.0625rem 0.375rem', borderRadius: '0.375rem' }}>
                   {due.label}
+                </span>
+              )}
+              {stats.total > 0 && (
+                <span
+                  title={`${stats.done} of ${stats.total} subtasks done`}
+                  style={{
+                    fontSize: '0.6875rem', fontWeight: 700, flexShrink: 0,
+                    color: stats.done === stats.total ? 'var(--positive)' : 'var(--muted)',
+                    backgroundColor: 'var(--surface2)', border: '1px solid var(--border)',
+                    padding: '0.0625rem 0.375rem', borderRadius: '0.375rem',
+                  }}
+                >
+                  {stats.done}/{stats.total}
                 </span>
               )}
               {item.notifyEnabled && pendingItem && <Bell size={11} style={{ color: 'var(--muted)', flexShrink: 0 }} />}
@@ -254,6 +323,14 @@ export default function TaskRow({
               {listLabel && (
                 <span style={{ fontSize: '0.6875rem', fontWeight: '700', color: 'var(--muted)', backgroundColor: 'var(--surface2)', border: '1px solid var(--border)', padding: '0.0625rem 0.375rem', borderRadius: '0.375rem' }}>
                   {listLabel}
+                </span>
+              )}
+              {parentLabel && (
+                <span
+                  title={`Subtask of ${parentLabel}`}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '0.1875rem', fontSize: '0.6875rem', fontWeight: '700', color: 'var(--muted)', flexShrink: 0 }}
+                >
+                  <CornerDownRight size={10} /> {parentLabel}
                 </span>
               )}
             </div>
@@ -334,6 +411,71 @@ export default function TaskRow({
           </div>
         )}
       </div>
+    </div>
+
+      {/* ── Subtasks ───────────────────────────────────────────────────────
+          Outside the row's own box so the swipe transform above can't drag
+          the children with it, and so a child's swipe drawer isn't clipped by
+          the parent's `overflow: hidden`. */}
+      {(hasChildren || subAdd !== null) && (
+        <div style={{ borderBottom: '1px solid var(--border)' }}>
+          {hasChildren && (
+            <button
+              onClick={() => setShowSubs((v) => !v)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: '0.375rem',
+                width: '100%', minHeight: '2.5rem',
+                padding: `0.25rem 1rem 0.5rem ${2.75 + depth * 1.5}rem`,
+                background: heading ? 'var(--surface2)' : 'var(--surface)',
+                border: 'none', cursor: 'pointer', textAlign: 'left',
+                fontSize: '0.8125rem', fontWeight: 600, color: 'var(--accent-text)',
+              }}
+            >
+              {showSubs ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+              {showSubs
+                ? `Hide ${stats.total === 1 ? 'subtask' : 'subtasks'}`
+                : `Show ${stats.total} ${stats.total === 1 ? 'subtask' : 'subtasks'}`}
+            </button>
+          )}
+
+          {showSubs && childItems.map((child) => (
+            <TaskRow
+              key={child.id}
+              item={child}
+              depth={depth + 1}
+              childItems={[]}
+              onEdit={onEdit}
+              onUpdate={onUpdate}
+              onDelete={onDelete}
+              onToggleStatus={onToggleStatus}
+              onSetBlocked={onSetBlocked}
+              onOpenAttachment={onOpenAttachment}
+            />
+          ))}
+
+          {showSubs && subAdd !== null && (
+            <div style={{ display: 'flex', gap: '0.5rem', padding: `0.5rem 1rem 0.75rem ${2.75 + depth * 1.5}rem`, backgroundColor: 'var(--surface)' }}>
+              <input
+                className="app-input" style={{ flex: 1, minWidth: 0 }} autoFocus
+                placeholder={`Add under ${item.name}`}
+                value={subAdd}
+                onChange={(e) => setSubAdd(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') commitSubAdd();
+                  if (e.key === 'Escape') setSubAdd(null);
+                }}
+              />
+              <button
+                onClick={() => setSubAdd(null)}
+                aria-label="Done adding subtasks"
+                style={{ flexShrink: 0, padding: '0 0.875rem', minHeight: '2.75rem', borderRadius: '0.75rem', border: '1px solid var(--border)', backgroundColor: 'transparent', color: 'var(--muted)', fontSize: '0.8125rem', fontWeight: 600, cursor: 'pointer' }}
+              >
+                Done
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {sheetOpen && (
         <Modal title={item.name} onClose={() => setSheetOpen(false)}>
@@ -350,6 +492,17 @@ export default function TaskRow({
               <CalendarClock size={16} style={{ color: item.dueDate ? 'var(--accent-text)' : undefined }} />
               {item.dueDate ? 'Change due date & time' : 'Set a due date & time'}
             </button>
+            {onAddSubtask && depth === 0 && (
+              <button style={MENU_BTN} onClick={() => runFromSheet(startSubAdd)}>
+                <Plus size={16} /> Add a subtask
+              </button>
+            )}
+            {onAddSubtask && depth === 0 && (
+              <button style={MENU_BTN} onClick={() => runFromSheet(() => onUpdate(item.id, { header: !item.header }))}>
+                <Heading size={16} style={{ color: heading ? 'var(--accent-text)' : undefined }} />
+                {heading ? 'Treat as a normal task' : 'Use as a heading'}
+              </button>
+            )}
             <button style={MENU_BTN} onClick={() => runFromSheet(() => onEdit(item))}>
               <MoreHorizontal size={16} /> Edit task details…
             </button>
@@ -370,12 +523,14 @@ export default function TaskRow({
       {confirmDelete && (
         <ConfirmDialog
           title="Delete task?"
-          message={`"${item.name}" will be removed, along with any photos attached to it. This can't be undone.`}
+          message={hasChildren
+            ? `"${item.name}" and its ${stats.total} ${stats.total === 1 ? 'subtask' : 'subtasks'} will be removed, along with any photos attached to them. This can't be undone.`
+            : `"${item.name}" will be removed, along with any photos attached to it. This can't be undone.`}
           confirmLabel="Delete"
           onConfirm={() => { setConfirmDelete(false); onDelete(item.id); }}
           onCancel={() => setConfirmDelete(false)}
         />
       )}
-    </div>
+    </>
   );
 }

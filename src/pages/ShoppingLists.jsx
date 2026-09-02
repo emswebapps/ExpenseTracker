@@ -10,8 +10,14 @@ import { isTaskList, isWishlist, generateId } from '../utils/helpers';
 import { LIST_TYPES } from './lists/listMeta';
 import TodayView from './lists/TodayView';
 import { collectAgenda } from './lists/agenda';
-import { buildNextOccurrence } from './lists/recurrence.js';
+import { buildNextOccurrenceGroup } from './lists/recurrence.js';
+import { descendantIds, isHeading } from './lists/subtasks.js';
+import {
+  weekStartISO, weekLabel, weekSectionId, weekDates, addDaysISO,
+  dayHeadingName, dayHeadingId, weeklyConfig,
+} from './lists/weeks.js';
 import { ExportModal } from './lists/shareText';
+import { ShareListModal } from './lists/ShareListModal';
 import { PasteImportModal } from './lists/pasteImport';
 import { GroceryListCard } from './lists/GroceryListCard';
 import { WishlistCard } from './lists/WishlistCard';
@@ -25,8 +31,10 @@ import { TaskEditorModal } from './lists/forms/TaskEditorModal';
 export default function ShoppingLists() {
   const {
     shoppingLists, addShoppingList, updateShoppingList, deleteShoppingList,
-    shoppingItems, addShoppingItem, addShoppingItems, updateShoppingItem, deleteShoppingItem, toggleShoppingItem, importList,
+    shoppingItems, addShoppingItem, addShoppingItems, updateShoppingItem, updateShoppingItems,
+    deleteShoppingItem, deleteShoppingItems, toggleShoppingItem, importList,
     completeAndRepeatShoppingItem,
+    shareList, revokeListShare, deleteListShareLink,
     notifPrefs, cloudLoaded,
   } = useApp();
   const { user } = useAuth();
@@ -50,6 +58,7 @@ export default function ShoppingLists() {
   // gathered so far so they can be cleaned up if the form is abandoned.
   const [addTask, setAddTask] = useState(null); // { list, draftId, attachments }
   const [exportList, setExportList] = useState(null);
+  const [shareListFor, setShareListFor] = useState(null); // list id being shared
   const [showArchived, setShowArchived] = useState(false);
   const [viewer, setViewer] = useState(null); // { itemId | draft, attId }
 
@@ -110,8 +119,8 @@ export default function ShoppingLists() {
     setEditItem(item);
   };
 
-  const handleAddTaskDetailed = (list) => {
-    setAddTask({ list, draftId: generateId(), attachments: [] });
+  const handleAddTaskDetailed = (list, sectionId = null) => {
+    setAddTask({ list, sectionId, draftId: generateId(), attachments: [] });
   };
 
   // Abandoning the form has to take any already-uploaded photos with it,
@@ -129,10 +138,15 @@ export default function ShoppingLists() {
     });
   };
 
+  // Deleting a parent takes its subtasks with it. Leaving them behind would
+  // strand them: `topLevelItems` promotes orphans, so they'd reappear at the
+  // top of the list with no hint of what they belonged to.
   const handleDeleteItem = (id) => {
-    const item = shoppingItems.find((i) => i.id === id);
-    deleteShoppingItem(id);
-    if (item) removeAttachmentFiles([item]);
+    const doomed = descendantIds(shoppingItems, id);
+    doomed.add(id);
+    const gone = shoppingItems.filter((i) => doomed.has(i.id));
+    deleteShoppingItems([...doomed]);
+    removeAttachmentFiles(gone);
   };
 
   const handleDeleteList = (id) => {
@@ -146,26 +160,127 @@ export default function ShoppingLists() {
   // occurrence on the list.
   const handleToggleStatus = (item) => {
     if (item.status === 'done' || item.status === 'blocked') {
+      // Re-opening a parent deliberately leaves its subtasks alone: the ones
+      // that were genuinely finished before it was ticked off shouldn't be
+      // resurrected just because the parent came back.
       updateShoppingItem(item.id, { status: 'pending', completedAt: null });
       return;
     }
 
-    // `spawnedNextId` is the guard: un-completing and re-completing a repeating
-    // task must not keep minting occurrences.
-    const nextId = generateId();
-    const next = item.spawnedNextId ? null : buildNextOccurrence(item, nextId);
+    const stamp = new Date().toISOString();
+    const donePatch = { status: 'done', completedAt: stamp };
 
-    const donePatch = { status: 'done', completedAt: new Date().toISOString() };
+    // Closing a parent closes everything under it — ticking off "MONDAY" with
+    // three open errands beneath it and having them survive is never what was
+    // meant. Blocked subtasks are left as they are; they're a flag that
+    // something couldn't be done, not work in progress.
+    const below = descendantIds(shoppingItems, item.id);
+    const subtree = shoppingItems.filter((i) => below.has(i.id));
+    const closing = subtree
+      .filter((i) => i.status !== 'done' && i.status !== 'blocked')
+      .map((i) => i.id);
+
+    // `spawnedNextId` is the guard: un-completing and re-completing a repeating
+    // task must not keep minting occurrences. The next occurrence takes copies
+    // of the subtasks with it, so a repeating day heading arrives populated.
+    const next = item.spawnedNextId
+      ? null
+      : buildNextOccurrenceGroup(item, subtree.filter((i) => i.parentId === item.id), generateId);
+
     if (next) {
-      completeAndRepeatShoppingItem(item.id, { ...donePatch, spawnedNextId: nextId }, next);
+      completeAndRepeatShoppingItem(item.id, { ...donePatch, spawnedNextId: next[0].id }, next, closing);
+    } else if (closing.length > 0) {
+      updateShoppingItems([item.id, ...closing], donePatch);
     } else {
       updateShoppingItem(item.id, donePatch);
     }
   };
 
+  // A task added under a heading inherits the heading's date — the whole point
+  // of "MONDAY 9/7" is that what sits under it belongs to that day. The time is
+  // left blank so it lands as end-of-day until someone sets one, and the
+  // reminder stays off: an inherited date is not a request to be buzzed.
+  const handleAddSubtask = (parent, name) => {
+    addShoppingItem({
+      listId: parent.listId,
+      parentId: parent.id,
+      sectionId: parent.sectionId ?? null,
+      name,
+      status: 'pending',
+      notes: null,
+      address: null,
+      dueDate: isHeading(parent) ? (parent.dueDate ?? null) : null,
+      dueTime: null,
+      notifyEnabled: false,
+      remindOffsetMinutes: 0,
+      flagged: false,
+      completedAt: null,
+    });
+  };
+
   const handleSetBlocked = (item) => {
     const unblocking = item.status === 'blocked';
     updateShoppingItem(item.id, { status: unblocking ? 'pending' : 'blocked', completedAt: null });
+  };
+
+  // ── Sections ──────────────────────────────────────────────────────────────
+  const handleRenameSection = (list, sectionId, name) => {
+    updateShoppingList(list.id, {
+      sections: (list.sections || []).map((s) => (s.id === sectionId ? { ...s, name } : s)),
+    });
+  };
+
+  // Deleting a column keeps its tasks: they lose their `sectionId` and turn up
+  // under Unfiled. Throwing away a week's work because the header was tidied
+  // away is not a trade anyone would choose.
+  const handleDeleteSection = (list, sectionId) => {
+    updateShoppingList(list.id, {
+      sections: (list.sections || []).filter((s) => s.id !== sectionId),
+    });
+    const stranded = shoppingItems.filter((i) => i.listId === list.id && i.sectionId === sectionId);
+    if (stranded.length > 0) updateShoppingItems(stranded.map((i) => i.id), { sectionId: null });
+  };
+
+  const handleSetViewMode = (list, mode) => updateShoppingList(list.id, { viewMode: mode });
+
+  /**
+   * Build the week after the last one the list already has — the manual
+   * counterpart to the automatic generation, for when you want to plan further
+   * out than the two weeks that stand by default.
+   */
+  const handleAddWeek = (list) => {
+    const cfg = weeklyConfig(list);
+    const starts = (list.sections || [])
+      .map((s) => s.startDate)
+      .filter(Boolean)
+      .sort();
+    const lastStart = starts[starts.length - 1] || weekStartISO(new Date(), cfg.startDay);
+    const startISO = addDaysISO(lastStart, 7);
+    const endISO = addDaysISO(startISO, 6);
+    const id = weekSectionId(startISO);
+    if ((list.sections || []).some((s) => s.id === id)) return;
+
+    updateShoppingList(list.id, {
+      sections: [
+        ...(list.sections || []),
+        { id, name: weekLabel(startISO, endISO), startDate: startISO, endDate: endISO, order: Date.parse(`${startISO}T00:00:00Z`) },
+      ],
+      // Keep the automatic generator from treating this week as still owed.
+      weekly: { ...cfg, generatedThrough: cfg.generatedThrough && cfg.generatedThrough > startISO ? cfg.generatedThrough : startISO },
+    });
+
+    const existing = new Set(shoppingItems.filter((i) => i.listId === list.id).map((i) => i.id));
+    const days = weekDates(startISO, cfg.days, cfg.startDay)
+      .filter(({ dateISO }) => !existing.has(dayHeadingId(list.id, dateISO)))
+      .map(({ dateISO, dayOfWeek }) => ({
+        id: dayHeadingId(list.id, dateISO),
+        listId: list.id, sectionId: id, parentId: null, header: true,
+        name: dayHeadingName(dayOfWeek, cfg.emoji),
+        notes: null, address: null, status: 'pending', completedAt: null, flagged: false,
+        dueDate: dateISO, dueTime: null, notifyEnabled: false, remindOffsetMinutes: 0,
+        repeat: null, attachments: [],
+      }));
+    if (days.length > 0) addShoppingItems(days, { keepIds: true });
   };
 
   const cardProps = (list) => ({
@@ -197,6 +312,12 @@ export default function ShoppingLists() {
     onToggleStatus: handleToggleStatus,
     onSetBlocked: handleSetBlocked,
     onAddTaskDetailed: handleAddTaskDetailed,
+    onAddSubtask: handleAddSubtask,
+    onRenameSection: handleRenameSection,
+    onDeleteSection: handleDeleteSection,
+    onSetViewMode: handleSetViewMode,
+    onAddWeek: handleAddWeek,
+    onShareList: (l) => setShareListFor(l.id),
   });
 
   const wishlistCardProps = (list) => ({
@@ -380,6 +501,8 @@ export default function ShoppingLists() {
               ...data,
               id: addTask.draftId,
               listId: addTask.list.id,
+              sectionId: addTask.sectionId ?? null,
+              parentId: null,
               attachments: addTask.attachments,
               flagged: false,
               completedAt: null,
@@ -403,6 +526,21 @@ export default function ShoppingLists() {
             onAttachmentsChange={(atts) => updateShoppingItem(live.id, { attachments: atts })}
             onOpenAttachment={(att) => setViewer({ itemId: live.id, attId: att.id })}
             onSave={(data) => { updateShoppingItem(live.id, data); setEditItem(null); }}
+          />
+        );
+      })()}
+      {shareListFor && (() => {
+        // Read live: creating the link patches the list, and the modal has to
+        // show the link it just made rather than the snapshot it opened with.
+        const live = shoppingLists.find((l) => l.id === shareListFor);
+        if (!live) return null;
+        return (
+          <ShareListModal
+            list={live}
+            onClose={() => setShareListFor(null)}
+            onShare={shareList}
+            onRevoke={revokeListShare}
+            onDelete={deleteListShareLink}
           />
         );
       })()}

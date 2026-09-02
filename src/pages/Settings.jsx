@@ -38,6 +38,7 @@ const EMAIL_LEAD_OPTIONS = [
 // What the once-a-day email can cover. Each maps to a `notifPrefs.email` flag
 // and to a message category in the dailyNotifications Cloud Function.
 const EMAIL_DIGEST_CATEGORIES = [
+  { key: 'todos', label: "Today's plan", sublabel: 'Every task due today, and anything overdue' },
   { key: 'bills', label: 'Bills', sublabel: 'Due today, due tomorrow, and overdue' },
   { key: 'commitments', label: 'Commitments', sublabel: 'Ones about to expire' },
   { key: 'goals', label: 'Goals', sublabel: 'Approaching target dates' },
@@ -587,6 +588,8 @@ export default function Settings() {
                   </select>
                 </div>
               )}
+              <NotifRow label="Today's plan" sublabel="One push and email with the day's tasks, at your daily summary time" checked={notifPrefs.todos?.dailyPlan !== false} onChange={(v) => updatePref('todos', 'dailyPlan', v)} />
+              <NotifRow label="Shared list activity" sublabel="When someone with a share link adds to or ticks off one of your lists" checked={notifPrefs.todos?.sharedActivity !== false} onChange={(v) => updatePref('todos', 'sharedActivity', v)} />
               <NotifRow label="Morning reminder" sublabel="Push at set time if you have incomplete to-dos" checked={notifPrefs.todos?.morningEnabled !== false} onChange={(v) => updatePref('todos', 'morningEnabled', v)} />
               {notifPrefs.todos?.morningEnabled !== false && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.375rem 0 0 0.25rem' }}>
@@ -658,6 +661,12 @@ export default function Settings() {
                 sublabel="To-do and work items with a due date, only while still unfinished"
                 checked={notifPrefs.email?.tasks !== false}
                 onChange={(v) => updatePref('email', 'tasks', v)}
+              />
+              <NotifRow
+                label="Email me about shared list changes"
+                sublabel="A summary once whoever has the link has finished adding"
+                checked={notifPrefs.email?.sharedActivity !== false}
+                onChange={(v) => updatePref('email', 'sharedActivity', v)}
               />
               {notifPrefs.email?.tasks !== false && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.375rem 0 0 0.25rem' }}>

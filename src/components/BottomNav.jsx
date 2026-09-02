@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, Receipt, TrendingUp, ShoppingBag, ShoppingCart, Search, Anchor } from 'lucide-react';
+import { LayoutDashboard, Receipt, TrendingUp, ShoppingBag, ShoppingCart, Search } from 'lucide-react';
 
 const links = [
   { to: '/', label: 'Home', Icon: LayoutDashboard },
@@ -7,9 +7,6 @@ const links = [
   { to: '/purchases', label: 'Spend', Icon: ShoppingBag },
   { to: '/income', label: 'Income', Icon: TrendingUp },
   { to: '/lists', label: 'Lists', Icon: ShoppingCart },
-  // Anchor rather than a life-ring or a heartbeat: this should read as
-  // "steady", not as an emergency or a medical device.
-  { to: '/crash', label: 'Crash', Icon: Anchor },
   { to: '/search', label: 'Search', Icon: Search },
 ];
 

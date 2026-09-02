@@ -3,12 +3,9 @@ import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'fire
 import { auth } from '../firebase';
 import { ArrowRight, Mail, Lock, UserPlus } from 'lucide-react';
 
-/**
- * Shared by both entry points, so the branding is a prop: the standalone Reset
- * app must not announce "Finance Manager" with a money icon on its own first
- * launch — that undoes both the separate-app feel and the discreet name.
- */
-export default function Login({ title = 'Finance Manager', icon = '/ExpenseTracker/app-icon.jpeg' }) {
+export default function Login() {
+  const title = 'Finance Manager';
+  const icon = '/ExpenseTracker/app-icon.jpeg';
   const [mode, setMode] = useState('signin'); // 'signin' | 'signup'
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');

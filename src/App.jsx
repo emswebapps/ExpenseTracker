@@ -15,7 +15,6 @@ import Planning from './pages/Planning';
 import SharedView from './pages/SharedView';
 import SharedList from './pages/SharedList';
 import DocumentVault from './pages/DocumentVault';
-import CrashProtocol from './pages/CrashProtocol';
 
 function AuthenticatedApp() {
   return (
@@ -34,7 +33,11 @@ function AuthenticatedApp() {
           <Route path="/lists" element={<ShoppingLists />} />
           <Route path="/planning" element={<Planning />} />
           <Route path="/vault" element={<DocumentVault />} />
-          <Route path="/crash" element={<CrashProtocol />} />
+          {/* Anything unrecognised lands on the Dashboard rather than a blank
+              screen. This is what catches `/reset/`, whose standalone app was
+              removed but whose icon may still be on someone's home screen, and
+              `/crash`, which the Reset notifications used to open. */}
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </div>
       <BottomNav />

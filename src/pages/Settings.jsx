@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { User, Trash2, AlertTriangle, Wallet, PiggyBank, DollarSign, Sun, Moon, LogOut, Mail, Download, Share2, RefreshCw, Copy, Check, X, Bell, BellOff, Lock, FolderOpen, ChevronRight, FlaskConical, Anchor } from 'lucide-react';
+import { User, Trash2, AlertTriangle, Wallet, PiggyBank, DollarSign, Sun, Moon, LogOut, Mail, Download, Share2, RefreshCw, Copy, Check, X, Bell, BellOff, Lock, FolderOpen, ChevronRight, FlaskConical } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
 import Modal from '../components/Modal';
@@ -463,21 +463,6 @@ export default function Settings() {
           <button onClick={() => navigate('/vault')}
             style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem 1rem', backgroundColor: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '0.875rem', cursor: 'pointer', color: 'var(--text)', fontSize: '0.875rem', fontWeight: 600 }}>
             <span>Open Document Vault</span>
-            <ChevronRight size={16} style={{ color: 'var(--subtle)' }} />
-          </button>
-        </section>
-
-        {/* Crash Protocol — settings only; the content itself is edited in the
-            area, and none of it is surfaced here. */}
-        <section className="mb-4" style={cardStyle}>
-          <div className="flex items-center gap-2 mb-1">
-            <Anchor size={15} style={{ color: 'var(--accent-text)' }} />
-            <span style={sectionLabelStyle}>Crash Protocol</span>
-          </div>
-          <p style={{ fontSize: '0.8125rem', color: 'var(--muted)', marginBottom: '0.875rem' }}>Your warning signs, the phrase you and your partner agreed on, and how long the rule lasts.</p>
-          <button onClick={() => navigate('/crash')}
-            style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem 1rem', backgroundColor: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '0.875rem', cursor: 'pointer', color: 'var(--text)', fontSize: '0.875rem', fontWeight: 600 }}>
-            <span>Set up my kit</span>
             <ChevronRight size={16} style={{ color: 'var(--subtle)' }} />
           </button>
         </section>

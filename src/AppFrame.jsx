@@ -3,10 +3,8 @@ import { useAuth } from './context/AuthContext';
 import { AppProvider, useApp } from './context/AppContext';
 import Login from './pages/Login';
 
-// The shell both entry points share: the main finance app (index.html) and the
-// standalone Reset app (reset/index.html). Extracted so the two can't drift —
-// in particular so Test Mode is honoured in both, since the crash area writes
-// through the same context and would otherwise silently discard everything.
+// The app shell: theme sync, the auth gate and the login screen, kept apart
+// from the routing in App.jsx.
 
 export function ThemeSync() {
   const { settings } = useApp();
@@ -70,15 +68,12 @@ export function LoadingScreen() {
 /**
  * Waits for auth, shows the login screen when signed out, and otherwise mounts
  * the app context with the theme and Test Mode chrome already in place.
- *
- * `loginTitle` / `loginIcon` let each entry point brand its own signed-out
- * screen; omitted, they fall back to the finance app's.
  */
-export function AuthGate({ children, loginTitle, loginIcon }) {
+export function AuthGate({ children }) {
   const { user } = useAuth();
 
   if (user === undefined) return <LoadingScreen />;
-  if (!user) return <Login title={loginTitle} icon={loginIcon} />;
+  if (!user) return <Login />;
 
   return (
     <AppProvider uid={user.uid}>

@@ -5,9 +5,6 @@ import {
   saveListShare, setListShareRevoked, deleteListShare, subscribeListShare,
 } from '../utils/firestoreSync';
 import { generateId, currentMonthKey, getBillStatus, nextBillStatus, isTaskList } from '../utils/helpers';
-import { createSession as createCrashSession, defaultReleaseAt } from '../pages/crash/protocol.js';
-import { pruneSessions } from '../pages/crash/stats.js';
-import { normalizeMed, supplyAfterDose, DEFAULT_MED } from '../pages/crash/meds.js';
 import { notificationPermission, requestNotificationPermission, sendNotification, computeDueAt, todoReminderAt, localTodayISO, registerFCMToken, onForegroundMessage, scheduleShiftNotification, cancelShiftNotification } from '../utils/notifications';
 import { planWeeks, weeklyConfig } from '../pages/lists/weeks.js';
 
@@ -80,13 +77,6 @@ export function AppProvider({ children, uid }) {
   const [projects, setProjectsState] = useState(() => storage.getProjects());
   const [vaultDocuments, setVaultDocumentsState] = useState(() => storage.getVaultDocuments());
   const [billStickyNotes, setBillStickyNotesState] = useState(() => storage.getBillStickyNotes());
-  const [crashSessions, setCrashSessionsState] = useState(() => storage.getCrashSessions());
-  const [crashDrafts, setCrashDraftsState] = useState(() => storage.getCrashDrafts());
-  const [crashAnchors, setCrashAnchorsState] = useState(() => storage.getCrashAnchors());
-  const [crashKit, setCrashKitState] = useState(() => storage.getCrashKit());
-  const [crashDoses, setCrashDosesState] = useState(() => storage.getCrashDoses());
-  const [crashMeds, setCrashMedsState] = useState(() => storage.getCrashMeds());
-  const [crashBehaviors, setCrashBehaviorsState] = useState(() => storage.getCrashBehaviors());
   const [cloudLoaded, setCloudLoaded] = useState(false);
   const [testMode, setTestMode] = useState(false);
   // Selected month shared across all pages so toggling the month on one page
@@ -97,7 +87,7 @@ export function AppProvider({ children, uid }) {
 
   // Use refs to always have fresh values for the save function
   const stateRef = useRef({});
-  stateRef.current = { bills, income, budget, settings, notes, debts, savings, commitments, purchases, plannedExpenses, jobs, shifts, budgetCategories, budgetSpends, agreements, shoppingLists, shoppingItems, planningSettings, recurringTemplates, paycheckActuals, notifPrefs, fcmToken, projects, vaultDocuments, billStickyNotes, crashSessions, crashDrafts, crashAnchors, crashKit, crashDoses, crashMeds, crashBehaviors };
+  stateRef.current = { bills, income, budget, settings, notes, debts, savings, commitments, purchases, plannedExpenses, jobs, shifts, budgetCategories, budgetSpends, agreements, shoppingLists, shoppingItems, planningSettings, recurringTemplates, paycheckActuals, notifPrefs, fcmToken, projects, vaultDocuments, billStickyNotes };
 
   // Load from Firestore on login
   useEffect(() => {
@@ -140,13 +130,6 @@ export function AppProvider({ children, uid }) {
         if (data.projects) { setProjectsState(data.projects); storage.setProjects(data.projects); }
         if (data.vaultDocuments) { setVaultDocumentsState(data.vaultDocuments); storage.setVaultDocuments(data.vaultDocuments); }
         if (data.billStickyNotes) { setBillStickyNotesState(data.billStickyNotes); storage.setBillStickyNotes(data.billStickyNotes); }
-        if (data.crashSessions) { setCrashSessionsState(data.crashSessions); storage.setCrashSessions(data.crashSessions); }
-        if (data.crashDrafts) { setCrashDraftsState(data.crashDrafts); storage.setCrashDrafts(data.crashDrafts); }
-        if (data.crashAnchors) { setCrashAnchorsState(data.crashAnchors); storage.setCrashAnchors(data.crashAnchors); }
-        if (data.crashKit) { const k = { ...storage.getCrashKit(), ...data.crashKit }; setCrashKitState(k); storage.setCrashKit(k); }
-        if (data.crashDoses) { setCrashDosesState(data.crashDoses); storage.setCrashDoses(data.crashDoses); }
-        if (data.crashMeds) { setCrashMedsState(data.crashMeds); storage.setCrashMeds(data.crashMeds); }
-        if (data.crashBehaviors) { setCrashBehaviorsState(data.crashBehaviors); storage.setCrashBehaviors(data.crashBehaviors); }
       } else {
         // First login — upload existing localStorage data to Firestore
         saveUserData(uid, stateRef.current);
@@ -293,13 +276,6 @@ export function AppProvider({ children, uid }) {
       setProjectsState(snap.projects); storage.setProjects(snap.projects);
       if (snap.vaultDocuments) { setVaultDocumentsState(snap.vaultDocuments); storage.setVaultDocuments(snap.vaultDocuments); }
       if (snap.billStickyNotes) { setBillStickyNotesState(snap.billStickyNotes); storage.setBillStickyNotes(snap.billStickyNotes); }
-      if (snap.crashSessions) { setCrashSessionsState(snap.crashSessions); storage.setCrashSessions(snap.crashSessions); }
-      if (snap.crashDrafts) { setCrashDraftsState(snap.crashDrafts); storage.setCrashDrafts(snap.crashDrafts); }
-      if (snap.crashAnchors) { setCrashAnchorsState(snap.crashAnchors); storage.setCrashAnchors(snap.crashAnchors); }
-      if (snap.crashKit) { setCrashKitState(snap.crashKit); storage.setCrashKit(snap.crashKit); }
-      if (snap.crashDoses) { setCrashDosesState(snap.crashDoses); storage.setCrashDoses(snap.crashDoses); }
-      if (snap.crashMeds) { setCrashMedsState(snap.crashMeds); storage.setCrashMeds(snap.crashMeds); }
-      if (snap.crashBehaviors) { setCrashBehaviorsState(snap.crashBehaviors); storage.setCrashBehaviors(snap.crashBehaviors); }
       testModeSnapshot.current = null;
     }
     testModeRef.current = false;
@@ -1378,219 +1354,6 @@ export function AppProvider({ children, uid }) {
     };
   }, [shifts, jobs]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Crash Protocol ──────────────────────────────────────────────────────────
-  // Sessions are pruned on every write rather than on a schedule, so the slice
-  // can't quietly grow past its share of the single Firestore app document.
-  const persistCrashSessions = useCallback((next) => {
-    const pruned = pruneSessions(next);
-    setCrashSessionsState(pruned);
-    if (!testModeRef.current) { storage.setCrashSessions(pruned); debouncedSync({ crashSessions: pruned }); }
-  }, [debouncedSync]);
-
-  const persistCrashDrafts = useCallback((next) => {
-    setCrashDraftsState(next);
-    if (!testModeRef.current) { storage.setCrashDrafts(next); debouncedSync({ crashDrafts: next }); }
-  }, [debouncedSync]);
-
-  const persistCrashAnchors = useCallback((next) => {
-    setCrashAnchorsState(next);
-    if (!testModeRef.current) { storage.setCrashAnchors(next); debouncedSync({ crashAnchors: next }); }
-  }, [debouncedSync]);
-
-  // Doses accumulate every single day, so this is the crash slice most able to
-  // outgrow its share of the shared app document. Two months is far more than
-  // the onset inference needs.
-  const persistCrashDoses = useCallback((next) => {
-    const cutoff = Date.now() - 60 * 24 * 60 * 60 * 1000;
-    const kept = next.filter((d) => d && d.takenAt >= cutoff).sort((a, b) => b.takenAt - a.takenAt);
-    setCrashDosesState(kept);
-    if (!testModeRef.current) { storage.setCrashDoses(kept); debouncedSync({ crashDoses: kept }); }
-  }, [debouncedSync]);
-
-  const persistCrashMeds = useCallback((next) => {
-    setCrashMedsState(next);
-    if (!testModeRef.current) { storage.setCrashMeds(next); debouncedSync({ crashMeds: next }); }
-  }, [debouncedSync]);
-
-  // Behaviour checks accumulate daily like doses, so they get the same two-month
-  // cutoff for the same reason: all of this app's slices share one document.
-  const persistCrashBehaviors = useCallback((next) => {
-    const cutoff = Date.now() - 60 * 24 * 60 * 60 * 1000;
-    const kept = next.filter((b) => b && b.at >= cutoff).sort((a, b) => b.at - a.at);
-    setCrashBehaviorsState(kept);
-    if (!testModeRef.current) { storage.setCrashBehaviors(kept); debouncedSync({ crashBehaviors: kept }); }
-  }, [debouncedSync]);
-
-  const persistCrashKit = useCallback((next) => {
-    setCrashKitState(next);
-    if (!testModeRef.current) { storage.setCrashKit(next); debouncedSync({ crashKit: next }); }
-  }, [debouncedSync]);
-
-  // The protocol tells you to put the phone down and go walk the dogs, which
-  // means the app gets backgrounded seconds after a step advances — right
-  // inside the 1500ms debounce window. localStorage is synchronous so nothing
-  // is lost on this device, but without this the cloud copy would be a step
-  // behind on every other one.
-  const flushCrashSync = useCallback(() => {
-    if (!uid || testModeRef.current) return;
-    const st = stateRef.current;
-    saveUserData(uid, {
-      crashSessions: st.crashSessions,
-      crashDrafts: st.crashDrafts,
-      crashAnchors: st.crashAnchors,
-      // Doses and behaviour checks are logged with one tap and the phone is
-      // often put straight down afterwards, which is the same race.
-      crashDoses: st.crashDoses,
-      crashBehaviors: st.crashBehaviors,
-    });
-  }, [uid]);
-
-  const startCrashSession = useCallback(() => {
-    const session = createCrashSession(generateId(), Date.now(), crashKit.timerMinutes);
-    // Any session still open belongs to an earlier night; close it out rather
-    // than leaving two live at once.
-    const closed = crashSessions.map((s) => (s.endedAt ? s : { ...s, endedAt: Date.now() }));
-    persistCrashSessions([session, ...closed]);
-    return session;
-  }, [crashSessions, crashKit.timerMinutes, persistCrashSessions]);
-
-  const updateCrashSession = useCallback((id, patch) => {
-    persistCrashSessions(crashSessions.map((s) => (s.id === id ? { ...s, ...patch } : s)));
-  }, [crashSessions, persistCrashSessions]);
-
-  const endCrashSession = useCallback((id, patch = {}) => {
-    persistCrashSessions(
-      crashSessions.map((s) => (s.id === id ? { ...s, ...patch, endedAt: s.endedAt || Date.now() } : s)),
-    );
-  }, [crashSessions, persistCrashSessions]);
-
-  const deleteCrashSession = useCallback((id) => {
-    persistCrashSessions(crashSessions.filter((s) => s.id !== id));
-  }, [crashSessions, persistCrashSessions]);
-
-  // Escrow. Works with no session open on purpose — "I need to say this before
-  // I forget" is the trap, so capturing has to be the fastest thing in the app.
-  const addCrashDraft = useCallback((text, sessionId = null) => {
-    const draft = {
-      id: generateId(),
-      text,
-      createdAt: Date.now(),
-      releaseAt: defaultReleaseAt(),
-      sessionId,
-      status: 'held',
-    };
-    persistCrashDrafts([draft, ...crashDrafts]);
-    return draft;
-  }, [crashDrafts, persistCrashDrafts]);
-
-  const updateCrashDraft = useCallback((id, patch) => {
-    persistCrashDrafts(crashDrafts.map((d) => (d.id === id ? { ...d, ...patch } : d)));
-  }, [crashDrafts, persistCrashDrafts]);
-
-  const resolveCrashDraft = useCallback((id, status) => {
-    persistCrashDrafts(
-      crashDrafts.map((d) => (d.id === id ? { ...d, status, resolvedAt: Date.now() } : d)),
-    );
-  }, [crashDrafts, persistCrashDrafts]);
-
-  const deleteCrashDraft = useCallback((id) => {
-    persistCrashDrafts(crashDrafts.filter((d) => d.id !== id));
-  }, [crashDrafts, persistCrashDrafts]);
-
-  const addCrashAnchor = useCallback((anchor) => {
-    const next = { id: generateId(), createdAt: Date.now(), files: [], pinned: false, ...anchor };
-    persistCrashAnchors([next, ...crashAnchors]);
-    return next;
-  }, [crashAnchors, persistCrashAnchors]);
-
-  const updateCrashAnchor = useCallback((id, patch) => {
-    persistCrashAnchors(crashAnchors.map((a) => (a.id === id ? { ...a, ...patch } : a)));
-  }, [crashAnchors, persistCrashAnchors]);
-
-  // The caller deletes the Storage bytes first, matching DocumentVault.
-  const deleteCrashAnchor = useCallback((id) => {
-    persistCrashAnchors(crashAnchors.filter((a) => a.id !== id));
-  }, [crashAnchors, persistCrashAnchors]);
-
-  // `medId` is optional throughout: a dose logged before medications existed,
-  // or logged from the plain one-tap row, simply has none and falls back to the
-  // kit's own onset and duration wherever the window is computed.
-  const addCrashDose = useCallback((takenAt = Date.now(), medId = null) => {
-    const dose = { id: generateId(), takenAt, medId, status: 'taken' };
-    persistCrashDoses([dose, ...crashDoses]);
-    return dose;
-  }, [crashDoses, persistCrashDoses]);
-
-  const updateCrashDose = useCallback((id, patch) => {
-    persistCrashDoses(crashDoses.map((d) => (d.id === id ? { ...d, ...patch } : d)));
-  }, [crashDoses, persistCrashDoses]);
-
-  const deleteCrashDose = useCallback((id) => {
-    persistCrashDoses(crashDoses.filter((d) => d.id !== id));
-  }, [crashDoses, persistCrashDoses]);
-
-  const updateCrashKit = useCallback((patch) => {
-    persistCrashKit({ ...crashKit, ...patch });
-  }, [crashKit, persistCrashKit]);
-
-  const addCrashMed = useCallback((med = {}) => {
-    const next = { ...DEFAULT_MED, ...med, id: generateId() };
-    persistCrashMeds([...crashMeds, next]);
-    return next;
-  }, [crashMeds, persistCrashMeds]);
-
-  const updateCrashMed = useCallback((id, patch) => {
-    persistCrashMeds(crashMeds.map((m) => (m.id === id ? { ...m, ...patch } : m)));
-  }, [crashMeds, persistCrashMeds]);
-
-  // Deleting a medication must not orphan a schedule that hangs off it, or the
-  // meds pointing at it silently stop resolving a time at all.
-  const deleteCrashMed = useCallback((id) => {
-    persistCrashMeds(
-      crashMeds
-        .filter((m) => m.id !== id)
-        .map((m) => (m.schedule && m.schedule.afterMedId === id
-          ? { ...m, schedule: { ...m.schedule, mode: 'clock', afterMedId: null } }
-          : m)),
-    );
-  }, [crashMeds, persistCrashMeds]);
-
-  /**
-   * Log a dose against a medication and count it out of the supply in the same
-   * step, so the pill count can't drift away from the dose log.
-   */
-  const logCrashDose = useCallback((medId, takenAt = Date.now()) => {
-    const dose = { id: generateId(), takenAt, medId: medId || null, status: 'taken' };
-    persistCrashDoses([dose, ...crashDoses]);
-
-    const med = crashMeds.find((m) => m.id === medId);
-    if (med) {
-      const supply = supplyAfterDose(med);
-      if (supply) persistCrashMeds(crashMeds.map((m) => (m.id === medId ? { ...m, supply } : m)));
-    }
-    return dose;
-  }, [crashDoses, crashMeds, persistCrashDoses, persistCrashMeds]);
-
-  /** Refilling resets the count and clears the fill-window date it just met. */
-  const refillCrashMed = useCallback((medId, onHand) => {
-    const med = crashMeds.find((m) => m.id === medId);
-    if (!med) return;
-    const supply = { ...normalizeMed(med).supply, onHand: Number(onHand), refillFrom: '', lastFilledAt: Date.now() };
-    persistCrashMeds(crashMeds.map((m) => (m.id === medId ? { ...m, supply } : m)));
-  }, [crashMeds, persistCrashMeds]);
-
-  const addCrashBehavior = useCallback((signIds, at = Date.now()) => {
-    const ids = Array.isArray(signIds) ? signIds.filter(Boolean) : [];
-    if (ids.length === 0) return null;
-    const entry = { id: generateId(), at, signIds: ids, source: 'check' };
-    persistCrashBehaviors([entry, ...crashBehaviors]);
-    return entry;
-  }, [crashBehaviors, persistCrashBehaviors]);
-
-  const deleteCrashBehavior = useCallback((id) => {
-    persistCrashBehaviors(crashBehaviors.filter((b) => b.id !== id));
-  }, [crashBehaviors, persistCrashBehaviors]);
-
   return (
     <AppContext.Provider value={{
       cloudLoaded,
@@ -1624,13 +1387,6 @@ export function AppProvider({ children, uid }) {
       vaultDocuments, addVaultDocument, updateVaultDocument, deleteVaultDocument,
       billStickyNotes, setBillStickyNote,
       testMode, enterTestMode, exitTestMode,
-      crashSessions, startCrashSession, updateCrashSession, endCrashSession, deleteCrashSession,
-      crashDrafts, addCrashDraft, updateCrashDraft, resolveCrashDraft, deleteCrashDraft,
-      crashAnchors, addCrashAnchor, updateCrashAnchor, deleteCrashAnchor,
-      crashKit, updateCrashKit, flushCrashSync,
-      crashDoses, addCrashDose, updateCrashDose, deleteCrashDose, logCrashDose,
-      crashMeds, addCrashMed, updateCrashMed, deleteCrashMed, refillCrashMed,
-      crashBehaviors, addCrashBehavior, deleteCrashBehavior,
     }}>
       {children}
     </AppContext.Provider>

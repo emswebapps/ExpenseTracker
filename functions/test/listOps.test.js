@@ -278,7 +278,10 @@ test('the shared-list functions are registered under the names firebase deploys'
   assert.ok(mod.applyListOps, 'applyListOps must be exported');
   assert.ok(mod.shareActivityNotifications, 'shareActivityNotifications must be exported');
   // The ones that were already there, so this test notices if one is dropped.
-  for (const name of ['dailyNotifications', 'todoReminders', 'crashReminders', 'sendTestEmail']) {
+  for (const name of ['dailyNotifications', 'todoReminders', 'sendTestEmail']) {
     assert.ok(mod[name], `${name} must still be exported`);
   }
+  // The Crash Protocol was removed. Its scheduler must stay gone: re-exporting
+  // it would resurrect a deployed function nothing in the app feeds any more.
+  assert.equal(mod.crashReminders, undefined, 'crashReminders was removed');
 });

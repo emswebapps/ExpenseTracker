@@ -47,7 +47,12 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # 22, not 20: `node --test` only learned glob patterns in 22, and
+          # `npm run test:unit` passes one. On 20 the pattern reaches the test
+          # runner literally and it reports "Could not find src/**/*.test.js".
+          # (The Cloud Functions *runtime* is pinned separately, by the engines
+          # field in functions/package.json — this is only the build machine.)
+          node-version: 22
 
       - name: Install function dependencies
         working-directory: functions

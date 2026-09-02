@@ -1,7 +1,9 @@
 const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
+const { onDocumentCreated } = require('firebase-functions/v2/firestore');
 const admin = require('firebase-admin');
 const regimen = require('./crashRegimen');
+const listOps = require('./listOps');
 
 admin.initializeApp();
 
@@ -849,6 +851,192 @@ exports.todoReminders = onSchedule(
   },
 );
 
+// ── Collaborative lists ─────────────────────────────────────────────────────
+// A guest holding a share link appends an op to `listShares/{token}/ops`; this
+// applies it to the owner's document.
+//
+// Why a function at all: the owner's data is one document. Letting an
+// anonymous browser write it directly would hand over every bill, debt and
+// note in the app along with the shopping list. So the guest writes a
+// create-only queue that they can't even read back, and the trust boundary
+// lives here and in listOps.js.
+//
+// The op document is deleted once applied — it's an instruction, not a record.
+// What the owner sees afterwards is the `activity` feed on the share.
+
+const SHARE_ACTIVITY_KEEP = 20;
+
+/** The mirror's view of a list's items: no attachments, just a flag. */
+function mirrorItems(items, listId) {
+  return items
+    .filter((i) => i.listId === listId)
+    .map(({ attachments, ...rest }) => ({ ...rest, hasPhotos: (attachments || []).length > 0 }));
+}
+
+exports.applyListOps = onDocumentCreated('listShares/{token}/ops/{opId}', async (event) => {
+  const { token } = event.params;
+  const opSnap = event.data;
+  if (!opSnap) return;
+  const op = opSnap.data();
+
+  const shareRef = db.doc(`listShares/${token}`);
+  try {
+    const shareSnap = await shareRef.get();
+    // No share, or the link has been turned off: drop the op on the floor.
+    // Rules already refuse writes to a revoked share, but a revoke racing an
+    // in-flight op has to lose here too.
+    if (!shareSnap.exists) { await opSnap.ref.delete(); return; }
+    const share = shareSnap.data();
+    if (share.revoked === true || !share.ownerUid || !share.listId) {
+      await opSnap.ref.delete();
+      return;
+    }
+
+    const appRef = db.doc(`users/${share.ownerUid}/data/app`);
+    let change = null;
+    let items = null;
+
+    // A transaction, because two people ticking things off at the same moment
+    // both rewrite the whole `shoppingItems` array — a read-modify-write on a
+    // single field is exactly the case it exists for.
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(appRef);
+      if (!snap.exists) return;
+      const data = snap.data();
+      const list = (data.shoppingLists || []).find((l) => l.id === share.listId);
+      if (!list) return; // the owner deleted the list out from under the share
+
+      const result = listOps.applyOp(data.shoppingItems || [], op, {
+        listId: share.listId,
+        tz: data.settings?.timeZone || DEFAULT_TZ,
+        wallClockToMs,
+        now: Date.now(),
+        sectionIds: (list.sections || []).map((sec) => sec.id),
+      });
+      if (!result) return; // refused — see listOps.js for why
+
+      tx.set(appRef, { shoppingItems: result.items }, { merge: true });
+      change = result.change;
+      items = result.items;
+    });
+
+    if (change) {
+      const now = Date.now();
+      await shareRef.set({
+        items: mirrorItems(items, share.listId),
+        // `appliedAt` marks a write this function made rather than an echo of
+        // the owner's own mirror push. That's what tells the owner's app there
+        // is something new to pick up.
+        appliedAt: now,
+        updatedAt: now,
+        activity: [
+          { line: listOps.describeChange(change), at: now },
+          ...(share.activity || []),
+        ].slice(0, SHARE_ACTIVITY_KEEP),
+        // Counters for the batched owner notification. Incremented atomically
+        // so simultaneous edits can't lose one.
+        pendingCount: admin.firestore.FieldValue.increment(1),
+        pendingNames: admin.firestore.FieldValue.arrayUnion(change.name || 'a task'),
+        pendingBy: admin.firestore.FieldValue.arrayUnion(change.by || 'Someone'),
+        pendingLastAt: now,
+      }, { merge: true });
+    }
+
+    await opSnap.ref.delete();
+  } catch (err) {
+    // The op stays put so a retry can pick it up. A permanently bad op is
+    // bounded by the rules' shape check, so it can't sit here doing damage.
+    console.error(`applyListOps: ${token} failed:`, err.message);
+    throw err;
+  }
+});
+
+// How long to let edits accumulate before telling the owner. Someone adding
+// five things to a shared list does it in one sitting; five pushes for one
+// sitting is what makes people turn notifications off.
+const SHARE_NOTIFY_QUIET_MS = 2 * 60 * 1000;
+
+/** "Chris added 3 things" / "Chris and Sam made 5 changes" */
+function describeShareActivity(share) {
+  const count = share.pendingCount || 0;
+  const people = (share.pendingBy || []).filter(Boolean);
+  const who = people.length === 0 ? 'Someone'
+    : people.length === 1 ? people[0]
+    : people.length === 2 ? `${people[0]} and ${people[1]}`
+    : `${people[0]} and ${people.length - 1} others`;
+  const what = count === 1 ? '1 change' : `${count} changes`;
+  const names = (share.pendingNames || []).filter(Boolean).slice(0, 4);
+  const more = (share.pendingNames || []).length - names.length;
+
+  return {
+    title: `${who} — ${what} to ${share.list?.name || 'a shared list'}`,
+    body: names.length > 0
+      ? `${names.join(', ')}${more > 0 ? ` +${more} more` : ''}`
+      : 'Open the list to see what changed.',
+    lines: [
+      `${who} made ${what} to your shared list "${share.list?.name || 'a shared list'}".`,
+      ...(share.activity || []).slice(0, count).map((a) => `• ${a.line}`),
+    ],
+  };
+}
+
+exports.shareActivityNotifications = onSchedule(
+  { schedule: 'every 1 minutes', timeZone: DEFAULT_TZ },
+  async () => {
+    const now = Date.now();
+    const pending = await db.collection('listShares').where('pendingCount', '>', 0).get();
+
+    for (const doc of pending.docs) {
+      const share = doc.data();
+      try {
+        // Still being edited — wait for the person to finish so one sitting
+        // makes one notification.
+        if (now - (share.pendingLastAt || 0) < SHARE_NOTIFY_QUIET_MS) continue;
+
+        const clear = {
+          pendingCount: 0,
+          pendingNames: admin.firestore.FieldValue.delete(),
+          pendingBy: admin.firestore.FieldValue.delete(),
+        };
+
+        const ownerSnap = await db.doc(`users/${share.ownerUid}/data/app`).get();
+        if (!ownerSnap.exists) { await doc.ref.set(clear, { merge: true }); continue; }
+        const owner = ownerSnap.data();
+        const prefs = { enabled: true, sharedActivity: true, ...(owner.notifPrefs?.todos || {}) };
+
+        if (prefs.enabled === false || prefs.sharedActivity === false) {
+          await doc.ref.set(clear, { merge: true });
+          continue;
+        }
+
+        const msg = describeShareActivity(share);
+
+        if (owner.fcmToken) {
+          await sendPush(`users/${share.ownerUid}`, owner.fcmToken, {
+            title: msg.title,
+            body: msg.body,
+            tag: `share-activity-${doc.id}-${share.pendingLastAt}`,
+            url: `/ExpenseTracker/lists?list=${share.listId}`,
+          });
+        }
+
+        const recipient = await resolveRecipient(share.ownerUid, owner);
+        if (recipient && owner.notifPrefs?.email?.sharedActivity !== false) {
+          try {
+            await enqueueEmail(recipient, msg.title, msg.title, msg.lines);
+          } catch (e) {
+            console.error(`shareActivityNotifications: email failed for ${doc.id}:`, e.message);
+          }
+        }
+
+        await doc.ref.set(clear, { merge: true });
+      } catch (err) {
+        console.error(`shareActivityNotifications: ${doc.id} failed:`, err.message);
+      }
+    }
+  },
+);
+
 // ── Crash Protocol reminders ────────────────────────────────────────────────
 // Two notifications, both of which have to arrive with the app closed.
 //
@@ -1061,6 +1249,7 @@ exports.crashReminders = onSchedule(
 // Exported for unit tests only.
 exports._internal = {
   collectTodoMessages, collectTodoEmails, wallClockToMs, itemIsHeading, outstandingItems,
+  describeShareActivity, mirrorItems, listOps,
   collectDailyMessages, filterDailyForPush, filterDailyForEmail,
   localDateAndMinutes, daysBetween, tomorrowDayOfMonth,
   collectCrashMessages, crashLatestDose, crashShouldWarnRefill, RESET_APP_URL,

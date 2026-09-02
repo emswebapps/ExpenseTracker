@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import {
   Plus, MoreVertical, Pencil, Trash2, Archive, ArchiveRestore, MessageSquare,
-  Calendar, CalendarClock, Columns3, Rows3, CalendarPlus,
+  Calendar, CalendarClock, Columns3, Rows3, CalendarPlus, Users,
 } from 'lucide-react';
 import { getDueDateMs, localTodayISO, notificationPermission } from '../../utils/notifications';
 import { listTypeMeta, ListDueBadge, fmtDate, MENU_BTN, useTicker } from './listMeta';
@@ -29,7 +29,7 @@ export function TaskListCard({
   onEditList, onDeleteList, onArchiveList,
   onAddTodoItem, onAddTodoItems, onDeleteItem, onUpdateItem, onEditItem, onExport,
   onOpenAttachment, onToggleStatus, onSetBlocked, onAddTaskDetailed, onAddSubtask,
-  onRenameSection, onDeleteSection, onAddWeek, onSetViewMode,
+  onRenameSection, onDeleteSection, onAddWeek, onSetViewMode, onShareList,
   defaultExpanded = false,
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
@@ -123,6 +123,14 @@ export function TaskListCard({
               <ListIcon size={14} style={{ color: 'var(--accent-text)', flexShrink: 0 }} />
               <span style={{ fontWeight: '700', fontSize: '1rem', color: 'var(--text)' }}>{list.name}</span>
               <ListDueBadge list={list} />
+              {list.share?.token && !list.share.revoked && (
+                <span
+                  title="Shared by link"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '0.1875rem', flexShrink: 0, fontSize: '0.6875rem', fontWeight: 700, color: 'var(--accent-text)', backgroundColor: 'rgba(99,102,241,0.12)', borderRadius: '0.375rem', padding: '0.0625rem 0.3125rem' }}
+                >
+                  <Users size={9} /> Shared
+                </span>
+              )}
               {list.dueDate && (
                 <span style={{ display: 'flex', alignItems: 'center', gap: '0.2rem', fontSize: '0.75rem', color: 'var(--muted)' }}>
                   <Calendar size={10} /> {fmtDate(list.dueDate)}
@@ -256,6 +264,10 @@ export function TaskListCard({
         <>
           <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => setMenuOpen(false)} />
           <div style={{ position: 'absolute', right: '0.75rem', top: '3rem', zIndex: 50, backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '0.75rem', overflow: 'hidden', minWidth: '11rem', boxShadow: '0 8px 32px rgba(0,0,0,0.3)' }}>
+            <button onClick={() => { onShareList?.(list); setMenuOpen(false); }} style={MENU_BTN}>
+              <Users size={14} style={{ color: list.share?.token && !list.share.revoked ? 'var(--accent-text)' : undefined }} />
+              {list.share?.token ? 'Shared link…' : 'Share with someone…'}
+            </button>
             <button onClick={() => { onExport(list); setMenuOpen(false); }} style={MENU_BTN}><MessageSquare size={14} /> Share as text</button>
             <button onClick={() => { onAddTaskDetailed(list, activeSectionId); setMenuOpen(false); }} style={MENU_BTN}><Plus size={14} /> Add task with details</button>
             {list.weekly?.enabled && (

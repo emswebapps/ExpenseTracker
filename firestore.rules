@@ -13,5 +13,50 @@ service cloud.firestore {
       allow read: if true;
       allow write: if request.auth != null;
     }
+
+    // ── Collaborative lists ────────────────────────────────────────────────
+    // One doc per shared list, holding a mirror of it. The token in the URL is
+    // the capability: anyone holding the link can read the list and add to it,
+    // the same trust model as a "anyone with the link can edit" document. The
+    // owner revokes by setting `revoked`, which the ops rule below enforces.
+    //
+    // Only the owner may write the doc itself, so a guest can neither rewrite
+    // the mirror nor un-revoke their own access.
+    match /listShares/{token} {
+      allow read: if true;
+      allow create: if request.auth != null
+                    && request.resource.data.ownerUid == request.auth.uid;
+      allow update, delete: if request.auth != null
+                            && resource.data.ownerUid == request.auth.uid;
+
+      // Guests append edits here and a Cloud Function applies them to the
+      // owner's document. Create-only and never readable: an op queue is not a
+      // place to browse, and nothing a guest writes should be editable
+      // afterwards — including by them.
+      //
+      // The shape is pinned tightly because this is the one collection an
+      // unauthenticated-but-anonymous browser can write to. Anything past
+      // structure (does the item belong to this list, does the field mean
+      // anything) is the function's job.
+      match /ops/{opId} {
+        allow create: if request.auth != null
+          && get(/databases/$(database)/documents/listShares/$(token)).data.revoked != true
+          && request.resource.data.keys().hasOnly(['type', 'itemId', 'fields', 'by', 'uid', 'at'])
+          && request.resource.data.type is string
+          && request.resource.data.type in ['add', 'update', 'delete', 'toggle']
+          && request.resource.data.itemId is string
+          && request.resource.data.itemId.size() > 0
+          && request.resource.data.itemId.size() <= 64
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.at is int
+          && (!('by' in request.resource.data)
+              || (request.resource.data.by is string && request.resource.data.by.size() <= 60))
+          && (!('fields' in request.resource.data)
+              || (request.resource.data.fields is map
+                  && request.resource.data.fields.keys().hasOnly(
+                       ['name', 'notes', 'dueDate', 'dueTime', 'parentId', 'sectionId'])));
+        allow read, update, delete: if false;
+      }
+    }
   }
 }

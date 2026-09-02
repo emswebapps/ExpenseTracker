@@ -13,6 +13,7 @@ import SearchPage from './pages/Search';
 import ShoppingLists from './pages/ShoppingLists';
 import Planning from './pages/Planning';
 import SharedView from './pages/SharedView';
+import SharedList from './pages/SharedList';
 import DocumentVault from './pages/DocumentVault';
 import CrashProtocol from './pages/CrashProtocol';
 
@@ -46,6 +47,10 @@ function AppShell() {
     <Routes>
       {/* Public route — accessible without login */}
       <Route path="/share/:token" element={<SharedView />} />
+      {/* A single list, shared by link — no account needed. Outside
+          AuthenticatedApp on purpose: the visitor has no account, and the
+          signed-in shell would send them to the login screen. */}
+      <Route path="/list/:token" element={<SharedList />} />
       {/* All other routes require auth */}
       <Route path="*" element={<AuthenticatedApp />} />
     </Routes>

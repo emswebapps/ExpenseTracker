@@ -17,6 +17,7 @@ import {
   dayHeadingName, dayHeadingId, weeklyConfig,
 } from './lists/weeks.js';
 import { ExportModal } from './lists/shareText';
+import { ShareListModal } from './lists/ShareListModal';
 import { PasteImportModal } from './lists/pasteImport';
 import { GroceryListCard } from './lists/GroceryListCard';
 import { WishlistCard } from './lists/WishlistCard';
@@ -33,6 +34,7 @@ export default function ShoppingLists() {
     shoppingItems, addShoppingItem, addShoppingItems, updateShoppingItem, updateShoppingItems,
     deleteShoppingItem, deleteShoppingItems, toggleShoppingItem, importList,
     completeAndRepeatShoppingItem,
+    shareList, revokeListShare, deleteListShareLink,
     notifPrefs, cloudLoaded,
   } = useApp();
   const { user } = useAuth();
@@ -56,6 +58,7 @@ export default function ShoppingLists() {
   // gathered so far so they can be cleaned up if the form is abandoned.
   const [addTask, setAddTask] = useState(null); // { list, draftId, attachments }
   const [exportList, setExportList] = useState(null);
+  const [shareListFor, setShareListFor] = useState(null); // list id being shared
   const [showArchived, setShowArchived] = useState(false);
   const [viewer, setViewer] = useState(null); // { itemId | draft, attId }
 
@@ -314,6 +317,7 @@ export default function ShoppingLists() {
     onDeleteSection: handleDeleteSection,
     onSetViewMode: handleSetViewMode,
     onAddWeek: handleAddWeek,
+    onShareList: (l) => setShareListFor(l.id),
   });
 
   const wishlistCardProps = (list) => ({
@@ -522,6 +526,21 @@ export default function ShoppingLists() {
             onAttachmentsChange={(atts) => updateShoppingItem(live.id, { attachments: atts })}
             onOpenAttachment={(att) => setViewer({ itemId: live.id, attId: att.id })}
             onSave={(data) => { updateShoppingItem(live.id, data); setEditItem(null); }}
+          />
+        );
+      })()}
+      {shareListFor && (() => {
+        // Read live: creating the link patches the list, and the modal has to
+        // show the link it just made rather than the snapshot it opened with.
+        const live = shoppingLists.find((l) => l.id === shareListFor);
+        if (!live) return null;
+        return (
+          <ShareListModal
+            list={live}
+            onClose={() => setShareListFor(null)}
+            onShare={shareList}
+            onRevoke={revokeListShare}
+            onDelete={deleteListShareLink}
           />
         );
       })()}

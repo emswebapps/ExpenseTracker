@@ -164,13 +164,75 @@ function tomorrowDayOfMonth(localDate) {
  * @returns {Array<{title, body, tag, category, kind?}>}
  */
 function collectDailyMessages(data, localDate) {
-  const { bills = [], commitments = [], plannedExpenses = [], projects = [], notifPrefs } = data;
+  const {
+    bills = [], commitments = [], plannedExpenses = [], projects = [],
+    shoppingLists = [], shoppingItems = [], notifPrefs,
+  } = data;
   const daysBefore = notifPrefs?.commitments?.daysBefore ?? 3;
   const mk = localDate.slice(0, 7);
   const todayDay = Number(localDate.slice(8, 10));
   const tomorrowDay = tomorrowDayOfMonth(localDate);
 
   const messages = [];
+
+  // ── Today's plan ──
+  // One message for the whole day rather than one per list: the digest sends
+  // each message as its own push, and four task lists would otherwise mean four
+  // notifications before breakfast.
+  //
+  // This is the counterpart to a weekly planner list. The per-task reminders
+  // fire at their own due times through `todoReminders`; this is the morning
+  // read of what the day holds, which is the thing a paper week gave you and a
+  // pile of individual alerts doesn't.
+  const taskLists = new Map(
+    shoppingLists.filter((l) => TASK_LIST_TYPES.includes(l.type) && !l.archived).map((l) => [l.id, l]),
+  );
+  const dueToday = [];
+  let overdueCount = 0;
+  for (const item of shoppingItems) {
+    if (!taskLists.has(item.listId)) continue;
+    if (itemIsHeading(item)) continue;                    // a day label, not work
+    if (item.status && item.status !== 'pending') continue;
+    if (!item.dueDate) continue;
+    if (item.dueDate === localDate) dueToday.push(item);
+    else if (item.dueDate < localDate) overdueCount += 1;
+  }
+
+  if (dueToday.length > 0 || overdueCount > 0) {
+    const named = dueToday.slice(0, 4).map((i) => i.name);
+    const unnamed = dueToday.length - named.length;
+    const summary = [
+      named.join(', '),
+      unnamed > 0 ? `+${unnamed} more` : '',
+    ].filter(Boolean).join(' ');
+    const late = overdueCount > 0
+      ? `${overdueCount} ${overdueCount === 1 ? 'task is' : 'tasks are'} overdue`
+      : '';
+
+    messages.push({
+      title: dueToday.length > 0
+        ? `Today: ${dueToday.length} ${dueToday.length === 1 ? 'task' : 'tasks'}`
+        : `${overdueCount} ${overdueCount === 1 ? 'task is' : 'tasks are'} overdue`,
+      body: [summary, late].filter(Boolean).join(' · ') || 'Nothing due today',
+      // The email gets the full list rather than the truncated one — there's
+      // room for it there, and the point of the digest is not having to open
+      // the app to find out.
+      lines: [
+        dueToday.length > 0
+          ? `${dueToday.length === 1 ? '1 task is' : `${dueToday.length} tasks are`} due today:`
+          : 'Nothing is due today.',
+        ...dueToday.map((i) => {
+          const list = taskLists.get(i.listId);
+          const parent = i.parentId ? shoppingItems.find((p) => p.id === i.parentId) : null;
+          const where = parent ? `${list.name} · ${parent.name}` : list.name;
+          return `• ${i.name} — ${where}${i.dueTime ? ` at ${i.dueTime}` : ''}`;
+        }),
+        ...(late ? [`And ${late}.`] : []),
+      ],
+      tag: `todo-plan-${localDate}`,
+      category: 'todos',
+    });
+  }
 
   // ── Bills ──
   for (const bill of bills) {
@@ -266,9 +328,13 @@ function filterDailyForPush(messages, notifPrefs) {
   const bills = { overdue: true, dayBefore: true, sameDay: true, ...(notifPrefs?.bills || {}) };
   const commitments = { expiring: true, ...(notifPrefs?.commitments || {}) };
   const shifts = { reminder: false, ...(notifPrefs?.shifts || {}) };
+  const todos = { enabled: true, dailyPlan: true, ...(notifPrefs?.todos || {}) };
   return messages.filter((m) => {
     switch (m.category) {
       case 'bills': return !!bills[m.kind];
+      // Suppressed by either switch: turning to-do notifications off entirely
+      // has to turn this off too, whatever the plan toggle says.
+      case 'todos': return todos.enabled !== false && todos.dailyPlan !== false;
       case 'commitments': return !!commitments.expiring;
       case 'goals': return notifPrefs?.goals?.enabled !== false;
       case 'projects': return notifPrefs?.projects?.enabled !== false;
@@ -332,7 +398,10 @@ exports.dailyNotifications = onSchedule(
         if (emailMessages.length > 0) {
           const recipient = await resolveRecipient(userRef.id, data);
           if (recipient) {
-            const lines = emailMessages.map((m) => `${m.title} — ${m.body}`);
+            // A message may carry its own `lines` when one summary line can't
+            // hold it — the day's plan lists every task rather than the four
+            // that fit in a push body.
+            const lines = emailMessages.flatMap((m) => m.lines ?? [`${m.title} — ${m.body}`]);
             const subject = `ExpenseTracker: ${emailMessages.length} reminder${emailMessages.length !== 1 ? 's' : ''} for today`;
             try {
               await enqueueEmail(recipient, subject, "Today's reminders", lines);
@@ -403,9 +472,34 @@ function itemIsFinished(list, item) {
   return TASK_LIST_TYPES.includes(list.type) ? item.status === 'done' : !!item.checked;
 }
 
-/** The items still outstanding on a list. */
+/**
+ * A day heading — "📅 MONDAY 📅" — rather than work. Mirrors `isHeading` in
+ * src/pages/lists/subtasks.js.
+ *
+ * Headings never notify. One is a label for a date, so a push saying "Due now:
+ * MONDAY" is noise, and a week of them would fire seven of those. Nor do they
+ * count as outstanding: a list showing "7 items left" when all seven are day
+ * headings with nothing under them is a lie.
+ */
+function itemIsHeading(item) {
+  return !!item.header;
+}
+
+/** The items still outstanding on a list, headings aside. */
 function outstandingItems(list, shoppingItems) {
-  return shoppingItems.filter((i) => i.listId === list.id && !itemIsFinished(list, i));
+  return shoppingItems.filter((i) => (
+    i.listId === list.id && !itemIsHeading(i) && !itemIsFinished(list, i)
+  ));
+}
+
+/**
+ * Where a task sits, for the body of a reminder: the list, plus the heading
+ * it's filed under when it has one. "Weekly To Do · MONDAY" says considerably
+ * more from a lock screen than "Weekly To Do" alone.
+ */
+function taskContext(list, item, byId) {
+  const parent = item.parentId ? byId.get(item.parentId) : null;
+  return parent ? `${list.name} · ${parent.name}` : list.name;
 }
 
 /**
@@ -425,15 +519,20 @@ function listsDueFor(shoppingLists, shoppingItems, tz, now) {
     const dueAt = todoDueAt(list, tz);
     if (!dueAt) continue;
 
+    // Nothing outstanding means nothing to be reminded about — whether that's
+    // because everything is done or because the list holds only day headings.
+    // An *empty* list still fires: a list you haven't filled in yet is exactly
+    // the thing worth a nudge.
     const own = shoppingItems.filter((i) => i.listId === list.id);
-    if (own.length > 0 && own.every((i) => itemIsFinished(list, i))) continue;
+    const left = outstandingItems(list, shoppingItems);
+    if (own.length > 0 && left.length === 0) continue;
 
     // The lead was chosen on the list itself, so push and email land together.
     const lead = Math.max(0, Number(list.remindOffsetMinutes) || 0);
     const fireAt = dueAt - lead * 60 * 1000;
     if (fireAt > now || fireAt <= now - DUE_GRACE_MS) continue;
 
-    out.push({ list, dueAt, lead, fireAt, remaining: outstandingItems(list, shoppingItems) });
+    out.push({ list, dueAt, lead, fireAt, remaining: left });
   }
   return out;
 }
@@ -457,11 +556,14 @@ function collectTodoMessages(data, sent, now) {
     shoppingLists.filter((l) => TASK_LIST_TYPES.includes(l.type) && !l.archived).map((l) => [l.id, l]),
   );
 
+  const byId = new Map(shoppingItems.map((i) => [i.id, i]));
+
   const messages = [];
   for (const item of shoppingItems) {
     const list = todoLists.get(item.listId);
     if (!list) continue;
     if (item.status && item.status !== 'pending') continue;
+    if (itemIsHeading(item)) continue;
 
     // Due-date reminder (optionally ahead of the due time)
     if (item.notifyEnabled) {
@@ -474,9 +576,10 @@ function collectTodoMessages(data, sent, now) {
           const when = new Date(dueAt).toLocaleTimeString('en-US', {
             timeZone: tz, hour: 'numeric', minute: '2-digit',
           });
+          const where = taskContext(list, item, byId);
           messages.push({
             title: lead > 0 ? `Due soon: ${item.name}` : `Due now: ${item.name}`,
-            body: lead > 0 ? `${list.name} — due at ${when}` : list.name,
+            body: lead > 0 ? `${where} — due at ${when}` : where,
             tag: key,
           });
         }
@@ -545,11 +648,14 @@ function collectTodoEmails(data, sent, now) {
     shoppingLists.filter((l) => TASK_LIST_TYPES.includes(l.type) && !l.archived).map((l) => [l.id, l]),
   );
 
+  const byId = new Map(shoppingItems.map((i) => [i.id, i]));
+
   const out = [];
   for (const item of shoppingItems) {
     const list = todoLists.get(item.listId);
     if (!list) continue;
     if (item.status && item.status !== 'pending') continue; // done/blocked → no email
+    if (itemIsHeading(item)) continue;                      // a day label, not work
 
     const dueAt = todoDueAt(item, tz);
     if (!dueAt) continue;
@@ -568,7 +674,7 @@ function collectTodoEmails(data, sent, now) {
           ? `"${item.name}" is due ${describeLead(leadMinutes)}`
           : `"${item.name}" is due now`,
         lines: [
-          `Your task "${item.name}" on the list "${list.name}" is due at ${when}.`,
+          `Your task "${item.name}" on the list "${taskContext(list, item, byId)}" is due at ${when}.`,
           "It hasn't been marked complete yet.",
         ],
         tag: key,
@@ -954,7 +1060,7 @@ exports.crashReminders = onSchedule(
 
 // Exported for unit tests only.
 exports._internal = {
-  collectTodoMessages, collectTodoEmails, wallClockToMs,
+  collectTodoMessages, collectTodoEmails, wallClockToMs, itemIsHeading, outstandingItems,
   collectDailyMessages, filterDailyForPush, filterDailyForEmail,
   localDateAndMinutes, daysBetween, tomorrowDayOfMonth,
   collectCrashMessages, crashLatestDose, crashShouldWarnRefill, RESET_APP_URL,

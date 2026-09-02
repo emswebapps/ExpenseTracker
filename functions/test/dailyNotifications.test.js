@@ -192,3 +192,93 @@ test('email filtering yields nothing when the channel is off', () => {
   assert.deepStrictEqual(filterDailyForEmail(everything(), { email: { enabled: false } }), []);
   assert.deepStrictEqual(filterDailyForEmail(everything(), {}), []);
 });
+
+// ── Today's plan ─────────────────────────────────────────────────────────────
+
+const planData = (items, lists) => ({
+  shoppingLists: lists || [
+    { id: 'L1', name: 'Weekly To Do', type: 'todo' },
+    { id: 'L2', name: 'Shift prep', type: 'work' },
+    { id: 'L3', name: 'Groceries', type: 'grocery' },
+    { id: 'L4', name: 'Old week', type: 'todo', archived: true },
+  ],
+  shoppingItems: items,
+});
+
+const plan = (data) => collectDailyMessages(data, TODAY).filter((m) => m.category === 'todos');
+
+test("today's plan gathers dated tasks across every task list", () => {
+  const msgs = plan(planData([
+    { id: 'T1', listId: 'L1', name: 'EMS class', status: 'pending', dueDate: TODAY, dueTime: '08:00' },
+    { id: 'T2', listId: 'L2', name: 'Pack bag', status: 'pending', dueDate: TODAY },
+    { id: 'T3', listId: 'L1', name: 'Next week', status: 'pending', dueDate: '2026-08-01' },
+  ]));
+  assert.strictEqual(msgs.length, 1);
+  assert.strictEqual(msgs[0].title, 'Today: 2 tasks');
+  assert.strictEqual(msgs[0].body, 'EMS class, Pack bag');
+  assert.strictEqual(msgs[0].tag, `todo-plan-${TODAY}`);
+});
+
+test("today's plan skips finished work, other list types and archived lists", () => {
+  const msgs = plan(planData([
+    { id: 'T1', listId: 'L1', name: 'Done', status: 'done', dueDate: TODAY },
+    { id: 'T2', listId: 'L1', name: 'Blocked', status: 'blocked', dueDate: TODAY },
+    { id: 'T3', listId: 'L3', name: 'Milk', checked: false, dueDate: TODAY },
+    { id: 'T4', listId: 'L4', name: 'Archived', status: 'pending', dueDate: TODAY },
+    { id: 'T5', listId: 'L1', name: 'Undated', status: 'pending' },
+  ]));
+  assert.deepStrictEqual(msgs, []);
+});
+
+test("today's plan never lists a day heading as a task", () => {
+  const msgs = plan(planData([
+    { id: 'H1', listId: 'L1', name: '📅 MONDAY 📅', header: true, status: 'pending', dueDate: TODAY },
+    { id: 'T1', listId: 'L1', parentId: 'H1', name: 'EMS class', status: 'pending', dueDate: TODAY },
+  ]));
+  assert.strictEqual(msgs[0].title, 'Today: 1 task');
+  assert.strictEqual(msgs[0].body, 'EMS class');
+  // The email lines name where it sits.
+  assert.match(msgs[0].lines[1], /EMS class — Weekly To Do · 📅 MONDAY 📅/);
+});
+
+test("today's plan truncates the push body but not the email", () => {
+  const items = ['a', 'b', 'c', 'd', 'e', 'f'].map((n, i) => (
+    { id: `T${i}`, listId: 'L1', name: `task ${n}`, status: 'pending', dueDate: TODAY }
+  ));
+  const msgs = plan(planData(items));
+  assert.strictEqual(msgs[0].title, 'Today: 6 tasks');
+  assert.strictEqual(msgs[0].body, 'task a, task b, task c, task d +2 more');
+  // One intro line plus all six.
+  assert.strictEqual(msgs[0].lines.length, 7);
+});
+
+test("today's plan reports overdue work even when nothing is due today", () => {
+  const msgs = plan(planData([
+    { id: 'T1', listId: 'L1', name: 'Late thing', status: 'pending', dueDate: '2026-07-20' },
+    { id: 'T2', listId: 'L1', name: 'Also late', status: 'pending', dueDate: '2026-07-25' },
+  ]));
+  assert.strictEqual(msgs[0].title, '2 tasks are overdue');
+  assert.strictEqual(msgs[0].body, '2 tasks are overdue');
+});
+
+test("today's plan is silent when there is nothing at all", () => {
+  assert.deepStrictEqual(plan(planData([])), []);
+  assert.deepStrictEqual(plan({}), []);
+});
+
+test("today's plan honours both the plan toggle and the to-do master switch", () => {
+  const msgs = collectDailyMessages(planData([
+    { id: 'T1', listId: 'L1', name: 'EMS class', status: 'pending', dueDate: TODAY },
+  ]), TODAY);
+
+  // On by default.
+  assert.ok(categories(filterDailyForPush(msgs, {})).includes('todos'));
+  // Off on its own…
+  assert.ok(!categories(filterDailyForPush(msgs, { todos: { dailyPlan: false } })).includes('todos'));
+  // …and off when to-do notifications are off altogether.
+  assert.ok(!categories(filterDailyForPush(msgs, { todos: { enabled: false } })).includes('todos'));
+
+  // Email follows the same per-category switch as every other digest entry.
+  assert.ok(categories(filterDailyForEmail(msgs, { email: { enabled: true } })).includes('todos'));
+  assert.ok(!categories(filterDailyForEmail(msgs, { email: { enabled: true, todos: false } })).includes('todos'));
+});

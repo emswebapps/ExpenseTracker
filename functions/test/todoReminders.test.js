@@ -332,3 +332,95 @@ test('list emails stop when task emails are switched off', () => {
   const data = { ...listBuild({ dueAt: NOW }, []), notifPrefs: { email: { enabled: true, tasks: false } } };
   assert.deepStrictEqual(collectTodoEmails(data, {}, NOW), []);
 });
+
+// ── Subtasks and day headings ────────────────────────────────────────────────
+
+test('a reminder names the heading a task sits under', () => {
+  const data = build([
+    { id: 'H1', listId: 'L1', name: '📅 MONDAY 📅', header: true, status: 'pending', dueAt: NOW },
+    item({ id: 'T1', parentId: 'H1', notifyEnabled: true, dueAt: NOW }),
+  ]);
+  const msgs = collectTodoMessages(data, {}, NOW);
+  assert.strictEqual(msgs.length, 1);
+  assert.strictEqual(msgs[0].title, 'Due now: Call plumber');
+  assert.strictEqual(msgs[0].body, 'Errands · 📅 MONDAY 📅');
+});
+
+test('a lead-time reminder names the heading too', () => {
+  const dueAt = NOW + 30 * MIN;
+  const data = build([
+    { id: 'H1', listId: 'L1', name: 'MONDAY', header: true, status: 'pending' },
+    item({ id: 'T1', parentId: 'H1', notifyEnabled: true, dueAt, remindOffsetMinutes: 30 }),
+  ]);
+  const msgs = collectTodoMessages(data, {}, NOW);
+  assert.match(msgs[0].body, /^Errands · MONDAY — due at 2:30/);
+});
+
+test('a task whose parent is gone still reminds, without a breadcrumb', () => {
+  const data = build([item({ id: 'T1', parentId: 'deleted', notifyEnabled: true, dueAt: NOW })]);
+  const msgs = collectTodoMessages(data, {}, NOW);
+  assert.strictEqual(msgs.length, 1);
+  assert.strictEqual(msgs[0].body, 'Errands');
+});
+
+test('a day heading never fires a push, even with notify switched on', () => {
+  const data = build([
+    { id: 'H1', listId: 'L1', name: '📅 MONDAY 📅', header: true, status: 'pending', notifyEnabled: true, dueAt: NOW },
+  ]);
+  assert.deepStrictEqual(collectTodoMessages(data, {}, NOW), []);
+});
+
+test('a day heading never emails either', () => {
+  const data = build([
+    { id: 'H1', listId: 'L1', name: '📅 MONDAY 📅', header: true, status: 'pending', dueAt: NOW },
+  ], EMAIL_ON);
+  assert.deepStrictEqual(collectTodoEmails(data, {}, NOW), []);
+});
+
+test('a task email names the heading it sits under', () => {
+  const data = build([
+    { id: 'H1', listId: 'L1', name: 'MONDAY', header: true, status: 'pending' },
+    item({ id: 'T1', parentId: 'H1', dueAt: NOW }),
+  ], EMAIL_ON);
+  const mails = collectTodoEmails(data, {}, NOW);
+  assert.strictEqual(mails.length, 1);
+  assert.match(mails[0].lines[0], /on the list "Errands · MONDAY"/);
+});
+
+test('day headings do not count towards a list reminder\'s outstanding items', () => {
+  const { outstandingItems } = _internal;
+  const list = { id: 'L1', name: 'Errands', type: 'todo' };
+  const items = [
+    { id: 'H1', listId: 'L1', name: 'MONDAY', header: true, status: 'pending' },
+    { id: 'T1', listId: 'L1', name: 'Real work', status: 'pending' },
+    { id: 'T2', listId: 'L1', name: 'Finished', status: 'done' },
+  ];
+  assert.deepStrictEqual(outstandingItems(list, items).map((i) => i.id), ['T1']);
+});
+
+test('a list of nothing but day headings does not fire its list reminder', () => {
+  const data = {
+    shoppingLists: [{ id: 'L1', name: 'Weekly To Do', type: 'todo', notifyEnabled: true, dueAt: NOW }],
+    shoppingItems: [
+      { id: 'H1', listId: 'L1', name: 'MONDAY', header: true, status: 'pending' },
+      { id: 'H2', listId: 'L1', name: 'TUESDAY', header: true, status: 'pending' },
+    ],
+  };
+  // Seven day rows and no work under them is nothing to be reminded about;
+  // "2 items left" would be a lie.
+  assert.deepStrictEqual(collectTodoMessages(data, {}, NOW), []);
+});
+
+test('a list reminder counts the work under its headings', () => {
+  const data = {
+    shoppingLists: [{ id: 'L1', name: 'Weekly To Do', type: 'todo', notifyEnabled: true, dueAt: NOW }],
+    shoppingItems: [
+      { id: 'H1', listId: 'L1', name: 'MONDAY', header: true, status: 'pending' },
+      { id: 'T1', listId: 'L1', parentId: 'H1', name: 'EMS class', status: 'pending' },
+      { id: 'T2', listId: 'L1', parentId: 'H1', name: 'Return gear', status: 'done' },
+    ],
+  };
+  const msgs = collectTodoMessages(data, {}, NOW);
+  assert.strictEqual(msgs.length, 1);
+  assert.strictEqual(msgs[0].body, '1 item left');
+});

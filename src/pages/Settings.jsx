@@ -38,6 +38,7 @@ const EMAIL_LEAD_OPTIONS = [
 // What the once-a-day email can cover. Each maps to a `notifPrefs.email` flag
 // and to a message category in the dailyNotifications Cloud Function.
 const EMAIL_DIGEST_CATEGORIES = [
+  { key: 'todos', label: "Today's plan", sublabel: 'Every task due today, and anything overdue' },
   { key: 'bills', label: 'Bills', sublabel: 'Due today, due tomorrow, and overdue' },
   { key: 'commitments', label: 'Commitments', sublabel: 'Ones about to expire' },
   { key: 'goals', label: 'Goals', sublabel: 'Approaching target dates' },
@@ -587,6 +588,7 @@ export default function Settings() {
                   </select>
                 </div>
               )}
+              <NotifRow label="Today's plan" sublabel="One push and email with the day's tasks, at your daily summary time" checked={notifPrefs.todos?.dailyPlan !== false} onChange={(v) => updatePref('todos', 'dailyPlan', v)} />
               <NotifRow label="Morning reminder" sublabel="Push at set time if you have incomplete to-dos" checked={notifPrefs.todos?.morningEnabled !== false} onChange={(v) => updatePref('todos', 'morningEnabled', v)} />
               {notifPrefs.todos?.morningEnabled !== false && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.375rem 0 0 0.25rem' }}>

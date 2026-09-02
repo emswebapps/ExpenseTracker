@@ -8,7 +8,8 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test:unit": "node --test \"src/**/*.test.js\""
+    "test:unit": "node --test \"src/**/*.test.js\"",
+    "test:rules": "npx --yes firebase-tools emulators:exec --only firestore --project rules-test \"node --test test/rules.test.mjs\""
   },
   "dependencies": {
     "firebase": "^12.15.0",
@@ -21,6 +22,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@firebase/rules-unit-testing": "^5.0.2",
     "@tailwindcss/vite": "^4.3.1",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",

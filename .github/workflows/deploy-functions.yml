@@ -55,6 +55,15 @@ jobs:
         working-directory: functions
         run: npm test
 
+      # The rules ship from this workflow, so they're tested here too — against
+      # the real Firestore emulator, since the only way to know what a rule
+      # does is to run it. Needs the root dependencies for the test harness.
+      - name: Install root dependencies
+        run: npm install
+
+      - name: Test security rules
+        run: npm run test:rules
+
       - name: Check the deploy credential exists
         env:
           KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}

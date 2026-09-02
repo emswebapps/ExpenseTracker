@@ -229,8 +229,9 @@ npm run build
 ## Tests
 
 ```bash
-npm run test:unit          # front-end logic, via node --test — no extra deps
+npm run test:unit            # front-end logic, via node --test — no extra deps
 npm --prefix functions test  # Cloud Function reminder selection
+npm run test:rules           # security rules, against the Firestore emulator
 ```
 
 `test:unit` covers the pure pieces of the to-do list: task ordering
@@ -243,6 +244,15 @@ These modules deliberately import only from
 `src/utils/dueDates.js` and `helpers.js`, both free of the Firebase SDK, which
 is what lets plain Node run them. They use explicit `.js` extensions in their
 imports for the same reason.
+
+`test:rules` is the odd one out: it starts the real Firestore emulator and
+drives it with `@firebase/rules-unit-testing`, because the only way to know
+what a security rule does is to run it. It covers the claims the share link
+rests on — the token can't be sidestepped by listing the collection, a guest
+can append an edit but never read the queue back, a paused share accepts
+nothing, and `ownerUid` can't be re-pointed at another user's document. It
+needs Java (the emulator is a jar, downloaded on first run) and it gates the
+deploy that ships the rules.
 
 One of them is a *parity* test:
 `src/pages/lists/shareOps.parity.test.js` runs every guest edit through both

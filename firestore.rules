@@ -7,10 +7,16 @@ service cloud.firestore {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
 
-    // Shared view snapshots — anyone can read, only authenticated users can write
-    // The token in the URL is the only "secret" — keep share tokens private
+    // Shared view snapshots — anyone holding the token can read one, only
+    // authenticated users can write. The token in the URL is the only
+    // "secret", so keep share links private.
+    //
+    // `get` rather than `read`: `read` also grants `list`, which would let
+    // anyone query the whole collection and walk every user's snapshot without
+    // knowing a single token.
     match /shared/{token} {
-      allow read: if true;
+      allow get: if true;
+      allow list: if false;
       allow write: if request.auth != null;
     }
 
@@ -23,11 +29,25 @@ service cloud.firestore {
     // Only the owner may write the doc itself, so a guest can neither rewrite
     // the mirror nor un-revoke their own access.
     match /listShares/{token} {
-      allow read: if true;
+      // `get`, not `read`: `read` would also grant `list`, and a query over
+      // this collection would hand out every shared list in the app without
+      // needing a token at all.
+      allow get: if true;
+      allow list: if false;
+
       allow create: if request.auth != null
                     && request.resource.data.ownerUid == request.auth.uid;
-      allow update, delete: if request.auth != null
-                            && resource.data.ownerUid == request.auth.uid;
+
+      // `ownerUid` is immutable. Without that clause an owner could create a
+      // share with their own uid and then rewrite it to somebody else's — the
+      // function applies ops to `users/{ownerUid}/data/app` with admin rights,
+      // so that edit would be a way to write into another user's document.
+      allow update: if request.auth != null
+                    && resource.data.ownerUid == request.auth.uid
+                    && request.resource.data.ownerUid == resource.data.ownerUid;
+
+      allow delete: if request.auth != null
+                    && resource.data.ownerUid == request.auth.uid;
 
       // Guests append edits here and a Cloud Function applies them to the
       // owner's document. Create-only and never readable: an op queue is not a

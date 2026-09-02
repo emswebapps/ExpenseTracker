@@ -9,7 +9,7 @@ import { auth } from '../firebase';
 import { subscribeListShare, submitListOp } from '../utils/firestoreSync';
 import { generateId } from '../utils/helpers';
 import { formatCalendarDate, formatDueBadge, localTodayISO } from '../utils/dueDates';
-import { applyOps } from './lists/shareOps';
+import { applyOps, pruneOverlay, OVERLAY_TTL_MS } from './lists/shareOps';
 import { indexChildren, topLevelItems, isHeading, subtaskStats } from './lists/subtasks';
 import { splitBySection, defaultSectionIndex } from './lists/sections';
 
@@ -76,21 +76,34 @@ export default function SharedList() {
     );
   }, [token]);
 
-  // Drop overlay entries the mirror has caught up with.
-  const appliedAt = share?.appliedAt || 0;
-  useEffect(() => {
-    if (!appliedAt) return;
-    setOverlay((ops) => ops.filter((op) => op.at > appliedAt));
-  }, [appliedAt]);
-
   const listId = share?.listId;
-  const items = useMemo(
-    () => applyOps((share?.items || []).map(({ hasPhotos, ...rest }) => rest), overlay, listId),
-    [share?.items, overlay, listId],
+  const mirrorItems = useMemo(
+    () => (share?.items || []).map(({ hasPhotos, ...rest }) => rest),
+    [share?.items],
   );
+
+  // Drop overlay entries the mirror has caught up with. Also swept on a timer,
+  // because an op the server refused on its merits never appears in the mirror
+  // and would otherwise sit here looking saved.
+  useEffect(() => {
+    setOverlay((ops) => (ops.length === 0 ? ops : pruneOverlay(ops, mirrorItems)));
+  }, [mirrorItems]);
+
+  useEffect(() => {
+    if (overlay.length === 0) return;
+    const id = setInterval(() => {
+      setOverlay((ops) => (ops.length === 0 ? ops : pruneOverlay(ops, mirrorItems)));
+    }, Math.min(5000, OVERLAY_TTL_MS));
+    return () => clearInterval(id);
+  }, [overlay.length, mirrorItems]);
+
+  const items = useMemo(() => applyOps(mirrorItems, overlay, listId), [mirrorItems, overlay, listId]);
 
   const send = useCallback(async (op) => {
     const full = { ...op, by: name || 'Someone', uid: auth.currentUser?.uid || '', at: Date.now() };
+    // Which way a toggle went, so the overlay can tell when the mirror has
+    // caught up with it. Local only — never sent.
+    if (op.type === 'toggle') full.wasDone = op.wasDone === true;
     setOverlay((ops) => [...ops, full]);
     setSendError(null);
     try {
@@ -276,7 +289,7 @@ function GuestRow({ item, childItems, onSend, sectionId, depth = 0 }) {
           <span style={{ width: '2.25rem', flexShrink: 0 }} />
         ) : (
           <button
-            onClick={() => onSend({ type: 'toggle', itemId: item.id })}
+            onClick={() => onSend({ type: 'toggle', itemId: item.id, wasDone: done })}
             aria-label={done ? `Mark ${item.name} as not done` : `Complete ${item.name}`}
             style={{ flexShrink: 0, width: '2.75rem', height: '2.75rem', marginLeft: '-0.5rem', background: 'none', border: 'none', cursor: 'pointer', color: done ? '#34d399' : '#3a3a4a', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
           >

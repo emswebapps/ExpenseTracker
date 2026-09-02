@@ -270,3 +270,15 @@ test('the mirror carries this list only, and no photo URLs', () => {
   assert.strictEqual(mirror[1].hasPhotos, false);
   assert.strictEqual(JSON.stringify(mirror).includes('storage/private.jpg'), false);
 });
+
+test('the shared-list functions are registered under the names firebase deploys', () => {
+  const mod = require('../index');
+  // A rename or a typo here means the trigger silently isn't deployed, and a
+  // guest's edits pile up in the ops queue forever.
+  assert.ok(mod.applyListOps, 'applyListOps must be exported');
+  assert.ok(mod.shareActivityNotifications, 'shareActivityNotifications must be exported');
+  // The ones that were already there, so this test notices if one is dropped.
+  for (const name of ['dailyNotifications', 'todoReminders', 'crashReminders', 'sendTestEmail']) {
+    assert.ok(mod[name], `${name} must still be exported`);
+  }
+});

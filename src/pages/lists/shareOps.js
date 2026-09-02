@@ -155,3 +155,49 @@ export function applyOp(items = [], op, listId = null) {
 export function applyOps(items = [], ops = [], listId = null) {
   return ops.reduce((acc, op) => applyOp(acc, op, listId), items);
 }
+
+/**
+ * How long an op may sit in the overlay before it's dropped regardless.
+ *
+ * Rules pin an op's shape, but the server can still refuse one on its merits —
+ * the list is full, the item turned out to be a heading. Such an op never shows
+ * up in the mirror, so without a backstop it would sit on the guest's screen
+ * forever as a task that looks saved and isn't.
+ */
+export const OVERLAY_TTL_MS = 30000;
+
+/**
+ * Has the mirror caught up with this op?
+ *
+ * Deliberately *not* "is the mirror newer than the op": the op carries the
+ * guest's clock and the mirror carries the server's, so a phone a few minutes
+ * fast would hold its overlay forever — and an overlaid `toggle` applied on top
+ * of a mirror that already has it toggles it straight back, so the box the
+ * guest just ticked would quietly untick itself.
+ *
+ * Comparing against what the mirror actually shows needs no clocks to agree.
+ */
+export function opSettled(op, mirrorItems = []) {
+  const found = mirrorItems.find((i) => i.id === op.itemId);
+  switch (op.type) {
+    case 'add': return !!found;
+    case 'delete': return !found;
+    case 'toggle': {
+      if (!found) return true; // gone entirely — nothing left to overlay
+      // The op flips whatever it found at the time; settled once the mirror
+      // shows the other state.
+      return (found.status === 'done') !== (op.wasDone === true);
+    }
+    case 'update': {
+      if (!found) return true;
+      const fields = cleanFields(op.fields);
+      return Object.entries(fields).every(([key, value]) => (found[key] ?? null) === (value ?? null));
+    }
+    default: return true;
+  }
+}
+
+/** The overlay entries still worth showing over the mirror. */
+export function pruneOverlay(ops = [], mirrorItems = [], now = Date.now()) {
+  return ops.filter((op) => !opSettled(op, mirrorItems) && (now - op.at) < OVERLAY_TTL_MS);
+}

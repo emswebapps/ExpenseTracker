@@ -5,7 +5,8 @@ import { generateId, currentMonthKey, getBillStatus, nextBillStatus, isTaskList 
 import { createSession as createCrashSession, defaultReleaseAt } from '../pages/crash/protocol.js';
 import { pruneSessions } from '../pages/crash/stats.js';
 import { normalizeMed, supplyAfterDose, DEFAULT_MED } from '../pages/crash/meds.js';
-import { notificationPermission, requestNotificationPermission, sendNotification, computeDueAt, todoReminderAt, registerFCMToken, onForegroundMessage, scheduleShiftNotification, cancelShiftNotification } from '../utils/notifications';
+import { notificationPermission, requestNotificationPermission, sendNotification, computeDueAt, todoReminderAt, localTodayISO, registerFCMToken, onForegroundMessage, scheduleShiftNotification, cancelShiftNotification } from '../utils/notifications';
+import { planWeeks, weeklyConfig } from '../pages/lists/weeks.js';
 
 const AppContext = createContext(null);
 
@@ -534,14 +535,18 @@ export function AppProvider({ children, uid }) {
   // each of those calls closes over the same `shoppingItems`, so N calls in a
   // row would all append to the same starting array and only the last would
   // survive.
-  const addShoppingItems = useCallback((items) => {
+  //
+  // `keepIds` is for generated rows — the weekly planner's day headings carry
+  // ids derived from their date, which is what stops a second run from
+  // building a duplicate Monday.
+  const addShoppingItems = useCallback((items, { keepIds = false } = {}) => {
     if (!items || items.length === 0) return;
     const now = new Date().toISOString();
     persistShoppingItems([
       ...shoppingItems,
       ...items.map((item) => ({
         ...item,
-        id: generateId(),
+        id: (keepIds && item.id) ? item.id : generateId(),
         createdAt: now,
         dueAt: item.dueAt ?? computeDueAt(item.dueDate, item.dueTime),
       })),
@@ -858,6 +863,85 @@ export function AppProvider({ children, uid }) {
       debouncedSync({ settings: next });
     }
   }, [cloudLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Weekly planner: keep the standing weeks built ──
+  // A list with `weekly.enabled` always has the current week and the next one
+  // laid out, one section per week and one day heading per day. Building that
+  // by hand every Sunday is the chore the setting exists to remove.
+  //
+  // It runs on load and again whenever the app comes back to the foreground on
+  // a *different local date* — a phone left open across midnight is the normal
+  // case, not the exception, and the week has to be there when it's opened in
+  // the morning. `planWeeks` returns null when nothing is owed, so the common
+  // path costs one comparison per weekly list and no write at all.
+  const plannedRef = useRef(new Map()); // listId → the local date it was last planned
+
+  // Re-runs when a weekly list is created or its generated-through mark moves.
+  // Without this a list switched to weekly wouldn't lay itself out until the
+  // next foreground, which reads as the setting not working.
+  const weeklySignature = shoppingLists
+    .filter((l) => !l.archived && l.weekly?.enabled)
+    .map((l) => `${l.id}:${l.weekly.generatedThrough || ''}`)
+    .join('|');
+
+  useEffect(() => {
+    if (uid && !cloudLoaded) return;
+
+    const runPlanner = () => {
+      const today = localTodayISO();
+      const lists = stateRef.current.shoppingLists || [];
+      const items = stateRef.current.shoppingItems || [];
+
+      const due = lists.filter((l) => (
+        !l.archived && l.weekly?.enabled && plannedRef.current.get(l.id) !== today
+      ));
+      if (due.length === 0) return;
+
+      const plans = due
+        .map((list) => [list, planWeeks(list, items, new Date())])
+        .filter(([, plan]) => plan);
+
+      // Marked even when there was nothing to build, so a list that's already
+      // up to date isn't re-checked on every foreground of the day.
+      for (const list of due) plannedRef.current.set(list.id, today);
+      if (plans.length === 0) return;
+
+      const now = new Date().toISOString();
+      const listPatch = new Map();
+      const newItems = [];
+      for (const [list, plan] of plans) {
+        listPatch.set(list.id, {
+          sections: [...(list.sections || []), ...plan.sections],
+          weekly: { ...weeklyConfig(list), generatedThrough: plan.generatedThrough },
+          updatedAt: now,
+        });
+        newItems.push(...plan.items.map((item) => ({
+          ...item,
+          createdAt: now,
+          dueAt: computeDueAt(item.dueDate, item.dueTime),
+        })));
+      }
+
+      // One write for both halves: sections and the day headings that point at
+      // them must never be able to land separately.
+      const nextLists = (stateRef.current.shoppingLists || []).map((l) => (
+        listPatch.has(l.id) ? { ...l, ...listPatch.get(l.id) } : l
+      ));
+      const nextItems = [...(stateRef.current.shoppingItems || []), ...newItems];
+      setShoppingListsState(nextLists);
+      setShoppingItemsState(nextItems);
+      if (!testModeRef.current) {
+        storage.setShoppingLists(nextLists);
+        storage.setShoppingItems(nextItems);
+        debouncedSync({ shoppingLists: nextLists, shoppingItems: nextItems });
+      }
+    };
+
+    runPlanner();
+    const onVisible = () => { if (document.visibilityState === 'visible') runPlanner(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [cloudLoaded, uid, debouncedSync, weeklySignature]);
 
   // ── Back-fill dueAt on to-do items saved before absolute due instants ──
   // The Cloud Function schedules pushes off `dueAt`; without it, it has to fall

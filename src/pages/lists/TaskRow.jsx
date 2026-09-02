@@ -236,15 +236,19 @@ export default function TaskRow({
         </button>
       </div>
 
-      {/* Behind the row on the left — revealed by swiping right. */}
-      <div style={{
-        position: 'absolute', top: 0, left: 0, bottom: 0, width: `${Math.max(0, swipe.dx)}px`,
-        backgroundColor: isDone ? 'var(--warn)' : 'var(--positive)',
-        display: 'flex', alignItems: 'center', justifyContent: 'flex-start',
-        paddingLeft: '1rem', color: '#fff', overflow: 'hidden',
-      }}>
-        {isDone ? <RotateCcw size={18} style={{ flexShrink: 0 }} /> : <CheckCircle2 size={18} style={{ flexShrink: 0 }} />}
-      </div>
+      {/* Behind the row on the left — revealed by swiping right. Rendered only
+          while the swipe is actually open: at rest its width is 0, but the
+          padding below still gives it a 1rem stripe of colour down the edge. */}
+      {swipe.dx > 0 && (
+        <div style={{
+          position: 'absolute', top: 0, left: 0, bottom: 0, width: `${swipe.dx}px`,
+          backgroundColor: isDone ? 'var(--warn)' : 'var(--positive)',
+          display: 'flex', alignItems: 'center', justifyContent: 'flex-start',
+          paddingLeft: '1rem', color: '#fff', overflow: 'hidden',
+        }}>
+          {isDone ? <RotateCcw size={18} style={{ flexShrink: 0 }} /> : <CheckCircle2 size={18} style={{ flexShrink: 0 }} />}
+        </div>
+      )}
 
       {/* The row itself. Opaque, so nothing behind it shows through at rest. */}
       <div
@@ -253,14 +257,13 @@ export default function TaskRow({
           ...SWIPE_ROW_STYLE,
           position: 'relative',
           padding: `0.75rem 0.5rem 0.75rem ${1 + depth * 1.5}rem`,
-          opacity: (isDone || isBlocked) ? 0.55 : 1,
           backgroundColor: heading ? 'var(--surface2)' : 'var(--surface)',
           backgroundImage: isOverdue && pendingItem ? 'linear-gradient(rgba(244,63,94,0.06), rgba(244,63,94,0.06))' : 'none',
           transform: `translateX(${swipe.dx}px)`,
           transition: swipe.dragging ? 'none' : 'transform 0.2s ease',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', opacity: (isDone || isBlocked) ? 0.55 : 1 }}>
           <button
             onClick={() => onToggleStatus(item)}
             aria-label={isDone ? `Mark ${item.name} as not done` : `Complete ${item.name}`}

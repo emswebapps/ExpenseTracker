@@ -12,6 +12,10 @@ import TodayView from './lists/TodayView';
 import { collectAgenda } from './lists/agenda';
 import { buildNextOccurrenceGroup } from './lists/recurrence.js';
 import { descendantIds, isHeading } from './lists/subtasks.js';
+import {
+  weekStartISO, weekLabel, weekSectionId, weekDates, addDaysISO,
+  dayHeadingName, dayHeadingId, weeklyConfig,
+} from './lists/weeks.js';
 import { ExportModal } from './lists/shareText';
 import { PasteImportModal } from './lists/pasteImport';
 import { GroceryListCard } from './lists/GroceryListCard';
@@ -112,8 +116,8 @@ export default function ShoppingLists() {
     setEditItem(item);
   };
 
-  const handleAddTaskDetailed = (list) => {
-    setAddTask({ list, draftId: generateId(), attachments: [] });
+  const handleAddTaskDetailed = (list, sectionId = null) => {
+    setAddTask({ list, sectionId, draftId: generateId(), attachments: [] });
   };
 
   // Abandoning the form has to take any already-uploaded photos with it,
@@ -216,6 +220,66 @@ export default function ShoppingLists() {
     updateShoppingItem(item.id, { status: unblocking ? 'pending' : 'blocked', completedAt: null });
   };
 
+  // ── Sections ──────────────────────────────────────────────────────────────
+  const handleRenameSection = (list, sectionId, name) => {
+    updateShoppingList(list.id, {
+      sections: (list.sections || []).map((s) => (s.id === sectionId ? { ...s, name } : s)),
+    });
+  };
+
+  // Deleting a column keeps its tasks: they lose their `sectionId` and turn up
+  // under Unfiled. Throwing away a week's work because the header was tidied
+  // away is not a trade anyone would choose.
+  const handleDeleteSection = (list, sectionId) => {
+    updateShoppingList(list.id, {
+      sections: (list.sections || []).filter((s) => s.id !== sectionId),
+    });
+    const stranded = shoppingItems.filter((i) => i.listId === list.id && i.sectionId === sectionId);
+    if (stranded.length > 0) updateShoppingItems(stranded.map((i) => i.id), { sectionId: null });
+  };
+
+  const handleSetViewMode = (list, mode) => updateShoppingList(list.id, { viewMode: mode });
+
+  /**
+   * Build the week after the last one the list already has — the manual
+   * counterpart to the automatic generation, for when you want to plan further
+   * out than the two weeks that stand by default.
+   */
+  const handleAddWeek = (list) => {
+    const cfg = weeklyConfig(list);
+    const starts = (list.sections || [])
+      .map((s) => s.startDate)
+      .filter(Boolean)
+      .sort();
+    const lastStart = starts[starts.length - 1] || weekStartISO(new Date(), cfg.startDay);
+    const startISO = addDaysISO(lastStart, 7);
+    const endISO = addDaysISO(startISO, 6);
+    const id = weekSectionId(startISO);
+    if ((list.sections || []).some((s) => s.id === id)) return;
+
+    updateShoppingList(list.id, {
+      sections: [
+        ...(list.sections || []),
+        { id, name: weekLabel(startISO, endISO), startDate: startISO, endDate: endISO, order: Date.parse(`${startISO}T00:00:00Z`) },
+      ],
+      // Keep the automatic generator from treating this week as still owed.
+      weekly: { ...cfg, generatedThrough: cfg.generatedThrough && cfg.generatedThrough > startISO ? cfg.generatedThrough : startISO },
+    });
+
+    const existing = new Set(shoppingItems.filter((i) => i.listId === list.id).map((i) => i.id));
+    const days = weekDates(startISO, cfg.days, cfg.startDay)
+      .filter(({ dateISO }) => !existing.has(dayHeadingId(list.id, dateISO)))
+      .map(({ dateISO, dayOfWeek }) => ({
+        id: dayHeadingId(list.id, dateISO),
+        listId: list.id, sectionId: id, parentId: null, header: true,
+        name: dayHeadingName(dayOfWeek, cfg.emoji),
+        notes: null, address: null, status: 'pending', completedAt: null, flagged: false,
+        dueDate: dateISO, dueTime: null, notifyEnabled: false, remindOffsetMinutes: 0,
+        repeat: null, attachments: [],
+      }));
+    if (days.length > 0) addShoppingItems(days, { keepIds: true });
+  };
+
   const cardProps = (list) => ({
     list,
     defaultExpanded: list.id === focusListId,
@@ -246,6 +310,10 @@ export default function ShoppingLists() {
     onSetBlocked: handleSetBlocked,
     onAddTaskDetailed: handleAddTaskDetailed,
     onAddSubtask: handleAddSubtask,
+    onRenameSection: handleRenameSection,
+    onDeleteSection: handleDeleteSection,
+    onSetViewMode: handleSetViewMode,
+    onAddWeek: handleAddWeek,
   });
 
   const wishlistCardProps = (list) => ({
@@ -429,6 +497,8 @@ export default function ShoppingLists() {
               ...data,
               id: addTask.draftId,
               listId: addTask.list.id,
+              sectionId: addTask.sectionId ?? null,
+              parentId: null,
               attachments: addTask.attachments,
               flagged: false,
               completedAt: null,

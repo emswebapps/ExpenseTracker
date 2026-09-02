@@ -7,6 +7,7 @@ import { getDueDateMs, localTodayISO, notificationPermission } from '../../utils
 import { listTypeMeta, ListDueBadge, fmtDate, MENU_BTN, useTicker, useNow } from './listMeta';
 import { groupTasks } from './taskGroups';
 import { indexChildren, topLevelItems, isHeading } from './subtasks';
+import { weekSectionFor, weeklyConfig } from './weeks';
 import { hasSections, splitBySection, defaultSectionIndex, splitByAge } from './sections';
 import SectionBoard from './SectionBoard';
 import { parseTaskInput } from '../../utils/parseTaskInput.js';
@@ -35,6 +36,8 @@ export function TaskListCard({
   const [expanded, setExpanded] = useState(defaultExpanded);
   const [menuOpen, setMenuOpen] = useState(false);
   const [quickAdd, setQuickAdd] = useState('');
+  // Where a just-added task went, when that isn't the column on screen.
+  const [filedNote, setFiledNote] = useState(null); // { label, sectionId }
   // Finished work is context, not the job in hand — it opens collapsed.
   const [showDone, setShowDone] = useState(false);
 
@@ -120,6 +123,16 @@ export function TaskListCard({
     const notify = !!dueDate && notificationPermission() === 'granted';
     onAddTodoItem(makeItem(name, { dueDate, dueTime, notifyEnabled: notify }));
     setQuickAdd('');
+
+    // "dentist dec 14" gets filed into December, which means it leaves the
+    // column being looked at. Say where it went, and offer to go there —
+    // otherwise typing a date makes the task appear to vanish.
+    if (list.weekly?.enabled && dueDate) {
+      const target = weekSectionFor(dueDate, weeklyConfig(list).startDay);
+      setFiledNote(target.id === activeSectionId ? null : { label: target.name, sectionId: target.id });
+    } else {
+      setFiledNote(null);
+    }
   };
 
   const handlePaste = (e) => pasteAsItems(e, {
@@ -273,6 +286,30 @@ export function TaskListCard({
                 </div>
               );
             })
+          )}
+          {filedNote && (
+            <button
+              onClick={() => {
+                // The week may have only just been built, so look it up now.
+                const index = allSectionGroups.findIndex((g) => g.section?.id === filedNote.sectionId);
+                if (index >= 0) {
+                  setShowEarlier(true); // the target may be outside the recent run
+                  setActiveSection(index);
+                }
+                setFiledNote(null);
+              }}
+              style={{
+                width: '100%', display: 'flex', alignItems: 'center', gap: '0.375rem',
+                padding: '0.625rem 1rem', background: 'rgba(99,102,241,0.1)',
+                border: 'none', borderTop: '1px solid var(--border)',
+                cursor: 'pointer', textAlign: 'left',
+                fontSize: '0.8125rem', fontWeight: 600, color: 'var(--accent-text)',
+              }}
+            >
+              <CalendarPlus size={13} style={{ flexShrink: 0 }} />
+              Added to {filedNote.label}
+              <span style={{ marginLeft: 'auto', fontWeight: 700 }}>Go there →</span>
+            </button>
           )}
           <div style={{ padding: '0.75rem 1rem', display: 'flex', gap: '0.5rem' }}>
             <input

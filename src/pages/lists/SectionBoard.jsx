@@ -103,6 +103,11 @@ export default function SectionBoard({
   // Whether the initial scroll to the live week has already happened. Doing it
   // on every render would fight anyone swiping.
   const landed = useRef(false);
+  // The last index this board put itself on, either by scrolling or by
+  // reporting a swipe. Anything else means the change came from outside — the
+  // card jumping to the week a task was just filed into — and has to be
+  // scrolled to, since setting the index alone only moves the pager dots.
+  const settledIndex = useRef(activeIndex);
 
   // Positions come off the columns themselves rather than from
   // `index * clientWidth`. The two agree right up until they don't — a
@@ -132,6 +137,7 @@ export default function SectionBoard({
       const gap = Math.abs((el.children[i].offsetLeft - el.offsetLeft) - el.scrollLeft);
       if (gap < bestGap) { bestGap = gap; nearest = i; }
     }
+    settledIndex.current = nearest;
     if (nearest !== activeIndex) onActiveIndexChange(nearest);
   };
 
@@ -139,9 +145,20 @@ export default function SectionBoard({
     const el = scroller.current;
     const target = columnAt(index);
     if (!el || !target) return;
+    settledIndex.current = index;
     el.scrollTo({ left: target.offsetLeft - el.offsetLeft, behavior: 'smooth' });
     onActiveIndexChange(index);
   };
+
+  // Follow an index set from outside this component.
+  useEffect(() => {
+    if (!columns || activeIndex === settledIndex.current) return;
+    const el = scroller.current;
+    const target = columnAt(activeIndex);
+    if (!el || !target) return;
+    settledIndex.current = activeIndex;
+    el.scrollTo({ left: target.offsetLeft - el.offsetLeft, behavior: 'smooth' });
+  }, [columns, activeIndex, groups.length]);
 
   const rowsFor = (items) => items.map((item) => (
     <TaskRow

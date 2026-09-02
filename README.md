@@ -92,6 +92,16 @@ heading per day, and the actual work nested underneath.
   A week whose section you renamed is never rebuilt, and a week you deleted
   stays deleted rather than growing back tomorrow. *Add another week* in the
   list's ⋮ menu builds one further ahead.
+- **Dating something months out** — you don't have to build your way there. Set
+  a date on a task, or type one ("dentist dec 14", "oil change 3/2/27"), and
+  that week's section and day heading are created around it, with the task
+  filed underneath. The card says where it went and offers to take you there,
+  since a task dated in December leaves the column you were looking at.
+
+  What it won't override: a task you filed in a section you made yourself stays
+  there, and a genuine subtask ("pay deposit" under "book the venue") keeps its
+  parent and only changes week. Re-dating a task that sits under a day heading
+  moves it to the new date's heading.
 
 Reminders understand all of this: a push names the heading a task sits under
 ("Weekly To Do · MONDAY"), day headings never notify, and a list reminder counts

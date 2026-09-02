@@ -6,7 +6,7 @@ import {
 } from '../utils/firestoreSync';
 import { generateId, currentMonthKey, getBillStatus, nextBillStatus, isTaskList } from '../utils/helpers';
 import { notificationPermission, requestNotificationPermission, sendNotification, computeDueAt, todoReminderAt, localTodayISO, registerFCMToken, onForegroundMessage, scheduleShiftNotification, cancelShiftNotification } from '../utils/notifications';
-import { planWeeks, weeklyConfig } from '../pages/lists/weeks.js';
+import { planWeeks, weeklyConfig, refileByDate } from '../pages/lists/weeks.js';
 
 const AppContext = createContext(null);
 
@@ -825,6 +825,72 @@ export function AppProvider({ children, uid }) {
     }
     return { ok: true };
   }, [buildSnapshot, settings]);
+
+  // ── Filing dated tasks into the week they belong to ───────────────────────
+  // Give a task a date months out and its week and day are built around it.
+  // `planWeeks` only keeps the standing weeks up; without this, a task dated in
+  // December had nowhere to go — there was no December — so it sat in whichever
+  // column happened to be open.
+  //
+  // Done as an effect rather than inside each mutator because a date can be set
+  // from four places (quick-add, the row's date panel, the full editor, a
+  // paste) and a fifth that isn't even on this device: a guest editing a shared
+  // list. One rule at the end covers all of them, and it also files tasks that
+  // were dated before the planner existed.
+  //
+  // `refileByDate` returns null when there's nothing to do, which is the answer
+  // almost every time this runs.
+  const itemFilingSignature = shoppingItems
+    .map((i) => `${i.id}:${i.dueDate || ''}:${i.sectionId || ''}:${i.parentId || ''}:${i.status}`)
+    .join('|');
+
+  useEffect(() => {
+    if (uid && !cloudLoaded) return;
+
+    const lists = stateRef.current.shoppingLists || [];
+    const items = stateRef.current.shoppingItems || [];
+    const plans = lists
+      .filter((l) => !l.archived && l.weekly?.enabled)
+      .map((list) => [list, refileByDate(list, items)])
+      .filter(([, plan]) => plan);
+    if (plans.length === 0) return;
+
+    const now = new Date().toISOString();
+    const listPatch = new Map();
+    const newItems = [];
+    const patchById = new Map();
+
+    for (const [list, plan] of plans) {
+      if (plan.sections.length > 0) {
+        listPatch.set(list.id, {
+          sections: [...(list.sections || []), ...plan.sections],
+          updatedAt: now,
+        });
+      }
+      newItems.push(...plan.items.map((item) => ({
+        ...item,
+        createdAt: now,
+        dueAt: computeDueAt(item.dueDate, item.dueTime),
+      })));
+      for (const patch of plan.patches) patchById.set(patch.id, patch);
+    }
+
+    // One write: a task pointing at a section that landed in a later write
+    // would render as unfiled in between.
+    const nextLists = lists.map((l) => (listPatch.has(l.id) ? { ...l, ...listPatch.get(l.id) } : l));
+    const nextItems = [
+      ...items.map((i) => (patchById.has(i.id) ? { ...i, ...patchById.get(i.id) } : i)),
+      ...newItems,
+    ];
+
+    setShoppingListsState(nextLists);
+    setShoppingItemsState(nextItems);
+    if (!testModeRef.current) {
+      storage.setShoppingLists(nextLists);
+      storage.setShoppingItems(nextItems);
+      debouncedSync({ shoppingLists: nextLists, shoppingItems: nextItems });
+    }
+  }, [cloudLoaded, uid, debouncedSync, itemFilingSignature, weeklySignature]);
 
   // ── How full the Firestore document is ────────────────────────────────────
   // Everything this app stores lives in one document, `users/{uid}/data/app`,

@@ -21,6 +21,9 @@ export const QUICK_DATES = [
   { label: 'Today', days: 0 },
   { label: 'Tomorrow', days: 1 },
   { label: 'Next week', days: 7 },
+  // Anything further out is what the date field is for, but a month deserves a
+  // chip — it's the horizon people actually reach for after "next week".
+  { label: 'In a month', days: 30 },
 ];
 
 /**

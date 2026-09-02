@@ -192,3 +192,118 @@ export function planWeeks(list, items = [], now = new Date()) {
   if (sections.length === 0 && newItems.length === 0) return null;
   return { sections, items: newItems, generatedThrough };
 }
+
+/** The week section a date belongs to, whether or not it exists yet. */
+export function weekSectionFor(dateISO, startDay = WEEKLY_DEFAULTS.startDay) {
+  const startISO = weekStartISO(new Date(`${dateISO}T12:00:00`), startDay);
+  const endISO = addDaysISO(startISO, 6);
+  return {
+    id: weekSectionId(startISO),
+    name: weekLabel(startISO, endISO),
+    startDate: startISO,
+    endDate: endISO,
+    order: Date.parse(`${startISO}T00:00:00Z`),
+  };
+}
+
+/** The day of the week a "YYYY-MM-DD" falls on. */
+function dayOfWeekFor(dateISO) {
+  const [y, m, d] = dateISO.split('-').map(Number);
+  return new Date(y, m - 1, d, 12).getDay();
+}
+
+/**
+ * File dated tasks into the week they actually fall in, building that week if
+ * it isn't there yet.
+ *
+ * This is what makes "add it to a day three months out" work. `planWeeks` only
+ * keeps the standing weeks built, so before this, dating a task in December
+ * left it stranded in whichever column happened to be open — there was no
+ * December to put it in, and no way to reach one short of pressing "Add
+ * another week" fifteen times.
+ *
+ * Now the date leads and the structure follows: give a task a date and its
+ * week section and day heading are created around it.
+ *
+ * What it deliberately leaves alone:
+ *
+ *   - undated tasks, and finished ones — re-filing history is churn
+ *   - the day headings themselves, which are placed when generated
+ *   - anything sitting in a hand-made section (no `endDate`), because that was
+ *     a deliberate choice about where it goes and a date shouldn't override it
+ *   - the nesting of a genuine subtask: a task under "Book the venue" stays
+ *     under it. Only a task nested under a *day heading*, or under nothing at
+ *     all, gets re-homed to the new date's heading.
+ *
+ * Pure, and returns null when there's nothing to do — it runs on every change
+ * to the list, so the common answer has to be cheap.
+ *
+ * @returns {{sections: object[], items: object[], patches: object[]}|null}
+ */
+export function refileByDate(list, items = []) {
+  const cfg = weeklyConfig(list);
+  if (!cfg.enabled) return null;
+
+  const mine = items.filter((i) => i.listId === list.id);
+  if (mine.length === 0) return null;
+
+  const byId = new Map(mine.map((i) => [i.id, i]));
+  const existingSections = new Map((list.sections || []).map((sec) => [sec.id, sec]));
+  const newSections = new Map();
+  const newHeadings = new Map();
+  const patches = [];
+
+  for (const item of mine) {
+    if (!item.dueDate || item.header) continue;
+    if (item.status === 'done') continue;
+
+    // A hand-made section is a decision; a generated week is a filing rule.
+    const currentSection = existingSections.get(item.sectionId);
+    if (currentSection && !currentSection.endDate) continue;
+
+    const target = weekSectionFor(item.dueDate, cfg.startDay);
+    const headingId = dayHeadingId(list.id, item.dueDate);
+    const parent = item.parentId ? byId.get(item.parentId) : null;
+
+    // Only re-home tasks that hang off a day, or off nothing.
+    const followsTheDay = !parent || !!parent.header;
+    const wantsParent = followsTheDay ? headingId : item.parentId;
+    const alreadyRight = item.sectionId === target.id && item.parentId === wantsParent;
+    if (alreadyRight) continue;
+
+    if (!existingSections.has(target.id) && !newSections.has(target.id)) {
+      newSections.set(target.id, target);
+    }
+
+    if (followsTheDay && !byId.has(headingId) && !newHeadings.has(headingId)) {
+      newHeadings.set(headingId, {
+        id: headingId,
+        listId: list.id,
+        sectionId: target.id,
+        parentId: null,
+        header: true,
+        name: dayHeadingName(dayOfWeekFor(item.dueDate), cfg.emoji),
+        notes: null,
+        address: null,
+        status: 'pending',
+        completedAt: null,
+        flagged: false,
+        dueDate: item.dueDate,
+        dueTime: null,
+        notifyEnabled: false,
+        remindOffsetMinutes: 0,
+        repeat: null,
+        attachments: [],
+      });
+    }
+
+    patches.push({ id: item.id, sectionId: target.id, parentId: wantsParent });
+  }
+
+  if (patches.length === 0 && newSections.size === 0) return null;
+  return {
+    sections: [...newSections.values()],
+    items: [...newHeadings.values()],
+    patches,
+  };
+}

@@ -5,6 +5,7 @@ import { test } from 'node:test';
 import {
   weekStartISO, addDaysISO, ordinal, weekLabel, weekSectionId,
   weekDates, dayHeadingName, dayHeadingId, weeklyConfig, planWeeks,
+  refileByDate, weekSectionFor,
 } from './weeks.js';
 
 // Local noon, so nothing here depends on the machine's time zone offset.
@@ -174,4 +175,127 @@ test('planWeeks respects a renamed week section', () => {
   // renamed section alone because its id is already there.
   const again = planWeeks(settled, first.items, localNoon('2026-09-09'));
   assert.equal(again, null);
+});
+
+// ── Filing a dated task into the week it belongs to ─────────────────────────
+
+const weekly = (over = {}) => ({
+  id: 'L1', weekly: { enabled: true }, sections: [], ...over,
+});
+const task = (over = {}) => ({
+  id: 'T1', listId: 'L1', name: 'Dentist', status: 'pending',
+  parentId: null, sectionId: null, dueDate: null, header: false, ...over,
+});
+
+test('a task dated months out builds its week and day, and lands in them', () => {
+  const list = weekly();
+  const plan = refileByDate(list, [task({ dueDate: '2026-12-14' })]);
+
+  assert.deepStrictEqual(plan.sections.map((s) => s.name), ['December 14th–20th']);
+  assert.strictEqual(plan.sections[0].id, 'wk-2026-12-14');
+  assert.strictEqual(plan.items.length, 1);
+  assert.strictEqual(plan.items[0].name, '📅 MONDAY 📅');
+  assert.strictEqual(plan.items[0].dueDate, '2026-12-14');
+  assert.deepStrictEqual(plan.patches, [
+    { id: 'T1', sectionId: 'wk-2026-12-14', parentId: 'day-L1-2026-12-14' },
+  ]);
+});
+
+test('the day heading is named for the weekday the date actually falls on', () => {
+  // 2027-03-02 is a Tuesday.
+  const plan = refileByDate(weekly(), [task({ dueDate: '2027-03-02' })]);
+  assert.strictEqual(plan.items[0].name, '📅 TUESDAY 📅');
+  assert.strictEqual(plan.sections[0].name, 'March 1st–7th');
+});
+
+test('a second task on the same day reuses the day that was just made', () => {
+  const plan = refileByDate(weekly(), [
+    task({ id: 'T1', dueDate: '2026-12-14' }),
+    task({ id: 'T2', dueDate: '2026-12-14' }),
+  ]);
+  assert.strictEqual(plan.sections.length, 1);
+  assert.strictEqual(plan.items.length, 1);
+  assert.strictEqual(plan.patches.length, 2);
+  assert.ok(plan.patches.every((p) => p.parentId === 'day-L1-2026-12-14'));
+});
+
+test('an existing week and day are reused rather than rebuilt', () => {
+  const list = weekly({ sections: [weekSectionFor('2026-12-14')] });
+  const heading = task({
+    id: 'day-L1-2026-12-14', header: true, name: '📅 MONDAY 📅',
+    dueDate: '2026-12-14', sectionId: 'wk-2026-12-14',
+  });
+  const plan = refileByDate(list, [heading, task({ dueDate: '2026-12-14' })]);
+  assert.deepStrictEqual(plan.sections, []);
+  assert.deepStrictEqual(plan.items, []);
+  assert.strictEqual(plan.patches.length, 1);
+});
+
+test('a task already filed correctly is left alone', () => {
+  const list = weekly({ sections: [weekSectionFor('2026-12-14')] });
+  const items = [
+    task({ id: 'day-L1-2026-12-14', header: true, dueDate: '2026-12-14', sectionId: 'wk-2026-12-14' }),
+    task({ dueDate: '2026-12-14', sectionId: 'wk-2026-12-14', parentId: 'day-L1-2026-12-14' }),
+  ];
+  assert.strictEqual(refileByDate(list, items), null);
+});
+
+test('re-dating a task moves it to the new week and the new day', () => {
+  const list = weekly({ sections: [weekSectionFor('2026-12-14'), weekSectionFor('2027-01-11')] });
+  const items = [
+    task({ id: 'day-L1-2026-12-14', header: true, dueDate: '2026-12-14', sectionId: 'wk-2026-12-14' }),
+    // Was under Monday the 14th, now dated the 13th of January.
+    task({ dueDate: '2027-01-13', sectionId: 'wk-2026-12-14', parentId: 'day-L1-2026-12-14' }),
+  ];
+  const plan = refileByDate(list, items);
+  assert.deepStrictEqual(plan.patches, [
+    { id: 'T1', sectionId: 'wk-2027-01-11', parentId: 'day-L1-2027-01-13' },
+  ]);
+  // The week exists already; only the new day has to be built.
+  assert.deepStrictEqual(plan.sections, []);
+  assert.strictEqual(plan.items[0].name, '📅 WEDNESDAY 📅');
+});
+
+test('a genuine subtask keeps its parent and only moves week', () => {
+  const list = weekly({ sections: [weekSectionFor('2026-12-14')] });
+  const items = [
+    task({ id: 'P1', name: 'Book the venue', dueDate: '2026-12-14', sectionId: 'wk-2026-12-14' }),
+    task({ id: 'C1', name: 'Pay deposit', parentId: 'P1', dueDate: '2027-02-03', sectionId: 'wk-2026-12-14' }),
+  ];
+  const plan = refileByDate(list, items);
+  const child = plan.patches.find((p) => p.id === 'C1');
+  assert.strictEqual(child.parentId, 'P1', 'a real subtask stays under its task');
+  assert.strictEqual(child.sectionId, 'wk-2027-02-01');
+});
+
+test('undated, finished and heading rows are never re-filed', () => {
+  const list = weekly({ sections: [weekSectionFor('2026-12-14')] });
+  assert.strictEqual(refileByDate(list, [task({ dueDate: null })]), null);
+  assert.strictEqual(refileByDate(list, [task({ dueDate: '2026-12-14', status: 'done' })]), null);
+  assert.strictEqual(
+    refileByDate(list, [task({ header: true, dueDate: '2027-06-01', sectionId: 'wk-2026-12-14' })]),
+    null,
+  );
+});
+
+test('a hand-made section is a decision the date does not override', () => {
+  const list = weekly({ sections: [{ id: 'someday', name: 'Someday', order: 99 }] });
+  const items = [task({ dueDate: '2027-06-01', sectionId: 'someday' })];
+  assert.strictEqual(refileByDate(list, items), null);
+});
+
+test('another list\'s tasks are not touched', () => {
+  const plan = refileByDate(weekly(), [task({ listId: 'L2', dueDate: '2026-12-14' })]);
+  assert.strictEqual(plan, null);
+});
+
+test('a list without the planner enabled files nothing', () => {
+  const list = { id: 'L1', sections: [] };
+  assert.strictEqual(refileByDate(list, [task({ dueDate: '2026-12-14' })]), null);
+});
+
+test('the emoji setting is honoured on a day built this way', () => {
+  const list = weekly({ weekly: { enabled: true, emoji: false } });
+  const plan = refileByDate(list, [task({ dueDate: '2026-12-14' })]);
+  assert.strictEqual(plan.items[0].name, 'MONDAY');
 });

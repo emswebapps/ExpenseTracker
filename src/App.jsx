@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { AuthGate, LoadingScreen } from './AppFrame';
@@ -48,10 +48,15 @@ function AuthenticatedApp() {
           <Route path="/lists" element={<ShoppingLists />} />
           <Route path="/planning" element={<Planning />} />
           <Route path="/vault" element={<DocumentVault />} />
-          {/* Anything unrecognised lands on the Dashboard rather than a blank
-              screen. This is what catches `/reset/`, whose standalone app was
-              removed but whose icon may still be on someone's home screen, and
-              `/crash`, which the Reset notifications used to open. */}
+          {/* The medication app moved out to its own deployment at /Rx/. An
+              icon installed under the old name, and any notification sent
+              before the move, still point here — so send them where the app
+              actually lives rather than dropping them on the Dashboard, which
+              looks like the feature was deleted. */}
+          <Route path="/reset/*" element={<RedirectToRx />} />
+          <Route path="/crash/*" element={<RedirectToRx />} />
+          {/* Anything else unrecognised lands on the Dashboard rather than a
+              blank screen. */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
         </Suspense>
@@ -76,6 +81,20 @@ function AppShell() {
     </Routes>
     </Suspense>
   );
+}
+
+/**
+ * Out of this app entirely and into Rx.
+ *
+ * A different base path, so React Router can't do it — this has to be a real
+ * navigation. `replace` keeps the dead URL out of the back stack, so backing
+ * out of Rx doesn't bounce straight through here again.
+ */
+function RedirectToRx() {
+  useEffect(() => {
+    window.location.replace(`/Rx/${window.location.search}${window.location.hash}`);
+  }, []);
+  return null;
 }
 
 export default function App() {

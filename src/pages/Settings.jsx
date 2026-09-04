@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { User, Trash2, AlertTriangle, Wallet, PiggyBank, DollarSign, Sun, Moon, LogOut, Mail, Download, Share2, RefreshCw, Copy, Check, X, Bell, BellOff, Lock, FolderOpen, ChevronRight, FlaskConical, Database } from 'lucide-react';
+import { User, Trash2, AlertTriangle, Wallet, PiggyBank, DollarSign, Sun, Moon, LogOut, Mail, Download, Share2, RefreshCw, Copy, Check, X, Bell, BellOff, Lock, FolderOpen, ChevronRight, FlaskConical, Database, Pill } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
 import Modal from '../components/Modal';
@@ -513,6 +513,20 @@ export default function Settings() {
             <span>Open Document Vault</span>
             <ChevronRight size={16} style={{ color: 'var(--subtle)' }} />
           </button>
+        </section>
+
+        {/* Rx — a separate app, on the same login */}
+        <section className="mb-4" style={cardStyle}>
+          <div className="flex items-center gap-2 mb-1">
+            <Pill size={15} style={{ color: 'var(--accent-text)' }} />
+            <span style={sectionLabelStyle}>Rx</span>
+          </div>
+          <p style={{ fontSize: '0.8125rem', color: 'var(--muted)', marginBottom: '0.875rem' }}>Medications, doses and the crash protocol live in Rx now — its own app, on this same login, so everything already logged is there.</p>
+          <a href="/Rx/"
+            style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem 1rem', backgroundColor: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '0.875rem', cursor: 'pointer', color: 'var(--text)', fontSize: '0.875rem', fontWeight: 600, textDecoration: 'none' }}>
+            <span>Open Rx</span>
+            <ChevronRight size={16} style={{ color: 'var(--subtle)' }} />
+          </a>
         </section>
 
         {/* Notifications */}

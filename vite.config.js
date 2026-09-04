@@ -6,9 +6,12 @@ import { VitePWA } from 'vite-plugin-pwa'
 // Two installable apps from one build, on one origin:
 //
 //   index.html        → "Finance Manager" at /ExpenseTracker/
-//   reset/index.html  → "Reset"           at /ExpenseTracker/reset/
+//   rx/index.html     → "Rx"              at /ExpenseTracker/rx/
 //
-// Sharing an origin is deliberate: the standalone Reset app then shares the
+// plus reset/index.html, which is no longer an app at all — just a redirect
+// stub, so the icon people installed when Rx was called "Reset" keeps working.
+//
+// Sharing an origin is deliberate: the standalone Rx app then shares the
 // Firebase login, the localStorage cache and the Firestore document with the
 // main app, so both see the same data. What makes the phone treat them as two
 // separate installs is the manifests — distinct `id` values and
@@ -30,9 +33,13 @@ export default defineConfig({
       workbox: {
         clientsClaim: true,
         skipWaiting: true,
-        // Without this, an offline launch of the Reset app would fall back to
-        // index.html and quietly open the finance app instead.
-        navigateFallbackDenylist: [/^\/ExpenseTracker\/reset\//],
+        // Without this, an offline launch of Rx would fall back to index.html
+        // and quietly open the finance app instead. The reset path stays listed
+        // so the old install lands on its redirect rather than on Bills.
+        navigateFallbackDenylist: [
+          /^\/ExpenseTracker\/rx\//,
+          /^\/ExpenseTracker\/reset\//,
+        ],
       },
       includeAssets: ['favicon.ico', 'apple-touch-icon.png'],
     }),
@@ -41,6 +48,7 @@ export default defineConfig({
     rolldownOptions: {
       input: {
         main: 'index.html',
+        rx: 'rx/index.html',
         reset: 'reset/index.html',
       },
     },

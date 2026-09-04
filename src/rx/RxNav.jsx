@@ -1,16 +1,22 @@
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, Receipt, TrendingUp, ShoppingBag, ShoppingCart, Search } from 'lucide-react';
+import { CalendarCheck, Pill, Package, TrendingUp, Settings2 } from 'lucide-react';
 
+// The same treatment as the finance app's BottomNav, deliberately: the two are
+// siblings on one origin, and a person moving between them shouldn't have to
+// re-learn where their thumb goes.
+//
+// The crash protocol is not a tab. It's one accent row on Today — still a
+// single tap, but not a permanent fixture of every screen, which is the whole
+// point of the reorganisation.
 const links = [
-  { to: '/', label: 'Home', Icon: LayoutDashboard },
-  { to: '/bills', label: 'Bills', Icon: Receipt },
-  { to: '/purchases', label: 'Spend', Icon: ShoppingBag },
-  { to: '/income', label: 'Income', Icon: TrendingUp },
-  { to: '/lists', label: 'Lists', Icon: ShoppingCart },
-  { to: '/search', label: 'Search', Icon: Search },
+  { to: '/', label: 'Today', Icon: CalendarCheck },
+  { to: '/meds', label: 'Meds', Icon: Pill },
+  { to: '/supply', label: 'Supply', Icon: Package },
+  { to: '/history', label: 'History', Icon: TrendingUp },
+  { to: '/setup', label: 'Settings', Icon: Settings2 },
 ];
 
-export default function BottomNav() {
+export default function RxNav() {
   return (
     <nav
       className="fixed bottom-0 left-0 right-0 z-50"

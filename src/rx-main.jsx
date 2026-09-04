@@ -4,15 +4,16 @@ import { BrowserRouter } from 'react-router-dom';
 import './index.css';
 import { AuthProvider } from './context/AuthContext';
 import { AuthGate } from './AppFrame';
-import CrashProtocol from './pages/CrashProtocol';
+import RxApp from './rx/RxApp';
 
-// The standalone "Reset" app.
+// Rx — the standalone medication app.
 //
 // Same origin as the finance app, so it shares the login, the localStorage
-// cache and the Firestore document — the same data behind its own icon. What it
-// deliberately does NOT share is the bottom nav: there is no route out of here
-// into Bills, because at the moment this gets opened, every extra choice on
-// screen is a cost.
+// cache and the Firestore document: the same data behind its own icon. What it
+// deliberately does NOT share is the finance app's navigation. There is no
+// route from here into Bills, and none from there into here beyond a single
+// link in Settings — they are two apps that happen to keep their data in the
+// same place.
 
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.addEventListener('controllerchange', () => {
@@ -26,10 +27,10 @@ if ('serviceWorker' in navigator) {
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    <BrowserRouter basename="/ExpenseTracker/reset">
+    <BrowserRouter basename="/ExpenseTracker/rx">
       <AuthProvider>
-        <AuthGate loginTitle="Reset" loginIcon="/ExpenseTracker/reset-icon-192.png">
-          <CrashProtocol />
+        <AuthGate loginTitle="Rx" loginIcon="/ExpenseTracker/rx-icon-192.png">
+          <RxApp />
         </AuthGate>
       </AuthProvider>
     </BrowserRouter>

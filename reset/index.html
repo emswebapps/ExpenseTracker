@@ -2,19 +2,25 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="manifest" href="/ExpenseTracker/reset.webmanifest" />
-    <link rel="icon" type="image/png" sizes="192x192" href="/ExpenseTracker/reset-icon-192.png" />
-    <link rel="apple-touch-icon" sizes="180x180" href="/ExpenseTracker/reset-apple-touch.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="Reset" />
-    <meta name="theme-color" content="#0f172a" />
-    <title>Reset</title>
+    <meta name="robots" content="noindex" />
+    <meta http-equiv="refresh" content="0; url=/ExpenseTracker/rx/" />
+    <title>Rx</title>
+    <script>
+      // "Reset" became "Rx" when the crash protocol stopped being the whole app
+      // and became one tool inside a medication tracker. This page exists only
+      // so the icon already on someone's home screen keeps opening the app, and
+      // so notifications sent before the rename still land somewhere real.
+      //
+      // Query and hash are carried across: /reset/?open=anchors has to survive,
+      // because the scheduler's dedupe map means a push can be tapped a day
+      // after it was sent.
+      location.replace('/ExpenseTracker/rx/' + location.search + location.hash);
+    </script>
   </head>
   <body>
-    <div id="root"></div>
-    <script type="module" src="/src/reset-main.jsx"></script>
+    <p style="font: 16px system-ui; padding: 2rem">
+      This app is now called Rx. <a href="/ExpenseTracker/rx/">Open it →</a>
+    </p>
   </body>
 </html>

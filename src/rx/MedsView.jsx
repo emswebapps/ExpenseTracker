@@ -1,13 +1,12 @@
-import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Plus, Pill, Clock, AlertTriangle } from 'lucide-react';
-import { useApp } from '../../context/AppContext';
+import { useApp } from '../context/AppContext';
 import { useNow } from './useCountdown.js';
-import { formatClock } from './protocol.js';
+import { formatClock } from './time.js';
 import {
   normalizeMed, expectedDosesToday, supplyStatus, rulesForMed, formatOffset,
 } from './meds.js';
-import { ViewHeader, SupplyBar } from './medsUi.jsx';
-import MedEditor from './MedEditor.jsx';
+import { ViewHeader, SupplyBar, pageStyle } from './medsUi.jsx';
 
 const STATE_LABEL = {
   taken: { text: 'Taken', color: 'var(--positive-text)' },
@@ -24,22 +23,23 @@ const STATE_LABEL = {
  * holds the list, does the arithmetic, and repeats it back — it has no opinion
  * about any of it, and there is nothing here it filled in on their behalf.
  */
-export default function MedsView({ onBack }) {
-  const { crashMeds, crashDoses, addCrashMed } = useApp();
+export default function MedsView() {
+  const { crashMeds, crashDoses } = useApp();
+  const navigate = useNavigate();
   const now = useNow({ tick: 60_000, syncKey: `${crashMeds.length}:${crashDoses.length}` });
-  const [editingId, setEditingId] = useState(null);
 
   const expected = expectedDosesToday(crashMeds, crashDoses, now);
   const byMedId = new Map(expected.map((e) => [e.medId, e]));
-  const editing = editingId && crashMeds.find((m) => m.id === editingId);
 
-  const add = () => setEditingId(addCrashMed({ name: '' }).id);
+  // Straight to a blank page, which writes nothing until it is saved. The old
+  // version created the medication first and opened an editor over the top, so
+  // backing out left an "Untitled" row on this list for good.
+  const add = () => navigate('/meds/new');
 
   return (
-    <div className="app-page" style={{ padding: '1.25rem' }}>
+    <div className="app-page" style={pageStyle}>
       <ViewHeader
-        title="My medications"
-        onBack={onBack}
+        title="Medications"
         action={(
           <button onClick={add} aria-label="Add a medication" style={{
             width: '2.25rem', height: '2.25rem', borderRadius: '9999px', border: 'none', cursor: 'pointer',
@@ -76,7 +76,7 @@ export default function MedsView({ onBack }) {
             return (
               <button
                 key={med.id}
-                onClick={() => setEditingId(med.id)}
+                onClick={() => navigate(`/meds/${med.id}`)}
                 className="app-card"
                 style={{
                   padding: '1rem', textAlign: 'left', cursor: 'pointer', width: '100%',
@@ -120,8 +120,6 @@ export default function MedsView({ onBack }) {
           })}
         </div>
       )}
-
-      {editing && <MedEditor med={editing} onClose={() => setEditingId(null)} />}
     </div>
   );
 }

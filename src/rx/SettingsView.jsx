@@ -1,15 +1,20 @@
 import { useState } from 'react';
-import { ArrowLeft, Plus, X, Share2, Copy, Check, MessageSquare } from 'lucide-react';
-import { useApp } from '../../context/AppContext';
+import { Plus, X, Share2, Copy, Check, MessageSquare } from 'lucide-react';
+import { useApp } from '../context/AppContext';
 import { mergeKit, DEFAULT_WARNING_SIGNS } from './crashKit.js';
-import { BRAKE_VARIANTS, buildBrakeMessage, buildAgreement, smsHref } from './message.js';
+import { BRAKE_VARIANTS, buildBrakeMessage, buildAgreement, smsHref } from './crash/message.js';
 import { suggestedOnset, formatHours } from './window.js';
+import { pageStyle } from './medsUi.jsx';
 
 /**
  * The things you decide once, while you're fine, so none of them have to be
  * decided while you're not.
+ *
+ * Most of this screen is the crash protocol's setup rather than the medication
+ * list's, which is why it reads the way it does — the medications themselves
+ * are edited on their own pages, under the Meds tab.
  */
-export default function KitSetup({ onBack }) {
+export default function SettingsView() {
   const {
     crashKit, updateCrashKit, settings, notifPrefs, persistNotifPrefs,
     crashSessions, crashDoses,
@@ -47,19 +52,20 @@ export default function KitSetup({ onBack }) {
   };
 
   return (
-    <div className="app-page" style={{ padding: '1.25rem' }}>
+    <div className="app-page" style={pageStyle}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', paddingTop: '1rem', marginBottom: '1.5rem' }}>
-        <button onClick={onBack} aria-label="Back" style={{
-          width: '2.25rem', height: '2.25rem', borderRadius: '9999px', border: 'none', cursor: 'pointer',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          backgroundColor: 'var(--surface2)', color: 'var(--muted)',
-        }}>
-          <ArrowLeft size={17} />
-        </button>
         <h1 style={{ fontSize: '1.375rem', fontWeight: 800, color: 'var(--text)', letterSpacing: '-0.02em' }}>
-          My kit
+          Settings
         </h1>
       </div>
+
+      <p style={{
+        fontSize: '0.8125rem', color: 'var(--subtle)', lineHeight: 1.5,
+        marginBottom: '2rem', paddingBottom: '1.25rem', borderBottom: '1px solid var(--border)',
+      }}>
+        Your medications, doses, notes and history are yours. Nothing in Rx is
+        shared with anyone.
+      </p>
 
       <div style={section}>
         <h2 style={h2}>THE BASICS</h2>
@@ -130,7 +136,7 @@ export default function KitSetup({ onBack }) {
       <div style={section}>
         <h2 style={h2}>MY TIMING</h2>
         <p style={{ fontSize: '0.875rem', color: 'var(--subtle)', lineHeight: 1.5, marginBottom: '0.875rem' }}>
-          Log when you take your meds and the Crash tab shows tonight’s likely window.
+          Log when you take your meds and Today shows tonight’s likely window.
           These are just your own numbers — nothing here is advice about medication.
         </p>
         <p style={{ fontSize: '0.8125rem', color: 'var(--subtle)', lineHeight: 1.5, marginBottom: '0.875rem' }}>
@@ -260,6 +266,12 @@ export default function KitSetup({ onBack }) {
             onChange={(v) => setCrashPref('doseDue', v)}
             label="When a dose comes due"
             hint="Once, at the time you set. It goes quiet after that rather than asking again."
+          />
+          <Toggle
+            checked={notifPrefs.crash?.doseLate === true}
+            onChange={(v) => setCrashPref('doseLate', v)}
+            label="And again if I still haven't logged it"
+            hint="Off unless you want it. One more buzz, within the hour after the grace runs out — then it stops for the day."
           />
           <Toggle
             checked={notifPrefs.crash?.ruleReminders ?? true}

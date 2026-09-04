@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import Modal from '../../components/Modal';
 import { useApp } from '../../context/AppContext';
-import { mergeKit } from './crashKit.js';
+import { mergeKit } from '../crashKit.js';
 import { Chip } from './ui.jsx';
 import { signTimings, earliestSign } from './behaviors.js';
-import { formatHours } from './window.js';
+import { formatHours } from '../window.js';
 
 /**
  * The check-in that isn't a crash.

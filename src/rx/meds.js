@@ -136,7 +136,8 @@ export function doseForMedOnDay(medId, doses, dayTs) {
 }
 
 /**
- * When each med was due on the day containing `now`, and whether it happened.
+ * When each med was due on the local day containing `dayTs`, and whether it
+ * happened.
  *
  * `mode: 'clock'` reads straight off the wall clock. `mode: 'offset'` hangs off
  * another med: the anchor's *actual* logged time when there is one, so a late
@@ -146,8 +147,19 @@ export function doseForMedOnDay(medId, doses, dayTs) {
  * States: 'upcoming' (not yet), 'due' (now, or inside the grace), 'taken',
  * 'skipped' (past the grace with nothing logged), 'unknown' (an offset med
  * whose anchor can't be resolved — a broken chain, or a deleted anchor).
+ *
+ * The states are always resolved against `now`, never against `dayTs`, which is
+ * what lets the same function answer for a past day: on a day that finished
+ * hours ago every unlogged dose is already past its grace, so it settles to
+ * 'skipped' with no separate code path. That is how the adherence history is
+ * computed — see adherence.js.
+ *
+ * `late` is set when the dose *was* taken but after the grace ran out. It is
+ * deliberately separate from `state`, which stays 'taken': for today's screen a
+ * late dose is a taken dose and shouldn't nag. Only history draws the
+ * distinction.
  */
-export function expectedDosesToday(meds, doses, now = Date.now()) {
+export function expectedDosesOnDay(meds, doses, dayTs, now = Date.now()) {
   const list = activeMeds(meds);
   const byId = new Map(list.map((m) => [m.id, m]));
 
@@ -156,17 +168,17 @@ export function expectedDosesToday(meds, doses, now = Date.now()) {
     if (med.schedule.mode === 'offset') {
       const anchor = byId.get(med.schedule.afterMedId);
       if (!anchor) return null;
-      const logged = doseForMedOnDay(anchor.id, doses, now);
+      const logged = doseForMedOnDay(anchor.id, doses, dayTs);
       const base = logged ? logged.takenAt : resolve(anchor, depth + 1);
       if (base == null) return null;
       return base + positive(med.schedule.offsetHours, 6) * HOUR_MS;
     }
-    return atClock(now, med.schedule.time);
+    return atClock(dayTs, med.schedule.time);
   };
 
   return list.map((med) => {
     const expectedAt = resolve(med, 0);
-    const dose = doseForMedOnDay(med.id, doses, now);
+    const dose = doseForMedOnDay(med.id, doses, dayTs);
     const graceEnds = expectedAt == null ? null : expectedAt + med.graceMinutes * MINUTE_MS;
 
     let state;
@@ -176,8 +188,15 @@ export function expectedDosesToday(meds, doses, now = Date.now()) {
     else if (now <= graceEnds) state = 'due';
     else state = 'skipped';
 
-    return { med, medId: med.id, expectedAt, graceEnds, dose, state };
+    const late = Boolean(dose && graceEnds != null && dose.takenAt > graceEnds);
+
+    return { med, medId: med.id, expectedAt, graceEnds, dose, state, late };
   });
+}
+
+/** Today's doses — `expectedDosesOnDay` for the day `now` falls in. */
+export function expectedDosesToday(meds, doses, now = Date.now()) {
+  return expectedDosesOnDay(meds, doses, now, now);
 }
 
 /** The next dose still to come today, for a one-line summary. */

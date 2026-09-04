@@ -1,5 +1,5 @@
 // The other half of the contract. See the long note in
-// src/pages/crash/regimen.parity.test.js — this asserts the CommonJS port
+// src/rx/regimen.parity.test.js — this asserts the CommonJS port
 // against the same recorded answers the client module is held to.
 //
 // Run with: npm test  (from the functions/ directory)

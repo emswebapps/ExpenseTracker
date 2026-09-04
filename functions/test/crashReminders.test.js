@@ -7,7 +7,7 @@ const { test } = require('node:test');
 
 process.env.GOOGLE_CLOUD_PROJECT = process.env.GOOGLE_CLOUD_PROJECT || 'test-project';
 const { _internal } = require('../index');
-const { collectCrashMessages, crashLatestDose, crashShouldWarnRefill, RESET_APP_URL } = _internal;
+const { collectCrashMessages, crashLatestDose, crashShouldWarnRefill, RX_APP_URL } = _internal;
 
 const TZ = 'America/New_York';
 const HOUR = 60 * 60 * 1000;
@@ -65,7 +65,7 @@ test('the note fires as the window opens, and opens onto the anchors', () => {
   const data = withDose(NOW - 5 * HOUR); // opened an hour ago
   const msgs = collectCrashMessages(data, {}, NOW, TZ);
   assert.deepStrictEqual(tags(msgs), ['crash-note-2026-07-26']);
-  assert.strictEqual(msgs[0].url, `${RESET_APP_URL}?open=anchors`);
+  assert.strictEqual(msgs[0].url, `${RX_APP_URL}anchors`);
 });
 
 test('the note does not fire once the window has passed', () => {
@@ -194,10 +194,10 @@ test('both notifications open the installed Reset app', () => {
   const msgs = collectCrashMessages(data, {}, NOW, TZ);
   assert.strictEqual(msgs.length, 2);
   for (const m of msgs) {
-    assert.strictEqual(m.url, RESET_APP_URL);
+    assert.strictEqual(m.url, RX_APP_URL);
     // Inside the standalone app's manifest scope, or the tap opens the finance
     // app in a browser tab instead of the installed one.
-    assert.ok(m.url.startsWith('/ExpenseTracker/reset/'), m.tag);
+    assert.ok(m.url.startsWith('/ExpenseTracker/rx/'), m.tag);
   }
 });
 
@@ -249,6 +249,43 @@ test('a dose that has come due says so, once', () => {
 
   const sent = { 'crash-dose-ir-2026-07-26': at };
   assert.deepStrictEqual(collectCrashMessages(withRegimen(), sent, at + 15 * MIN, TZ), []);
+});
+
+test('the late nudge stays silent unless it is switched on', () => {
+  // 15:00 is past the booster's 14:00 + 45 minutes, so it counts as skipped.
+  // With the default preferences that is the end of it.
+  assert.deepStrictEqual(tags(collectCrashMessages(withRegimen(), {}, localAt(15), TZ)), []);
+});
+
+test('switched on, the late nudge fires once and only inside the hour after the grace', () => {
+  const prefs = { crash: { ...ALL_ON, doseLate: true } };
+
+  // Still inside the grace: the ordinary "due" nudge, not the late one.
+  assert.deepStrictEqual(
+    tags(collectCrashMessages(withRegimen({ notifPrefs: prefs }), {}, localAt(14, 10), TZ)),
+    ['crash-dose-ir-2026-07-26'],
+  );
+
+  // Grace ran out at 14:45; half an hour later it says so, once.
+  const at = localAt(15, 15);
+  const msgs = collectCrashMessages(withRegimen({ notifPrefs: prefs }), {}, at, TZ);
+  assert.deepStrictEqual(tags(msgs), ['crash-late-ir-2026-07-26']);
+
+  const sent = { 'crash-late-ir-2026-07-26': at };
+  assert.deepStrictEqual(
+    collectCrashMessages(withRegimen({ notifPrefs: prefs }), sent, at + 10 * MIN, TZ),
+    [],
+    'the dedupe map holds it to one a day',
+  );
+});
+
+test('the late nudge gives up rather than following you into the evening', () => {
+  const prefs = { crash: { ...ALL_ON, doseLate: true } };
+  // Grace ended at 14:45. By 16:00 the window heads-up is the only thing due;
+  // a buzz about the missed booster at this point is just a reminder that the
+  // day went wrong.
+  const msgs = collectCrashMessages(withRegimen({ notifPrefs: prefs }), {}, localAt(16, 40), TZ);
+  assert.ok(!tags(msgs).some((t) => t.startsWith('crash-late-')), tags(msgs).join());
 });
 
 test('a dose past its grace goes quiet rather than nagging', () => {
@@ -379,9 +416,14 @@ test('no medication notification ever names the medication', () => {
   // true at every hour of a day: the morning-of state (nothing logged yet)
   // produces the rule and dose nudges, and the afternoon state produces the
   // window ones. Between them every message kind is generated.
+  //
+  // Every optional nudge is switched ON here, whatever its default. A message
+  // kind that is off by default is exactly the one that would otherwise slip
+  // past this sweep and ship unread.
+  const everything = { crash: { ...ALL_ON, doseLate: true } };
   const days = [
-    withRegimen({ ...lowSupply, crashDoses: [] }),
-    withRegimen(lowSupply),
+    withRegimen({ ...lowSupply, crashDoses: [], notifPrefs: everything }),
+    withRegimen({ ...lowSupply, notifPrefs: everything }),
   ];
 
   // Sweep both, at every quarter hour, rather than trusting a single instant.
@@ -403,7 +445,8 @@ test('no medication notification ever names the medication', () => {
   // If a future message kind is added and this list isn't, the sweep above
   // silently stops covering it — so assert what the two days actually produced.
   assert.deepStrictEqual([...seen].sort(), [
-    'crash-dose-ir', 'crash-dose-xr', 'crash-escrow', 'crash-note',
-    'crash-refill-xr', 'crash-rule-xr-eat', 'crash-window-d-xr',
+    'crash-dose-ir', 'crash-dose-xr', 'crash-escrow', 'crash-late-ir',
+    'crash-late-xr', 'crash-note', 'crash-refill-xr', 'crash-rule-xr-eat',
+    'crash-window-d-xr',
   ].sort());
 });

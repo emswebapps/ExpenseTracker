@@ -1,0 +1,61 @@
+{
+  "id": "/ExpenseTracker/rx/",
+  "name": "Rx",
+  "short_name": "Rx",
+  "description": "What you take, when you took it, and how much is left",
+  "start_url": "/ExpenseTracker/rx/",
+  "scope": "/ExpenseTracker/rx",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "icons": [
+    {
+      "src": "/ExpenseTracker/rx-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/ExpenseTracker/rx-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/ExpenseTracker/rx-icon-512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Log a dose",
+      "short_name": "Log",
+      "description": "Open today's doses and tick one off",
+      "url": "/ExpenseTracker/rx/",
+      "icons": [
+        { "src": "/ExpenseTracker/rx-icon-192.png", "sizes": "192x192", "type": "image/png" }
+      ]
+    },
+    {
+      "name": "My medications",
+      "short_name": "Meds",
+      "description": "Add or edit what you take",
+      "url": "/ExpenseTracker/rx/meds",
+      "icons": [
+        { "src": "/ExpenseTracker/rx-icon-192.png", "sizes": "192x192", "type": "image/png" }
+      ]
+    },
+    {
+      "name": "I’m crashing",
+      "short_name": "Crash",
+      "description": "Start the crash protocol straight away",
+      "url": "/ExpenseTracker/rx/crash?start=1",
+      "icons": [
+        { "src": "/ExpenseTracker/rx-icon-192.png", "sizes": "192x192", "type": "image/png" }
+      ]
+    }
+  ]
+}

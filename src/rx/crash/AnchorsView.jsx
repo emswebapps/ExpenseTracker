@@ -7,6 +7,7 @@ import PhotoUpload from '../../components/PhotoUpload';
 import ImageLightbox from '../../components/ImageLightbox';
 import Modal from '../../components/Modal';
 import ConfirmDialog from '../../components/ConfirmDialog';
+import { pageStyle } from '../medsUi.jsx';
 
 /**
  * The private locker. When the crash is telling you he doesn't care and you
@@ -36,7 +37,7 @@ export default function AnchorsView({ onBack }) {
   };
 
   return (
-    <div className="app-page" style={{ padding: '1.25rem' }}>
+    <div className="app-page" style={pageStyle}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', paddingTop: '1rem', marginBottom: '1.25rem' }}>
         <button onClick={onBack} aria-label="Back" style={{
           width: '2.25rem', height: '2.25rem', borderRadius: '9999px', border: 'none', cursor: 'pointer',

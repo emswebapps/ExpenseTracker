@@ -33,7 +33,7 @@ import {
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixture = JSON.parse(
-  readFileSync(join(here, '../../../functions/fixtures/regimen-cases.json'), 'utf8'),
+  readFileSync(join(here, '../../functions/fixtures/regimen-cases.json'), 'utf8'),
 );
 
 process.env.TZ = fixture.tz;

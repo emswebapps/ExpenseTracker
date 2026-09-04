@@ -1,6 +1,6 @@
 // The regimen maths, for the scheduler.
 //
-// A CommonJS port of src/pages/crash/meds.js. The split is structural rather
+// A CommonJS port of src/rx/meds.js. The split is structural rather
 // than chosen: the client is ESM and this deployment is CommonJS, and only the
 // functions/ directory is uploaded, so the client module cannot be required
 // from here.
@@ -12,7 +12,7 @@
 //
 //   functions/fixtures/regimen-cases.json   inputs + expected outputs
 //   functions/test/crashRegimen.test.js     asserts THIS file matches them
-//   src/pages/crash/regimen.parity.test.js  asserts meds.js matches them
+//   src/rx/regimen.parity.test.js  asserts meds.js matches them
 //
 // Change one implementation without the other and one of those two tests goes
 // red. Change the fixture and both do.
@@ -143,7 +143,7 @@ function doseForMedOnDay(medId, doses, dayTs, tz) {
   ) || null;
 }
 
-/** See expectedDosesToday in src/pages/crash/meds.js. */
+/** See expectedDosesToday in src/rx/meds.js. */
 function expectedDosesToday(meds, doses, now, tz) {
   const list = activeMeds(meds);
   const byId = new Map(list.map((m) => [m.id, m]));
@@ -187,7 +187,7 @@ function spanFor(dose, med, kit) {
   };
 }
 
-/** See effectiveWindow in src/pages/crash/meds.js. */
+/** See effectiveWindow in src/rx/meds.js. */
 function effectiveWindow(meds, doses, kit, now, tz) {
   const k = kit || {};
   const list = activeMeds(meds);
@@ -226,7 +226,7 @@ function effectiveWindow(meds, doses, kit, now, tz) {
   };
 }
 
-/** See ruleMoments in src/pages/crash/meds.js. */
+/** See ruleMoments in src/rx/meds.js. */
 function ruleMoments(meds, doses, now, tz) {
   const out = [];
   for (const e of expectedDosesToday(meds, doses, now, tz)) {
@@ -246,7 +246,7 @@ function ruleMoments(meds, doses, now, tz) {
   return out.sort((a, b) => (a.at == null ? Infinity : a.at) - (b.at == null ? Infinity : b.at));
 }
 
-/** See dueRules in src/pages/crash/meds.js. */
+/** See dueRules in src/rx/meds.js. */
 function dueRules(meds, doses, now, tz, grace) {
   const g = typeof grace === 'number' ? grace : RULE_GRACE_MS;
   return ruleMoments(meds, doses, now, tz).filter((r) => {
@@ -257,7 +257,7 @@ function dueRules(meds, doses, now, tz, grace) {
   });
 }
 
-/** See supplyStatus in src/pages/crash/meds.js. */
+/** See supplyStatus in src/rx/meds.js. */
 function supplyStatus(med, now, tz) {
   const m = normalizeMed(med);
   const s = m.supply || {};

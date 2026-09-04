@@ -1,5 +1,6 @@
-import { useCountdown } from './useCountdown.js';
-import { timerRemaining, formatRemaining, formatClock } from './protocol.js';
+import { useCountdown } from '../useCountdown.js';
+import { timerRemaining, formatRemaining } from './protocol.js';
+import { formatClock } from '../time.js';
 
 export default function CountdownPill({ session, onExtend }) {
   const now = useCountdown(session?.timerEndsAt);

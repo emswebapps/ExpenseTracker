@@ -121,18 +121,6 @@ export function formatRemaining(ms) {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
-// "8:42" — the wall-clock time to come back at, which is easier to hold onto
-// than a duration when you're about to put the phone down.
-export function formatClock(ts) {
-  const d = new Date(ts);
-  let h = d.getHours();
-  const m = String(d.getMinutes()).padStart(2, '0');
-  const suffix = h >= 12 ? 'PM' : 'AM';
-  h = h % 12;
-  if (h === 0) h = 12;
-  return `${h}:${m} ${suffix}`;
-}
-
 // Escrow releases at 9 AM the next morning — the "would I say this the same way
 // tomorrow morning?" question, turned into a timestamp.
 export function defaultReleaseAt(now = Date.now()) {

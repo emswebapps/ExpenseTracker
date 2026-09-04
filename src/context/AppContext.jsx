@@ -2,9 +2,9 @@ import { createContext, useContext, useState, useCallback, useEffect, useRef } f
 import { storage } from '../utils/storage';
 import { saveUserData, loadUserData, saveSharedView, saveFCMToken } from '../utils/firestoreSync';
 import { generateId, currentMonthKey, getBillStatus, nextBillStatus, isTaskList } from '../utils/helpers';
-import { createSession as createCrashSession, defaultReleaseAt } from '../pages/crash/protocol.js';
-import { pruneSessions } from '../pages/crash/stats.js';
-import { normalizeMed, supplyAfterDose, DEFAULT_MED } from '../pages/crash/meds.js';
+import { createSession as createCrashSession, defaultReleaseAt } from '../rx/crash/protocol.js';
+import { pruneSessions } from '../rx/crash/stats.js';
+import { normalizeMed, supplyAfterDose, DEFAULT_MED } from '../rx/meds.js';
 import { notificationPermission, requestNotificationPermission, sendNotification, computeDueAt, todoReminderAt, registerFCMToken, onForegroundMessage, scheduleShiftNotification, cancelShiftNotification } from '../utils/notifications';
 
 const AppContext = createContext(null);
@@ -1230,14 +1230,27 @@ export function AppProvider({ children, uid }) {
     persistCrashKit({ ...crashKit, ...patch });
   }, [crashKit, persistCrashKit]);
 
+  // `createdAt` is what stops the adherence history crediting the weeks before
+  // this medication existed as weeks it was taken. A med saved before the field
+  // was added has none, and is treated as having always existed — the only
+  // reading that doesn't wipe out history people already have.
   const addCrashMed = useCallback((med = {}) => {
-    const next = { ...DEFAULT_MED, ...med, id: generateId() };
+    const next = { ...DEFAULT_MED, createdAt: Date.now(), ...med, id: generateId() };
     persistCrashMeds([...crashMeds, next]);
     return next;
   }, [crashMeds, persistCrashMeds]);
 
+  // Archiving is stamped for the same reason: without a date, the days a med was
+  // genuinely being taken are indistinguishable from the days after it stopped,
+  // and history has to fall back to not counting it at all.
   const updateCrashMed = useCallback((id, patch) => {
-    persistCrashMeds(crashMeds.map((m) => (m.id === id ? { ...m, ...patch } : m)));
+    persistCrashMeds(crashMeds.map((m) => {
+      if (m.id !== id) return m;
+      const next = { ...m, ...patch };
+      if (patch.active === false && m.active !== false) next.archivedAt = Date.now();
+      if (patch.active === true && m.active === false) next.archivedAt = null;
+      return next;
+    }));
   }, [crashMeds, persistCrashMeds]);
 
   // Deleting a medication must not orphan a schedule that hangs off it, or the

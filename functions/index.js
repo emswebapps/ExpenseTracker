@@ -754,22 +754,27 @@ exports.todoReminders = onSchedule(
 // Push only, by design: there is deliberately no collectCrashEmails, and
 // nothing crash-related is added to the daily digest.
 
-// Taps land in the standalone Reset app rather than the finance app, since that
-// is the one installed on the home screen. The /crash route inside the main app
-// stays for when they're already in there.
-const RESET_APP_URL = '/ExpenseTracker/reset/';
+// Taps land in the standalone Rx app: it is the one installed on the home
+// screen, and the finance app no longer carries this feature at all. The old
+// /reset/ path still resolves — it serves a redirect stub — so a notification
+// delivered before the rename keeps working.
+const RX_APP_URL = '/ExpenseTracker/rx/';
 
 const CRASH_HOUR_MS = 60 * 60 * 1000;
 const CRASH_HEADSUP_MS = 30 * 60 * 1000;
 const CRASH_DOSE_LOOKBACK_MS = 24 * CRASH_HOUR_MS;
 const CRASH_ESCROW_GRACE_MS = 24 * CRASH_HOUR_MS;
+// How long after the grace runs out the late nudge may still fire. Bounded so
+// a dose missed at 9 AM can't buzz at 8 PM, by which point saying anything is
+// just a reminder that the day went wrong.
+const CRASH_LATE_WINDOW_MS = CRASH_HOUR_MS;
 
 function crashPositive(value, fallback) {
   const n = Number(value);
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
-// Mirrors latestDose/predictWindow in src/pages/crash/window.js. The client is
+// Mirrors latestDose/predictWindow in src/rx/window.js. The client is
 // ESM and this file is CommonJS, so the arithmetic is repeated rather than
 // shared — keep the two in step if the rule ever changes.
 function crashLatestDose(doses, now) {
@@ -818,7 +823,7 @@ function collectCrashMessages(data, sent, now, tz) {
   const out = [];
 
   const push = (tag, title, body, url) => {
-    if (!sent[tag]) out.push({ tag, title, body, url: url || RESET_APP_URL });
+    if (!sent[tag]) out.push({ tag, title, body, url: url || RX_APP_URL });
   };
 
   // ── The window ──
@@ -853,7 +858,7 @@ function collectCrashMessages(data, sent, now, tz) {
       const tag = `crash-note-${today}`;
       if (now >= w.start && now < w.end) {
         push(tag, 'You’re heading into it',
-          'Tap to read your note before it lands.', `${RESET_APP_URL}?open=anchors`);
+          'Tap to read your note before it lands.', `${RX_APP_URL}anchors`);
       }
     }
   }
@@ -866,6 +871,22 @@ function collectCrashMessages(data, sent, now, tz) {
       if (e.state !== 'due') continue;
       push(`crash-dose-${e.medId}-${today}`, 'Time for the next one',
         'Tap to log it.');
+    }
+  }
+
+  // ── One from earlier still isn't logged ──
+  // Off unless it is switched on. The reasoning above still holds — past the
+  // grace there is nothing useful left to say, and a second buzz is mostly
+  // guilt — so this exists because it was asked for, not because the app
+  // thinks it is a good idea by default. It fires once per medication per day
+  // and only inside the hour after the grace ran out; past that it goes quiet
+  // rather than following you around the evening.
+  if (tracking && prefs.doseLate === true) {
+    for (const e of regimen.expectedDosesToday(meds, doses, now, tz)) {
+      if (e.state !== 'skipped' || e.graceEnds == null) continue;
+      if (now < e.graceEnds || now - e.graceEnds > CRASH_LATE_WINDOW_MS) continue;
+      push(`crash-late-${e.medId}-${today}`, 'One from earlier',
+        'Something on today’s list isn’t logged yet. Tap if you want to.');
     }
   }
 
@@ -957,6 +978,6 @@ exports._internal = {
   collectTodoMessages, collectTodoEmails, wallClockToMs,
   collectDailyMessages, filterDailyForPush, filterDailyForEmail,
   localDateAndMinutes, daysBetween, tomorrowDayOfMonth,
-  collectCrashMessages, crashLatestDose, crashShouldWarnRefill, RESET_APP_URL,
+  collectCrashMessages, crashLatestDose, crashShouldWarnRefill, RX_APP_URL,
   crashRegimen: regimen,
 };

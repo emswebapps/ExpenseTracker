@@ -1,10 +1,12 @@
-import { ArrowLeft } from 'lucide-react';
-import { useApp } from '../../context/AppContext';
-import { summarize, historySentence, rankMoves } from './stats.js';
-import { formatClock } from './protocol.js';
+import { useSearchParams } from 'react-router-dom';
+import { useApp } from '../context/AppContext';
+import DoseHistory from './DoseHistory.jsx';
+import { Segmented, pageStyle } from './medsUi.jsx';
+import { summarize, historySentence, rankMoves } from './crash/stats.js';
+import { formatClock } from './time.js';
 import { suggestedOnset, formatHours } from './window.js';
 import { mergeKit, findMove } from './crashKit.js';
-import { signTimings } from './behaviors.js';
+import { signTimings } from './crash/behaviors.js';
 
 const OUTCOME_LABEL = {
   'let-it-go': 'It settled',
@@ -19,7 +21,7 @@ const OUTCOME_LABEL = {
  * Hidden entirely until there are three sessions to draw on: a thin number here
  * reads as discouraging, and showing nothing is better than showing "1 of 2".
  */
-export default function HistoryView({ onBack }) {
+function SessionsHistory() {
   const { crashSessions, crashDrafts, crashDoses, crashKit, crashBehaviors } = useApp();
   const kit = mergeKit(crashKit);
   const finished = crashSessions.filter((s) => s.endedAt).sort((a, b) => b.startedAt - a.startedAt);
@@ -44,19 +46,7 @@ export default function HistoryView({ onBack }) {
   const hourLabel = (h) => (h === 0 ? '12a' : h === 12 ? '12p' : h > 12 ? `${h - 12}p` : `${h}a`);
 
   return (
-    <div className="app-page" style={{ padding: '1.25rem' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', paddingTop: '1rem', marginBottom: '1.25rem' }}>
-        <button onClick={onBack} aria-label="Back" style={{
-          width: '2.25rem', height: '2.25rem', borderRadius: '9999px', border: 'none', cursor: 'pointer',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          backgroundColor: 'var(--surface2)', color: 'var(--muted)',
-        }}>
-          <ArrowLeft size={17} />
-        </button>
-        <h1 style={{ fontSize: '1.375rem', fontWeight: 800, color: 'var(--text)', letterSpacing: '-0.02em' }}>
-          What usually happens
-        </h1>
-      </div>
+    <div>
 
       {sentence ? (
         <div style={{
@@ -242,6 +232,42 @@ export default function HistoryView({ onBack }) {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+
+/**
+ * History, in two halves.
+ *
+ * Doses first, because "have I been taking them?" is the question asked most
+ * often. The crash sessions are the other half, unchanged — CrashScreen links
+ * straight to them with ?tab=sessions.
+ */
+export default function HistoryView() {
+  const [params, setParams] = useSearchParams();
+  const tab = params.get('tab') === 'sessions' ? 'sessions' : 'doses';
+
+  return (
+    <div className="app-page" style={pageStyle}>
+      <h1 style={{
+        fontSize: '1.375rem', fontWeight: 800, color: 'var(--text)',
+        letterSpacing: '-0.02em', paddingTop: '1rem', marginBottom: '1.25rem',
+      }}>
+        History
+      </h1>
+
+      <Segmented
+        options={[
+          { key: 'doses', label: 'Doses' },
+          { key: 'sessions', label: 'Crashes' },
+        ]}
+        value={tab}
+        onChange={(next) => setParams(next === 'sessions' ? { tab: 'sessions' } : {}, { replace: true })}
+        style={{ marginBottom: '1.5rem' }}
+      />
+
+      {tab === 'doses' ? <DoseHistory /> : <SessionsHistory />}
     </div>
   );
 }

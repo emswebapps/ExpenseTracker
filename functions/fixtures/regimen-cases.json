@@ -1,5 +1,5 @@
 {
-  "_comment": "Recorded answers shared by two implementations of the same regimen maths: src/pages/crash/meds.js (ESM, client) and functions/crashRegimen.js (CJS, scheduler). Both are asserted against this file, so changing one without the other goes red. Regenerate deliberately, never to make a red test green without reading why. All timestamps are epoch ms; `tz` is the zone the expectations were recorded in.",
+  "_comment": "Recorded answers shared by two implementations of the same regimen maths: src/rx/meds.js (ESM, client) and functions/crashRegimen.js (CJS, scheduler). Both are asserted against this file, so changing one without the other goes red. Regenerate deliberately, never to make a red test green without reading why. All timestamps are epoch ms; `tz` is the zone the expectations were recorded in.",
   "tz": "America/New_York",
   "cases": [
     {

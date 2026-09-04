@@ -6,6 +6,21 @@
 
 import { ArrowLeft } from 'lucide-react';
 
+/**
+ * Every full-page screen in Rx.
+ *
+ * `.app-page` supplies the bottom clearance for the fixed nav, but an inline
+ * `padding` shorthand overrides `padding-bottom` outright — which is exactly
+ * how the Save button on the medication page ended up underneath the tab bar.
+ * Longhand here, so the two can't fight.
+ */
+export const pageStyle = {
+  paddingTop: '1.25rem',
+  paddingLeft: '1.25rem',
+  paddingRight: '1.25rem',
+  paddingBottom: '7rem',
+};
+
 export const sectionStyle = { marginBottom: '2rem' };
 
 export const headingStyle = {

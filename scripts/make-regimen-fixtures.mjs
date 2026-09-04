@@ -1,5 +1,5 @@
 // Regenerates functions/fixtures/regimen-cases.json — the recorded answers that
-// src/pages/crash/meds.js and functions/crashRegimen.js are BOTH asserted against.
+// src/rx/meds.js and functions/crashRegimen.js are BOTH asserted against.
 //
 // Run it deliberately, never to turn a red parity test green without reading why
 // the answer moved. Both implementations have to be updated together; the tests
@@ -11,7 +11,7 @@
 import { writeFileSync } from 'node:fs';
 import {
   expectedDosesToday, effectiveWindow, dueRules, supplyStatus,
-} from '../src/pages/crash/meds.js';
+} from '../src/rx/meds.js';
 
 const TZ = 'America/New_York';
 const H = 60 * 60 * 1000;
@@ -121,7 +121,7 @@ const serializeSupply = (meds, now) =>
 const out = {
   _comment: [
     'Recorded answers shared by two implementations of the same regimen maths:',
-    'src/pages/crash/meds.js (ESM, client) and functions/crashRegimen.js (CJS, scheduler).',
+    'src/rx/meds.js (ESM, client) and functions/crashRegimen.js (CJS, scheduler).',
     'Both are asserted against this file, so changing one without the other goes red.',
     'Regenerate deliberately, never to make a red test green without reading why.',
     'All timestamps are epoch ms; `tz` is the zone the expectations were recorded in.',

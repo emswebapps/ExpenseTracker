@@ -79,14 +79,51 @@ date there's now an **Address** and a **Photos** section.
 Files live in Firebase Storage under `users/<uid>/todos/<taskId>/`, so the same
 10 MB per-file limit and owner-only access rules apply as everywhere else.
 
-## Crash Protocol
+## Rx — the medication app
+
+**Rx is a separate app**, at `/ExpenseTracker/rx/`, with its own icon, its own
+manifest and its own bottom nav. It shares an origin with the finance app, and
+therefore the login, the localStorage cache and the Firestore document — the
+same data behind a different icon — but there is no navigation between them
+beyond one link in Settings. The finance app carries no medical tab at all.
+
+Day to day it answers four questions, one per tab:
+
+| Tab | What it's for |
+|---|---|
+| **Today** | What's due, what's been taken, one tap to log it |
+| **Meds** | What you take: name, strength, time, supply, refill date |
+| **Supply** | How many are left and when each can be filled again |
+| **History** | Whether you've been taking them — and, behind a segment, the crash sessions |
+
+Settings is the fifth tab. The **crash protocol** is not a tab: it is one row on
+Today, and its own route at `/crash`.
+
+Source lives in `src/rx/`, with the protocol-only pieces under `src/rx/crash/`.
+The app used to be called *Reset*, and `/ExpenseTracker/reset/` still serves a
+redirect stub so an icon installed under the old name keeps working.
+
+### Adding a medication
+
+`/meds/new` holds the new medication in local state and writes it once, on
+Save — cancelling leaves nothing behind. Editing an existing one at `/meds/:id`
+saves on every keystroke instead, which is right for a screen you open on the
+way to logging a dose, and can't orphan anything.
+
+The form is ordered for a medication tracker: name and strength, when it's due,
+then **what's left** — how many you have, how many per dose, the low-supply
+threshold and the date the fill window opens. The crash-window arithmetic and
+the per-dose rules sit behind an **Advanced** disclosure, because neither is
+needed to add a medication and start logging it.
+
+### The crash protocol
 
 A step-by-step tool for the hours after stimulant medication wears off, when
 emotional reactions get loud enough to feel like facts. Its job is narrow: keep
 a temporarily dysregulated nervous system from making permanent decisions.
 
-Open it from the **Crash** tab, the **I'm crashing** tile on the Dashboard, or
-`/crash`. One tap starts a 30-minute session and walks seven steps:
+Open it from the row on **Today**, or `/crash`. One tap starts a 30-minute
+session and walks seven steps:
 
 1. **What's happening** — tap the warning signs that fit, pick a feeling, rate
    it 0–10. No typing.
@@ -114,19 +151,19 @@ Supporting pieces:
 - **What usually happens** — the point of the whole thing: your own record
   showing how often the 30 minutes changed the answer. Hidden until there are
   three sessions, since a thin number reads as discouraging.
-- **My kit** — warning signs, the agreed phrase, timer length, fallback dose
-  timing, and which of the seven notifications are allowed to buzz you. Set
-  this up on a day you feel fine.
+- **Settings** — warning signs, the agreed phrase, timer length, fallback dose
+  timing, and which of the notifications are allowed to buzz you. Set this up on
+  a day you feel fine.
 
 ### Medications, and the predicted window
 
-The crash is a schedule, not a surprise. **My medications** holds what you take:
+The crash is a schedule, not a surprise. The **Meds** tab holds what you take:
 a name, a strength, when it's due, how long it takes to wear off and how long
 the crash then lasts. A dose can be scheduled at a wall-clock time, or hung off
 another one — "six hours after the morning one" — in which case a late morning
 drags the afternoon one late with it.
 
-Today's doses sit at the top of the Crash tab: one row each, with a Log button,
+Today's doses are the **Today** tab: one row each, with a Log button,
 a tick once it's in, and the rules you wrote for that dose while it's still
 ahead of you. Logging a dose counts one out of the supply in the same step, so
 the pill count can't drift away from the log. There's still a plain one-tap Log
@@ -153,8 +190,13 @@ it actually opens — a note that opens straight onto your anchors, because that
 the thing that's hard to reach for at that exact moment. It never starts a
 session on its own; it says "read this", not "you are crashing".
 
+A second dose nudge — *and again if I still haven't logged it* — exists but is
+**off by default**. Past the grace a dose counts as missed and there is nothing
+useful left to say about it, so a second buzz is mostly guilt; it fires at most
+once per medication per day and only inside the hour after the grace runs out.
+
 Onset and duration default to 4 and 5 hours per medication, and the pair in
-**My Kit** covers a dose that isn't attached to anything on the list. Once there
+**Settings** covers a dose that isn't attached to anything on the list. Once there
 are five or more dose-and-crash pairs, *What usually happens* works out your
 real number from your own record — "your last 8 crashes started about 4h 20m
 after your dose" — and offers to use it. It never changes the setting on its own.
@@ -179,7 +221,7 @@ these screens was typed in by you. It does arithmetic on your numbers and hands
 the result back — there is no default medication, no suggested dose, and no
 opinion about either. With nothing logged, the feature says nothing at all.
 
-Every one of these notifications can be switched off on its own in **My Kit**,
+Every one of these notifications can be switched off on its own in **Settings**,
 and none of them ever names a medication, a strength or a rule: the lock screen
 says there's something to look at, and what it is stays behind your login.
 `crashReminders.test.js` sweeps a full day of every message kind and fails if
@@ -197,7 +239,7 @@ sign tagged fewer than four times.
 
 ### What he needs to know
 
-A message in **My Kit** to send him once, on a good day, explaining what the
+A message in **Settings** to send him once, on a good day, explaining what the
 phrase means, that you're coming back, and — the part he otherwise has to guess
 — that checking in, following you or trying to fix it makes a crash louder.
 This is what lets the in-the-moment message afford to be four words long.
@@ -214,23 +256,29 @@ option used fewer than three times.
 
 ### Installing it as its own app
 
-The protocol is also built as a **separate installable app called Reset**, at
+Rx is installable as a **separate app**, at
 
 ```
-https://emswebapps.github.io/ExpenseTracker/reset/
+https://emswebapps.github.io/ExpenseTracker/rx/
 ```
 
 Open that on your phone and add it to the home screen — iPhone: Safari →
 Share → *Add to Home Screen*. Android: Chrome → *Install app*. It gets its own
-anchor icon and opens straight into the protocol, with no bottom nav and no
-route into the rest of the app.
+pill icon and its own five-tab nav, with no route into the rest of the app.
 
 It's the same origin as the main app, so it shares your login, your
 localStorage cache and your Firestore document — the same data behind a second
-icon, not a second account. Long-pressing its icon offers *Start now*, which
-begins a session immediately.
+icon, not a second account. Long-pressing its icon offers *Log a dose*, *My
+medications* and *I'm crashing*.
 
-The main app keeps its own Crash tab for when you're already in there.
+The old `/ExpenseTracker/reset/` URL serves a redirect stub that forwards to
+`/rx/`, carrying the query string across, so an icon installed under the old
+name and a notification sent before the rename both still land somewhere real.
+On iOS the home-screen title is fixed at install time, so getting the new name
+and icon means re-adding it once.
+
+The finance app has no route into any of this; Settings there links across to
+Rx and nothing more.
 
 ### Reminders
 
@@ -239,9 +287,9 @@ the app closed: the window heads-up, and a nudge the morning after when
 something you held in escrow opens. Both are **push only** — never in the email
 digest — and neither ever contains a word you wrote, since a lock-screen
 preview is visible to whoever is holding the phone. Both are switchable in
-My Kit.
+Settings.
 
-Both notifications open the standalone Reset app. Long-pressing either app's
+Both notifications open Rx. Long-pressing either app's
 icon also offers a shortcut straight into a session.
 
 Everything is private to your login and deliberately excluded from global
@@ -250,9 +298,12 @@ timestamp and re-syncs on `visibilitychange`, so putting the phone down and
 walking the dogs — which step 6 tells you to do — doesn't lose the session.
 
 `test:unit` covers the step machine and timer math (`protocol.js`), the message
-builder and its tone checks (`message.js`), the history stats, session pruning
-and move ranking (`stats.js`), and the window prediction and onset inference
-(`window.js`). `npm --prefix functions test` covers which reminders are due —
+builder and its tone checks (`message.js`), the session stats, pruning and move
+ranking (`stats.js`), the window prediction and onset inference (`window.js`),
+the regimen maths (`meds.js`, held to a shared fixture against the Cloud
+Function's port by `regimen.parity.test.js`), and the adherence history —
+streaks, on-time rate, and the rules that stop an archived or brand-new
+medication inventing days it wasn't taken (`adherence.js`). `npm --prefix functions test` covers which reminders are due —
 including an assertion that no notification body can contain your own words.
 
 ## Push notification setup
@@ -286,12 +337,14 @@ from inside the installed app.
 
 ## Two apps, one build
 
-`npm run build` produces two installable apps from one deployment:
+`npm run build` produces two installable apps — plus one redirect stub — from
+one deployment:
 
 | Entry | URL | Manifest | What it is |
 |---|---|---|---|
 | `index.html` | `/ExpenseTracker/` | `public/manifest.json` | Finance Manager — the full app |
-| `reset/index.html` | `/ExpenseTracker/reset/` | `public/reset.webmanifest` | Reset — the Crash Protocol alone |
+| `rx/index.html` | `/ExpenseTracker/rx/` | `public/rx.webmanifest` | Rx — the medication app |
+| `reset/index.html` | `/ExpenseTracker/reset/` | — | Redirect stub to `/rx/`, for icons installed under the old name |
 
 They share an origin deliberately, so they share the Firebase login, the
 localStorage cache and the Firestore document. What makes the phone treat them
@@ -303,15 +356,16 @@ and nothing injected at build time.
 Two things to keep in mind when changing this:
 
 - `workbox.navigateFallbackDenylist` in `vite.config.js` keeps the service
-  worker from serving `index.html` for `/reset/` when offline. Without it, an
-  offline launch of Reset silently opens the finance app.
-- Reset's `scope` deliberately has **no** trailing slash. React Router
-  normalises the basename, so clearing a query string rewrites the URL to
-  `/ExpenseTracker/reset`; a trailing-slash scope would put that outside the
-  app and drop it out of standalone mode.
+  worker from serving `index.html` for `/rx/` (or `/reset/`) when offline.
+  Without it, an offline launch of Rx silently opens the finance app.
+- Rx's `scope` deliberately has **no** trailing slash. React Router normalises
+  the basename, so clearing a query string rewrites the URL to
+  `/ExpenseTracker/rx`; a trailing-slash scope would put that outside the app
+  and drop it out of standalone mode.
 
-Icons for Reset are generated by `node scripts/make-reset-icons.mjs` and
-committed, so CI never runs it.
+Icons for Rx are generated by `node scripts/make-rx-icons.mjs` and committed, so
+CI never runs it. The `reset-icon-*` files stay in `public/` for as long as the
+old manifest may still be cached on a device.
 
 ## Dev
 
@@ -336,8 +390,8 @@ npm --prefix functions test  # Cloud Function reminder selection
 `test:unit` covers the pure pieces of the to-do list: task ordering
 (`src/pages/lists/taskSort.js`), the Today view's grouping (`agenda.js`),
 repeat scheduling (`recurrence.js`), quick-add date parsing
-(`src/utils/parseTaskInput.js`) and the Crash Protocol's step machine, message
-builder and history stats (`src/pages/crash/`). These modules deliberately import only from
+(`src/utils/parseTaskInput.js`) and Rx's regimen maths, adherence history, step
+machine, message builder and session stats (`src/rx/`). These modules deliberately import only from
 `src/utils/dueDates.js` and `helpers.js`, both free of the Firebase SDK, which
 is what lets plain Node run them. They use explicit `.js` extensions in their
 imports for the same reason.

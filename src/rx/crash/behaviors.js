@@ -18,8 +18,8 @@
 //
 // Pure and Firebase-free so `node --test` can run it.
 
-import { HOUR_MS, PAIR_MAX_MS } from './window.js';
-import { takenDoses } from './meds.js';
+import { HOUR_MS, PAIR_MAX_MS } from '../window.js';
+import { takenDoses } from '../meds.js';
 
 export const MIN_SIGN_SAMPLES = 4;
 

@@ -1,6 +1,6 @@
-import { FEELINGS } from '../crashKit.js';
+import { FEELINGS } from '../../crashKit.js';
 import { BigButton } from '../ui.jsx';
-import { formatClock } from '../protocol.js';
+import { formatClock } from '../../time.js';
 import { bestMove } from '../stats.js';
 import { useApp } from '../../../context/AppContext';
 

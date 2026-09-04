@@ -90,7 +90,6 @@ const DEFAULT_SETTINGS = {
     spendingByPerson: true,
     envelopes: true,
     agreements: false,
-    crash: true,
   },
 };
 
@@ -180,6 +179,9 @@ export const storage = {
       crash: {
         timerEnd: true, windowHeadsUp: true, escrowOpened: true, crashNote: true,
         doseDue: true, ruleReminders: true, refillLow: true,
+        // The one nudge that is off until asked for: a second buzz about a dose
+        // whose moment has already passed is mostly guilt, so it is opt-in.
+        doseLate: false,
         ...(saved.crash || {}),
       },
       projects: { enabled: true, ...(saved.projects || {}) },

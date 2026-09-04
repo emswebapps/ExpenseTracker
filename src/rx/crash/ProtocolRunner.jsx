@@ -5,7 +5,7 @@ import { StepFrame, BigButton, SkipButton } from './ui.jsx';
 import CountdownPill from './CountdownPill.jsx';
 import ParkThought from './ParkThought.jsx';
 import { nextStep, isLastStep, extendedEnd, isTimerDone } from './protocol.js';
-import { mergeKit } from './crashKit.js';
+import { mergeKit } from '../crashKit.js';
 import StepCheckIn from './steps/StepCheckIn.jsx';
 import StepBrake from './steps/StepBrake.jsx';
 import StepFactsStory from './steps/StepFactsStory.jsx';

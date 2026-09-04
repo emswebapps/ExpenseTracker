@@ -14,7 +14,6 @@ import ShoppingLists from './pages/ShoppingLists';
 import Planning from './pages/Planning';
 import SharedView from './pages/SharedView';
 import DocumentVault from './pages/DocumentVault';
-import CrashProtocol from './pages/CrashProtocol';
 
 function AuthenticatedApp() {
   return (
@@ -33,7 +32,6 @@ function AuthenticatedApp() {
           <Route path="/lists" element={<ShoppingLists />} />
           <Route path="/planning" element={<Planning />} />
           <Route path="/vault" element={<DocumentVault />} />
-          <Route path="/crash" element={<CrashProtocol />} />
         </Routes>
       </div>
       <BottomNav />

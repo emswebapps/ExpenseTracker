@@ -1,5 +1,5 @@
 import { Chip, ScalePicker, BigButton } from '../ui.jsx';
-import { FEELINGS } from '../crashKit.js';
+import { FEELINGS } from '../../crashKit.js';
 
 export default function StepCheckIn({ session, kit, onPatch }) {
   const signs = session.signs || [];

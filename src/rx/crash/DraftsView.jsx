@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { ArrowLeft, Copy, Check } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
-import { useNow } from './useCountdown.js';
-import { isReleased, formatClock } from './protocol.js';
+import { useNow } from '../useCountdown.js';
+import { isReleased } from './protocol.js';
+import { formatClock } from '../time.js';
+import { pageStyle } from '../medsUi.jsx';
 
 /**
  * Escrow. Held things get no send button at all until morning — the whole
@@ -92,7 +94,7 @@ export default function DraftsView({ onBack }) {
   );
 
   return (
-    <div className="app-page" style={{ padding: '1.25rem' }}>
+    <div className="app-page" style={pageStyle}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', paddingTop: '1rem', marginBottom: '1.25rem' }}>
         <button onClick={onBack} aria-label="Back" style={{
           width: '2.25rem', height: '2.25rem', borderRadius: '9999px', border: 'none', cursor: 'pointer',

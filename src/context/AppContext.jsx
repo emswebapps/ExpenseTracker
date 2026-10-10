@@ -840,6 +840,16 @@ export function AppProvider({ children, uid }) {
   //
   // `refileByDate` returns null when there's nothing to do, which is the answer
   // almost every time this runs.
+  // Re-runs when a weekly list is created or its generated-through mark moves.
+  // Without this a list switched to weekly wouldn't lay itself out until the
+  // next foreground, which reads as the setting not working. Declared here,
+  // ahead of both effects that list it as a dependency: a `const` read before
+  // its line runs throws, and in this component that blanks the whole app.
+  const weeklySignature = shoppingLists
+    .filter((l) => !l.archived && l.weekly?.enabled)
+    .map((l) => `${l.id}:${l.weekly.generatedThrough || ''}`)
+    .join('|');
+
   const itemFilingSignature = shoppingItems
     .map((i) => `${i.id}:${i.dueDate || ''}:${i.sectionId || ''}:${i.parentId || ''}:${i.status}`)
     .join('|');
@@ -1132,13 +1142,9 @@ export function AppProvider({ children, uid }) {
   // path costs one comparison per weekly list and no write at all.
   const plannedRef = useRef(new Map()); // listId → the local date it was last planned
 
-  // Re-runs when a weekly list is created or its generated-through mark moves.
-  // Without this a list switched to weekly wouldn't lay itself out until the
-  // next foreground, which reads as the setting not working.
-  const weeklySignature = shoppingLists
-    .filter((l) => !l.archived && l.weekly?.enabled)
-    .map((l) => `${l.id}:${l.weekly.generatedThrough || ''}`)
-    .join('|');
+  // `weeklySignature` (declared above, next to the filing effect that also
+  // depends on it) re-runs this when a weekly list is created or its
+  // generated-through mark moves.
 
   useEffect(() => {
     if (uid && !cloudLoaded) return;

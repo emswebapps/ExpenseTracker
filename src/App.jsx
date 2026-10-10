@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { AuthGate, LoadingScreen } from './AppFrame';
 import BottomNav from './components/BottomNav';
+import ErrorBoundary from './components/ErrorBoundary';
 
 // Every page is split out, including the Dashboard.
 //
@@ -80,10 +81,12 @@ function AppShell() {
 
 export default function App() {
   return (
-    <BrowserRouter basename="/ExpenseTracker">
-      <AuthProvider>
-        <AppShell />
-      </AuthProvider>
-    </BrowserRouter>
+    <ErrorBoundary>
+      <BrowserRouter basename="/ExpenseTracker">
+        <AuthProvider>
+          <AppShell />
+        </AuthProvider>
+      </BrowserRouter>
+    </ErrorBoundary>
   );
 }

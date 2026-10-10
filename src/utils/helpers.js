@@ -70,6 +70,23 @@ export function linkHost(raw) {
   }
 }
 
+// The app tracks one person's money. Records saved back when it also tracked a
+// partner are tagged to them by `owner` (bills, debts) or `person` (income,
+// purchases, commitments, agreements, templates). Those are left out of every
+// list and total, but kept in storage rather than deleted. Joint and untagged
+// records count as yours.
+const PARTNER_TAGS = new Set(['partner', 'cameron', 'spouse', 'secondary']);
+
+export function isPartnerOnly(record) {
+  if (!record) return false;
+  const tag = (v) => PARTNER_TAGS.has(String(v || '').toLowerCase());
+  return tag(record.owner) || tag(record.person);
+}
+
+export function withoutPartner(records) {
+  return Array.isArray(records) ? records.filter((r) => !isPartnerOnly(r)) : records;
+}
+
 export function formatCurrency(amount) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount || 0);
 }
@@ -289,7 +306,7 @@ export function exportAllData({ bills, income, debts, savings, purchases }) {
   if (purchases.length) exportToCSV(purchases.map((p) => ({ date: p.date, merchant: p.merchant, amount: p.amount, category: p.category, person: p.person, notes: p.notes || '' })), `spending-${ts}.csv`);
 }
 
-export function exportAsHTML({ bills, income, debts, savings, purchases, commitments = [], plannedExpenses = [], agreements = [], projects = [], budgetCategories = [], budgetSpends = [], shoppingLists = [], shoppingItems = [], shifts = [], jobs = [], settings = {}, startDate = null, endDate = null, include = null }) {
+export function exportAsHTML({ bills, income, debts, savings, purchases, commitments = [], plannedExpenses = [], projects = [], budgetCategories = [], budgetSpends = [], shoppingLists = [], shoppingItems = [], shifts = [], jobs = [], settings = {}, startDate = null, endDate = null, include = null }) {
   const ts = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
   const fmt = (n) => '$' + (n ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const inc = (key) => !include || include.includes(key);
@@ -311,17 +328,6 @@ export function exportAsHTML({ bills, income, debts, savings, purchases, commitm
 
   const monthPurchases = purchases.filter((p) => inRange(p.date));
 
-  const myName = settings.myName || 'Primary User';
-  const spouseName = settings.spouseName || 'Secondary User';
-
-  const personName = (p) => {
-    if (!p) return myName;
-    const lp = p.toLowerCase();
-    if (lp === 'spouse' || lp === 'cameron' || lp === 'partner') return spouseName;
-    if (lp === 'me' || lp === 'mine') return myName;
-    return p.charAt(0).toUpperCase() + p.slice(1);
-  };
-
   const table = (headers, rows) => `
     <table>
       <thead><tr>${headers.map((h) => `<th>${h}</th>`).join('')}</tr></thead>
@@ -334,8 +340,6 @@ export function exportAsHTML({ bills, income, debts, savings, purchases, commitm
       ${content}
     </section>`;
 
-  const ownerLabel = (o) => o === 'mine' ? myName : o === 'partner' ? spouseName : o === 'both' || o === 'joint' ? 'Joint' : o ? o.charAt(0).toUpperCase() + o.slice(1) : '';
-  const ownerBadgeClass = (o) => o === 'mine' ? 'primary' : o === 'partner' ? 'secondary' : 'joint';
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -357,9 +361,6 @@ export function exportAsHTML({ bills, income, debts, savings, purchases, commitm
   .badge-paid { background: #d1fae5; color: #065f46; }
   .badge-pending { background: #fef3c7; color: #92400e; }
   .badge-unpaid { background: #fee2e2; color: #991b1b; }
-  .badge-primary { background: #e0e7ff; color: #3730a3; }
-  .badge-secondary { background: #ede9fe; color: #5b21b6; }
-  .badge-joint { background: #d1fae5; color: #065f46; }
   .amount { font-weight: 700; font-variant-numeric: tabular-nums; }
   .amount-neg { color: #dc2626; }
   .amount-pos { color: #059669; }
@@ -374,12 +375,11 @@ export function exportAsHTML({ bills, income, debts, savings, purchases, commitm
 <p class="subtitle">${rangeLabel} · Exported on ${ts}</p>
 
 ${inc('bills') && bills.length ? section('Bills', table(
-  ['Name', 'Amount', 'Category', 'Owner', 'Due Day', 'Recurring'],
+  ['Name', 'Amount', 'Category', 'Due Day', 'Recurring'],
   bills.map((b) => [
     b.name,
     `<span class="amount">${fmt(b.amount)}</span>`,
     b.category || '—',
-    `<span class="badge badge-${ownerBadgeClass(b.owner)}">${ownerLabel(b.owner)}</span>`,
     b.dueDay ? `Day ${b.dueDay}` : '—',
     b.isRecurring ? 'Yes' : 'No',
   ])
@@ -395,13 +395,12 @@ ${inc('income') && income.length ? section('Income', table(
 )) : ''}
 
 ${inc('debts') && debts.length ? section('Debts', table(
-  ['Name', 'Balance', 'Min Payment', 'Interest Rate', 'Owner'],
+  ['Name', 'Balance', 'Min Payment', 'Interest Rate'],
   debts.map((d) => [
     d.name,
     `<span class="amount amount-neg">${fmt(d.balance)}</span>`,
     `<span class="amount">${fmt(d.minPayment)}/mo</span>`,
     d.interestRate != null ? `${d.interestRate}% APR` : '—',
-    `<span class="badge badge-${ownerBadgeClass(d.owner)}">${ownerLabel(d.owner)}</span>`,
   ])
 )) : ''}
 
@@ -416,11 +415,10 @@ ${inc('savings') && savings.length ? section('Savings', table(
 )) : ''}
 
 ${inc('commitments') && commitments.length ? section('Commitments', table(
-  ['Description', 'Amount', 'Person', 'End Date', 'Status'],
+  ['Description', 'Amount', 'End Date', 'Status'],
   commitments.map((c) => [
     c.description,
     c.amount ? `<span class="amount">${fmt(c.amount)}</span>` : '—',
-    c.person === 'me' ? myName : c.person === 'partner' ? spouseName : 'Both',
     c.endDate ? new Date(c.endDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—',
     c.completed ? '<span class="badge badge-paid">Done</span>' : '<span class="badge badge-unpaid">Open</span>',
   ])
@@ -437,18 +435,6 @@ ${inc('planned') && plannedExpenses.length ? section('Planned Expenses', table(
   ])
 )) : ''}
 
-${inc('agreements') && agreements.length ? section('Financial Deals', table(
-  ['Description', 'Amount', 'Who', 'Date', 'Status', 'Notes'],
-  agreements.map((ag) => [
-    ag.description,
-    ag.amount != null && ag.amount > 0 ? `<span class="amount">${fmt(ag.amount)}</span>` : '—',
-    ag.person === 'me' ? myName : ag.person === 'partner' ? spouseName : 'Both',
-    ag.date ? new Date(ag.date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—',
-    ag.status === 'settled' ? '<span class="badge badge-paid">Settled</span>' : '<span class="badge badge-pending">Active</span>',
-    ag.notes || '',
-  ])
-)) : ''}
-
 ${inc('projects') && projects.length ? section('Projects', table(
   ['Name', 'Notes', 'Review Date', 'Due Date', 'Status'],
   projects.map((p) => [
@@ -461,13 +447,12 @@ ${inc('projects') && projects.length ? section('Projects', table(
 )) : ''}
 
 ${inc('purchases') && monthPurchases.length ? section('Spending', table(
-  ['Date', 'Merchant', 'Amount', 'Category', 'By', 'Notes'],
+  ['Date', 'Merchant', 'Amount', 'Category', 'Notes'],
   monthPurchases.map((p) => [
     p.date || '—',
     p.merchant || '—',
     `<span class="amount amount-neg">${fmt(p.amount)}</span>`,
     p.category || '—',
-    personName(p.person),
     p.notes || '',
   ])
 )) : ''}

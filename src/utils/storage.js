@@ -40,8 +40,6 @@ function set(key, value) {
 }
 
 const DEFAULT_SETTINGS = {
-  spouseEnabled: true,
-  spouseName: '',
   myName: '',
   monthlySpendingBudget: 0,
   monthlySavingsTarget: 0,
@@ -62,9 +60,7 @@ const DEFAULT_SETTINGS = {
     netWorth: true,
     spendingTrend: true,
     topCategories: true,
-    spendingByPerson: true,
     envelopes: true,
-    agreements: false,
   },
 };
 

@@ -19,7 +19,7 @@ function monthlyAmount(item) {
   return item.amount * mult;
 }
 
-function IncomeCard({ item, onEdit, onDelete, onAttach, spouseEnabled, spouseName }) {
+function IncomeCard({ item, onEdit, onDelete, onAttach }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const monthly = monthlyAmount(item);
   const attachCount = (item.attachments || []).length;
@@ -36,11 +36,6 @@ function IncomeCard({ item, onEdit, onDelete, onAttach, spouseEnabled, spouseNam
             <span style={{ fontSize: '0.75rem', backgroundColor: 'var(--surface2)', color: 'var(--muted)', border: '1px solid var(--border)', padding: '0.25rem 0.625rem', borderRadius: '0.5rem' }}>
               {item.frequency}
             </span>
-            {spouseEnabled && (
-              <span style={{ fontSize: '0.75rem', backgroundColor: 'var(--surface2)', color: 'var(--muted)', border: '1px solid var(--border)', padding: '0.25rem 0.625rem', borderRadius: '0.5rem' }}>
-                {item.person === 'spouse' ? (spouseName || 'Spouse') : 'Me'}
-              </span>
-            )}
             {item.notes && <span style={{ fontSize: '0.75rem', color: 'var(--subtle)' }}>{item.notes}</span>}
           </div>
         </div>
@@ -86,7 +81,7 @@ function IncomeCard({ item, onEdit, onDelete, onAttach, spouseEnabled, spouseNam
 }
 
 export default function Income() {
-  const { income, addIncome, updateIncome, deleteIncome, settings, selectedMonth: mk, setSelectedMonth: setMk } = useApp();
+  const { income, addIncome, updateIncome, deleteIncome, selectedMonth: mk, setSelectedMonth: setMk } = useApp();
   const { user } = useAuth();
   const [showAdd, setShowAdd] = useState(false);
   const [editItem, setEditItem] = useState(null);
@@ -95,8 +90,6 @@ export default function Income() {
 
   const monthIncome = getIncomeForMonth(income, mk);
   const totalMonthly = monthIncome.reduce((s, i) => s + monthlyAmount(i), 0);
-  const myTotal = monthIncome.filter((i) => i.person !== 'spouse').reduce((s, i) => s + monthlyAmount(i), 0);
-  const spouseTotal = monthIncome.filter((i) => i.person === 'spouse').reduce((s, i) => s + monthlyAmount(i), 0);
 
   return (
     <div className="app-page">
@@ -136,12 +129,6 @@ export default function Income() {
             <div style={{ backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '1.25rem', padding: '1.25rem', marginBottom: '0.5rem' }}>
               <p style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--subtle)', marginBottom: '0.25rem' }}>Total Monthly Income</p>
               <p style={{ fontSize: '2.5rem', fontWeight: '900', color: 'var(--positive-text)' }}>{formatCurrency(totalMonthly)}</p>
-              {settings.spouseEnabled && (
-                <div style={{ display: 'flex', gap: '1.25rem', marginTop: '0.75rem' }}>
-                  <span style={{ fontSize: '0.875rem', color: 'var(--muted)' }}>Me: <span style={{ color: 'var(--text)', fontWeight: '600' }}>{formatCurrency(myTotal)}</span></span>
-                  <span style={{ fontSize: '0.875rem', color: 'var(--muted)' }}>{settings.spouseName || 'Spouse'}: <span style={{ color: 'var(--text)', fontWeight: '600' }}>{formatCurrency(spouseTotal)}</span></span>
-                </div>
-              )}
             </div>
           </>
         )}
@@ -171,8 +158,7 @@ export default function Income() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                 {monthIncome.map((item) => (
                   <IncomeCard key={item.id} item={item} onEdit={setEditItem} onDelete={deleteIncome}
-                    onAttach={(i) => setAttachItemId(i.id)}
-                    spouseEnabled={settings.spouseEnabled} spouseName={settings.spouseName} />
+                    onAttach={(i) => setAttachItemId(i.id)} />
                 ))}
               </div>
             </>
@@ -186,14 +172,12 @@ export default function Income() {
 
       {showAdd && (
         <Modal title="Add Income" onClose={() => setShowAdd(false)}>
-          <IncomeForm onSave={(data) => { addIncome({ ...data, month: mk }); setShowAdd(false); }} onCancel={() => setShowAdd(false)}
-            spouseEnabled={settings.spouseEnabled} spouseName={settings.spouseName} />
+          <IncomeForm onSave={(data) => { addIncome({ ...data, month: mk }); setShowAdd(false); }} onCancel={() => setShowAdd(false)} />
         </Modal>
       )}
       {editItem && (
         <Modal title="Edit Income" onClose={() => setEditItem(null)}>
-          <IncomeForm initial={editItem} onSave={(data) => { updateIncome(editItem.id, data); setEditItem(null); }} onCancel={() => setEditItem(null)}
-            spouseEnabled={settings.spouseEnabled} spouseName={settings.spouseName} />
+          <IncomeForm initial={editItem} onSave={(data) => { updateIncome(editItem.id, data); setEditItem(null); }} onCancel={() => setEditItem(null)} />
         </Modal>
       )}
       {attachItemId && (() => {

@@ -29,7 +29,7 @@ function extractMerchant(text) {
   return null;
 }
 
-export default function PurchaseForm({ initial = {}, onSave, onCancel, myName, spouseName }) {
+export default function PurchaseForm({ initial = {}, onSave, onCancel }) {
   const today = new Date().toISOString().slice(0, 10);
   const [form, setForm] = useState({
     amount: '',
@@ -88,10 +88,6 @@ export default function PurchaseForm({ initial = {}, onSave, onCancel, myName, s
     setScanSuggestions(null);
     if (cameraRef.current) cameraRef.current.value = '';
   };
-
-  const aaronLabel = myName || 'Primary User';
-  const cameronLabel = spouseName || 'Secondary User';
-  const personOptions = [['aaron', aaronLabel], ['cameron', cameronLabel]];
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
@@ -157,21 +153,9 @@ export default function PurchaseForm({ initial = {}, onSave, onCancel, myName, s
         ))}
       </div>
 
-      <div className="flex gap-3">
-        <div className="flex gap-2 flex-1">
-          {personOptions.map(([val, label]) => (
-            <button key={val} type="button" onClick={() => set('person', val)}
-              className="flex-1 py-2.5 rounded-xl text-sm font-medium"
-              style={{
-                backgroundColor: form.person === val ? 'var(--accent)' : 'var(--surface2)',
-                color: form.person === val ? '#fff' : 'var(--muted)',
-                border: `1px solid ${form.person === val ? 'var(--accent)' : 'var(--border)'}`,
-              }}>
-              {label}
-            </button>
-          ))}
-        </div>
-        <input type="date" className="app-input" style={{ width: 'auto' }}
+      <div>
+        <label className="app-label">Date</label>
+        <input type="date" className="app-input"
           value={form.date} onChange={(e) => set('date', e.target.value)} />
       </div>
 

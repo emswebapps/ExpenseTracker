@@ -17,7 +17,6 @@ const ALL_EXPORT_CATS = [
   { key: 'savings', label: 'Savings' },
   { key: 'commitments', label: 'Commitments' },
   { key: 'planned', label: 'Goals' },
-  { key: 'agreements', label: 'Deals' },
   { key: 'projects', label: 'Projects' },
   { key: 'purchases', label: 'Spending' },
   { key: 'budget', label: 'Budget' },
@@ -166,7 +165,7 @@ function NotifRow({ label, sublabel, checked, onChange }) {
 }
 
 export default function Settings() {
-  const { settings, setSettings, bills, income, debts, savings, commitments, plannedExpenses, agreements, projects, purchases, budgetCategories, budgetSpends, shoppingLists, shoppingItems, shifts, jobs, generateShareLink, revokeShareLink, refreshShareLink, notifPrefs, persistNotifPrefs, fcmToken, enablePushNotifications, testMode, enterTestMode, exitTestMode } = useApp();
+  const { settings, setSettings, bills, income, debts, savings, commitments, plannedExpenses, projects, purchases, budgetCategories, budgetSpends, shoppingLists, shoppingItems, shifts, jobs, generateShareLink, revokeShareLink, refreshShareLink, notifPrefs, persistNotifPrefs, fcmToken, enablePushNotifications, testMode, enterTestMode, exitTestMode } = useApp();
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
   const [form, setForm] = useState({ ...settings });
@@ -273,16 +272,12 @@ export default function Settings() {
         <section className="mb-4">
           <div className="flex items-center gap-2 mb-3">
             <User size={15} style={{ color: 'var(--accent-text)' }} />
-            <span style={sectionLabelStyle}>Profiles</span>
+            <span style={sectionLabelStyle}>Profile</span>
           </div>
           <div style={cardStyle} className="space-y-3">
             <div>
-              <label className="app-label">Primary user name</label>
+              <label className="app-label">Your name</label>
               <input className="app-input" placeholder="e.g. Aaron" value={form.myName} onChange={(e) => set('myName', e.target.value)} />
-            </div>
-            <div>
-              <label className="app-label">Partner name</label>
-              <input className="app-input" placeholder="e.g. Cameron" value={form.spouseName} onChange={(e) => set('spouseName', e.target.value)} />
             </div>
           </div>
         </section>
@@ -378,7 +373,7 @@ export default function Settings() {
             <span style={sectionLabelStyle}>Shared View Link</span>
           </div>
           <p className="text-xs mb-3" style={{ color: 'var(--muted)' }}>
-            Generate a read-only link to share your family finances. Your partner can view bills, income, spending, debts, and savings without needing an account.
+            Generate a read-only link to your finances. Anyone with the link and PIN can view bills, income, spending, debts, and savings without needing an account.
           </p>
           {settings.shareToken ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
@@ -769,7 +764,7 @@ export default function Settings() {
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
             <button
-              onClick={() => exportAsHTML({ bills, income, debts, savings, purchases, commitments, plannedExpenses, agreements, projects, budgetCategories, budgetSpends, shoppingLists, shoppingItems, shifts, jobs, settings, startDate: exportStartDate, endDate: exportEndDate, include: exportCats })}
+              onClick={() => exportAsHTML({ bills, income, debts, savings, purchases, commitments, plannedExpenses, projects, budgetCategories, budgetSpends, shoppingLists, shoppingItems, shifts, jobs, settings, startDate: exportStartDate, endDate: exportEndDate, include: exportCats })}
               className="flex items-center gap-2 text-sm font-semibold"
               style={{ color: '#fff', border: 'none', padding: '0.625rem 1rem', borderRadius: '0.75rem', backgroundColor: 'var(--accent)', cursor: 'pointer' }}>
               <Download size={14} /> Export to HTML (Printable)

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { loadSharedView } from '../utils/firestoreSync';
-import { formatCurrency, monthKey, getBillStatus, isTaskList, mapsHref } from '../utils/helpers';
+import { formatCurrency, monthKey, getBillStatus, isTaskList, mapsHref, withoutPartner } from '../utils/helpers';
 import {
   TrendingUp, Receipt, ShoppingBag, CreditCard, PiggyBank,
   CheckSquare, Square, ShoppingCart, X, ListChecks, Lock, MapPin,
@@ -243,12 +243,17 @@ function ReadOnlyDashboard({ data }) {
   const close = () => setActive(null);
 
   const mk = monthKey(new Date());
+  // Links shared before the app went single-person still hold the partner's
+  // records in their snapshot, so they're filtered here as well as at the source.
   const {
-    settings = {}, bills = [], income = [], purchases = [],
-    debts = [], savings = [],
-    shoppingLists = [], shoppingItems = [],
+    settings = {}, shoppingLists = [], shoppingItems = [],
   } = data;
-  const { myName = 'Me', spouseName = 'Partner' } = settings;
+  const bills = withoutPartner(data.bills || []);
+  const income = withoutPartner(data.income || []);
+  const purchases = withoutPartner(data.purchases || []);
+  const debts = withoutPartner(data.debts || []);
+  const savings = withoutPartner(data.savings || []);
+  const { myName = 'Me' } = settings;
 
   /* derived */
   const monthBills = bills.filter((b) => (!b.startMonth || b.startMonth <= mk) && (!b.endMonth || b.endMonth >= mk));
@@ -260,8 +265,6 @@ function ReadOnlyDashboard({ data }) {
 
   const monthPurchases = purchases.filter((p) => p.date?.startsWith(mk));
   const totalSpending = monthPurchases.reduce((s, p) => s + (p.amount || 0), 0);
-  const meSpent = monthPurchases.filter((p) => p.person === 'me' || p.person === 'aaron').reduce((s, p) => s + p.amount, 0);
-  const partnerSpent = monthPurchases.filter((p) => p.person !== 'me' && p.person !== 'aaron').reduce((s, p) => s + p.amount, 0);
 
   const totalDebt = debts.reduce((s, d) => s + (d.balance || 0), 0);
   const totalSavings = savings.reduce((s, sv) => s + (sv.balance || 0), 0);
@@ -358,11 +361,10 @@ function ReadOnlyDashboard({ data }) {
         </div>
         {income.map((i, idx) => {
           const mo = (i.amount || 0) * mult(i.frequency);
-          const person = i.person === 'spouse' ? spouseName : myName;
           return (
             <Row key={i.id || idx}
               left={i.source || i.name}
-              sub={`${i.frequency} · ${person}`}
+              sub={i.frequency}
               right={formatCurrency(mo) + '/mo'}
             />
           );
@@ -407,15 +409,11 @@ function ReadOnlyDashboard({ data }) {
         <div style={{ marginBottom: '1rem', backgroundColor: '#f59e0b10', border: '1px solid #f59e0b33', borderRadius: '1rem', padding: '1rem' }}>
           <p style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.07em', color: '#f59e0b', marginBottom: '0.2rem' }}>This Month</p>
           <p style={{ fontSize: '2rem', fontWeight: 900, color: '#f0f0f2' }}>{formatCurrency(totalSpending)}</p>
-          <div style={{ display: 'flex', gap: '1rem', marginTop: '0.5rem', fontSize: '0.8rem', color: '#777' }}>
-            <span>{myName}: <strong style={{ color: '#f0f0f2' }}>{formatCurrency(meSpent)}</strong></span>
-            <span>{spouseName}: <strong style={{ color: '#f0f0f2' }}>{formatCurrency(partnerSpent)}</strong></span>
-          </div>
         </div>
         {[...monthPurchases].sort((a, b) => new Date(b.date) - new Date(a.date)).map((p, i) => (
           <Row key={p.id || i}
             left={p.merchant || '—'}
-            sub={`${fmt(p.date)} · ${p.category || ''} · ${p.person === 'me' || p.person === 'aaron' ? myName : spouseName}`}
+            sub={`${fmt(p.date)} · ${p.category || ''}`}
             right={formatCurrency(p.amount)}
           />
         ))}

@@ -3,7 +3,7 @@ import {
   ChevronLeft, ChevronRight, TrendingUp, Receipt, CreditCard,
   CalendarDays, Plus, Pencil, Trash2, CheckSquare, Square,
   MoreVertical, Bell, LayoutDashboard, Link, Plane, AlertTriangle,
-  Wallet, PiggyBank, Settings, BarChart2, Users, LayoutGrid,
+  Wallet, PiggyBank, Settings, BarChart2, LayoutGrid,
   ChevronDown, ChevronUp, Zap, Share2, Check, FolderOpen,
   ClipboardList, CalendarClock,
 } from 'lucide-react';
@@ -94,9 +94,8 @@ function SavingCard({ saving, onEdit, onDelete }) {
   );
 }
 
-function CommitmentRow({ commitment, onToggle, onEdit, onDelete, myLabel, partnerLabel }) {
+function CommitmentRow({ commitment, onToggle, onEdit, onDelete }) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const personLabel = commitment.person === 'me' ? myLabel : commitment.person === 'partner' ? partnerLabel : 'Both';
   const isOverdue = !commitment.completed && commitment.endDate && new Date(commitment.endDate + 'T12:00:00') < new Date();
 
   return (
@@ -108,7 +107,6 @@ function CommitmentRow({ commitment, onToggle, onEdit, onDelete, myLabel, partne
       <div style={{ flex: 1, minWidth: 0 }}>
         <p style={{ fontSize: '0.875rem', fontWeight: '600', color: commitment.completed ? 'var(--subtle)' : isOverdue ? 'var(--danger)' : 'var(--text)', textDecoration: commitment.completed ? 'line-through' : 'none' }}>{commitment.description}</p>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.125rem', flexWrap: 'wrap' }}>
-          <span style={{ fontSize: '0.75rem', color: 'var(--subtle)' }}>{personLabel}</span>
           {commitment.amount && <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>{formatCurrency(commitment.amount)}</span>}
           {commitment.endDate && (
             <span style={{ fontSize: '0.75rem', color: isOverdue ? 'var(--danger)' : 'var(--subtle)', fontWeight: isOverdue ? '700' : '400' }}>
@@ -243,7 +241,6 @@ export default function Dashboard() {
     plannedExpenses, addPlannedExpense, updatePlannedExpense, deletePlannedExpense,
     notes, settings, setSettings, purchases,
     budgetCategories, budgetSpends, addBudgetSpend,
-    agreements, addAgreement, updateAgreement, deleteAgreement,
     setBillStatusDirect, 
     shoppingLists, shoppingItems,
     selectedMonth: mk, setSelectedMonth: setMk,
@@ -256,25 +253,17 @@ export default function Dashboard() {
   const [showDoneCommitments, setShowDoneCommitments] = useState(false);
   const [showAddPlanned, setShowAddPlanned] = useState(false);
   const [editPlanned, setEditPlanned] = useState(null);
-  const [viewMode, setViewMode] = useState('joint');
   const [showCustomize, setShowCustomize] = useState(false);
   const [showQuickSpend, setShowQuickSpend] = useState(false);
   const [qsCatId, setQsCatId] = useState('');
   const [qsAmount, setQsAmount] = useState('');
   const [qsDesc, setQsDesc] = useState('');
-  const [showAddAgreement, setShowAddAgreement] = useState(false);
-  const [editAgreement, setEditAgreement] = useState(null);
-  const [agDesc, setAgDesc] = useState('');
-  const [agAmount, setAgAmount] = useState('');
-  const [agPerson, setAgPerson] = useState('both');
-  const [agDate, setAgDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [agNotes, setAgNotes] = useState('');
 
   const [showExport, setShowExport] = useState(false);
   const [expandedEnvCat, setExpandedEnvCat] = useState(null);
   const [netWorthHistory, setNetWorthHistory] = useState(() => storage.getNetWorthHistory());
 
-  const DEFAULT_COLLAPSED = { savings: true, netWorth: true, spendingTrend: true, topCategories: true, spendingByPerson: true };
+  const DEFAULT_COLLAPSED = { savings: true, netWorth: true, spendingTrend: true, topCategories: true };
   const [collapsed, setCollapsed] = useState(() => {
     try {
       const s = localStorage.getItem('dashboardCollapsed');
@@ -294,52 +283,25 @@ export default function Dashboard() {
   const toggleSec = (key) => setSettings({ ...settings, dashboardSections: { ...sectionPrefs, [key]: !sec(key) } });
   const navigate = useNavigate();
 
-  const { spouseName, myName, monthlySpendingBudget, monthlySavingsTarget, purchasesInAvailable } = settings;
-  const partnerLabel = spouseName || 'Secondary User';
-  const aaronLabel = myName || 'Primary User';
+  const { monthlySpendingBudget, monthlySavingsTarget, purchasesInAvailable } = settings;
 
-  const allMonthBills = getBillsForMonth(bills, mk);
+  const monthBills = getBillsForMonth(bills, mk);
   const monthIncome = getIncomeForMonth(income, mk);
 
-  // Normalize owner to canonical key
-  const normOwner = (b) => {
-    const o = b.owner;
-    if (o === 'mine' || o === 'aaron') return 'primary';
-    if (o === 'partner' || o === 'cameron') return 'secondary';
-    return 'joint';
-  };
-
-  // Filter bills and income by viewMode
-  const monthBills = viewMode === 'primary'
-    ? allMonthBills.filter((b) => normOwner(b) === 'primary')
-    : viewMode === 'secondary'
-      ? allMonthBills.filter((b) => normOwner(b) === 'secondary')
-      : allMonthBills;
-
-  const viewIncome = (viewMode === 'primary'
-    ? monthIncome.filter((i) => i.person !== 'spouse')
-    : viewMode === 'secondary'
-      ? monthIncome.filter((i) => i.person === 'spouse')
-      : monthIncome
-  ).filter((i) => i.includeInAvailability !== false);
+  const viewIncome = monthIncome.filter((i) => i.includeInAvailability !== false);
 
   const paidBills = monthBills.filter((b) => getBillStatus(b, mk) === 'paid');
   const unpaidBills = monthBills.filter((b) => getBillStatus(b, mk) === 'unpaid');
   const pendingBills = monthBills.filter((b) => getBillStatus(b, mk) === 'pending');
-  const overdueBills = allMonthBills.filter((b) => isBillOverdueUnpaid(b, mk));
+  const overdueBills = monthBills.filter((b) => isBillOverdueUnpaid(b, mk));
 
   const totalBills = monthBills.reduce((s, b) => s + b.amount, 0);
   const paidTotal = paidBills.reduce((s, b) => s + b.amount, 0);
   const unpaidTotal = unpaidBills.reduce((s, b) => s + b.amount, 0);
 
-  const partnerIncome = monthIncome.filter((i) => i.person === 'spouse').reduce((s, i) => s + monthlyAmount(i), 0);
   const monthlyIncome = viewIncome.reduce((s, i) => s + monthlyAmount(i), 0);
 
-  const totalDebtMins = viewMode === 'primary'
-    ? debts.filter((d) => normOwner(d) === 'primary').reduce((s, d) => s + d.minPayment, 0)
-    : viewMode === 'secondary'
-      ? debts.filter((d) => normOwner(d) === 'secondary').reduce((s, d) => s + d.minPayment, 0)
-      : debts.reduce((s, d) => s + d.minPayment, 0);
+  const totalDebtMins = debts.reduce((s, d) => s + d.minPayment, 0);
 
   const activePlannedTotal = plannedExpenses
     .filter((pe) => pe.status !== 'completed')
@@ -394,21 +356,7 @@ export default function Dashboard() {
   const spendingHistory = getSpendingHistory(purchases, 6);
   const categoryTotals = getCategoryTotals(purchases, mk);
 
-  const aaronSpent = monthPurchases.filter((p) => p.person === 'aaron' || p.person === 'me').reduce((s, p) => s + p.amount, 0);
-  const cameronSpent = monthPurchases.filter((p) => p.person === 'cameron' || p.person === 'partner').reduce((s, p) => s + p.amount, 0);
 
-  const activeAgreements = agreements.filter((a) => a.status !== 'settled');
-  const settledAgreements = agreements.filter((a) => a.status === 'settled');
-
-  const openAgreementEditor = (ag) => {
-    setAgDesc(ag ? ag.description || '' : '');
-    setAgAmount(ag ? (ag.amount != null ? String(ag.amount) : '') : '');
-    setAgPerson(ag ? ag.person || 'both' : 'both');
-    setAgDate(ag ? ag.date || new Date().toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10));
-    setAgNotes(ag ? ag.notes || '' : '');
-    if (ag) setEditAgreement(ag); else setShowAddAgreement(true);
-  };
-  const closeAgreementEditor = () => { setShowAddAgreement(false); setEditAgreement(null); setAgDesc(''); setAgAmount(''); setAgPerson('both'); setAgDate(new Date().toISOString().slice(0, 10)); setAgNotes(''); };
 
   // Bill reminders — request notification permission and alert on due-soon bills
   useEffect(() => {
@@ -480,19 +428,6 @@ export default function Dashboard() {
             </RouterLink>
           </div>
         </div>
-        {/* View mode toggle */}
-        <div style={{ display: 'flex', backgroundColor: 'var(--surface2)', borderRadius: '0.875rem', padding: '0.25rem', gap: '0.25rem', marginBottom: '0.75rem' }}>
-          {[['primary', aaronLabel, 'var(--accent)', 'rgba(99,102,241,0.15)'], ['secondary', partnerLabel, '#a78bfa', 'rgba(167,139,250,0.15)'], ['joint', 'Joint', '#10b981', 'rgba(16,185,129,0.15)']].map(([mode, label, activeColor, inactiveBg]) => (
-            <button key={mode} onClick={() => setViewMode(mode)}
-              style={{ flex: 1, padding: '0.5rem 0', borderRadius: '0.625rem', fontSize: '0.875rem', fontWeight: 700, border: 'none', cursor: 'pointer', transition: 'all 0.15s',
-                backgroundColor: viewMode === mode ? activeColor : 'transparent',
-                color: viewMode === mode ? '#fff' : 'var(--subtle)',
-                boxShadow: viewMode === mode ? '0 1px 4px rgba(0,0,0,0.2)' : 'none' }}>
-              {label}
-            </button>
-          ))}
-        </div>
-
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <button onClick={() => setMk(monthOffset(mk, -1))} style={{ padding: '0.5rem', borderRadius: '0.75rem', color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer' }}>
             <ChevronLeft size={20} />
@@ -668,9 +603,6 @@ export default function Dashboard() {
                 <span style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--subtle)' }}>Income</span>
               </div>
               <p style={{ fontSize: '1rem', fontWeight: '800', color: 'var(--text)' }}>{formatCurrency(monthlyIncome)}</p>
-              {viewMode === 'joint' && partnerIncome > 0 && (
-                <p style={{ fontSize: '0.65rem', color: 'var(--subtle)', marginTop: '0.1rem' }}>{aaronLabel} + {partnerLabel}</p>
-              )}
             </div>
             <div style={{ backgroundColor: 'var(--surface2)', borderRadius: '0.75rem', padding: '0.625rem 0.75rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', marginBottom: '0.2rem' }}>
@@ -997,15 +929,15 @@ export default function Dashboard() {
           ))}
         </div>}
 
-        {/* Commitments & Agreements — merged section */}
+        {/* Commitments */}
         {sec('commitments') && <div style={sectionWrap}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: isCollapsed('commitments') ? '0' : '0.75rem' }}>
             <button onClick={() => toggleCollapsed('commitments')} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'none', border: 'none', cursor: 'pointer', flex: 1, padding: '0 0 0.75rem 0', textAlign: 'left' }}>
               {isCollapsed('commitments') ? <ChevronDown size={14} style={{ color: 'var(--subtle)', flexShrink: 0 }} /> : <ChevronUp size={14} style={{ color: 'var(--subtle)', flexShrink: 0 }} />}
-              <span style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--subtle)' }}>Commitments &amp; Agreements</span>
-              {isCollapsed('commitments') && (openCommitments.length > 0 || activeAgreements.length > 0) && (
+              <span style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--subtle)' }}>Commitments</span>
+              {isCollapsed('commitments') && openCommitments.length > 0 && (
                 <span style={{ fontSize: '0.875rem', color: 'var(--accent-text)', fontWeight: '700' }}>
-                  {[openCommitments.length > 0 && `${openCommitments.length} to-do`, activeAgreements.length > 0 && `${activeAgreements.length} deal${activeAgreements.length !== 1 ? 's' : ''}`].filter(Boolean).join(' · ')}
+                  {openCommitments.length} to-do
                 </span>
               )}
             </button>
@@ -1015,27 +947,23 @@ export default function Dashboard() {
                   style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.8125rem', color: 'var(--accent-text)', background: 'none', border: 'none', cursor: 'pointer', fontWeight: '600' }}>
                   <Plus size={13} /> To-do
                 </button>
-                <button onClick={() => openAgreementEditor(null)}
-                  style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.8125rem', color: 'var(--accent-text)', background: 'none', border: 'none', cursor: 'pointer', fontWeight: '600' }}>
-                  <Plus size={13} /> Deal
-                </button>
               </div>
             )}
           </div>
           {!isCollapsed('commitments') && (
             <>
-              {commitments.length === 0 && agreements.length === 0 ? (
+              {commitments.length === 0 ? (
                 <div style={{ backgroundColor: 'var(--surface)', border: '1px dashed var(--border)', borderRadius: '1rem', padding: '1.25rem', textAlign: 'center' }}>
-                  <p style={{ fontSize: '0.875rem', color: 'var(--muted)' }}>Nothing here yet — add to-dos or log financial deals.</p>
+                  <p style={{ fontSize: '0.875rem', color: 'var(--muted)' }}>Nothing here yet — add a to-do.</p>
                 </div>
               ) : (
                 <>
                   {commitments.length > 0 && (
-                    <div style={{ backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '1rem', overflow: 'hidden', marginBottom: agreements.length > 0 ? '0.625rem' : '0' }}>
+                    <div style={{ backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '1rem', overflow: 'hidden' }}>
                       {openCommitments.map((c, i) => (
                         <div key={c.id} style={{ borderBottom: i < openCommitments.length - 1 || doneCommitments.length > 0 ? '1px solid var(--border)' : 'none' }}>
                           <CommitmentRow commitment={c} onToggle={toggleCommitment}
-                            onEdit={setEditCommitment} onDelete={deleteCommitment} myLabel={aaronLabel} partnerLabel={partnerLabel} />
+                            onEdit={setEditCommitment} onDelete={deleteCommitment} />
                         </div>
                       ))}
                       {doneCommitments.length > 0 && (
@@ -1047,46 +975,9 @@ export default function Dashboard() {
                       {showDoneCommitments && doneCommitments.map((c, i) => (
                         <div key={c.id} style={{ borderBottom: i < doneCommitments.length - 1 ? '1px solid var(--border)' : 'none' }}>
                           <CommitmentRow commitment={c} onToggle={toggleCommitment}
-                            onEdit={setEditCommitment} onDelete={deleteCommitment} myLabel={aaronLabel} partnerLabel={partnerLabel} />
+                            onEdit={setEditCommitment} onDelete={deleteCommitment} />
                         </div>
                       ))}
-                    </div>
-                  )}
-                  {agreements.length > 0 && (
-                    <div style={{ backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '1rem', overflow: 'hidden' }}>
-                      {activeAgreements.map((ag, i) => (
-                        <div key={ag.id} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem', padding: '0.875rem 1rem', borderBottom: i < activeAgreements.length - 1 || settledAgreements.length > 0 ? '1px solid var(--border)' : 'none' }}>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <p style={{ fontWeight: '600', color: 'var(--text)', fontSize: '0.9375rem' }}>{ag.description}</p>
-                            <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.2rem', flexWrap: 'wrap' }}>
-                              {ag.amount != null && ag.amount > 0 && <span style={{ fontSize: '0.8125rem', color: 'var(--accent-text)', fontWeight: '700' }}>{formatCurrency(ag.amount)}</span>}
-                              <span style={{ fontSize: '0.75rem', color: 'var(--subtle)' }}>
-                                {ag.person === 'me' ? aaronLabel : ag.person === 'partner' ? partnerLabel : 'Both'} · {ag.date ? formatDate(ag.date) : ''}
-                              </span>
-                            </div>
-                            {ag.notes && <p style={{ fontSize: '0.75rem', color: 'var(--subtle)', marginTop: '0.2rem' }}>{ag.notes}</p>}
-                          </div>
-                          <div style={{ display: 'flex', gap: '0.375rem', flexShrink: 0 }}>
-                            <button onClick={() => updateAgreement(ag.id, { status: 'settled' })}
-                              style={{ fontSize: '0.7rem', fontWeight: '700', padding: '0.35rem 0.6rem', borderRadius: '0.5rem', backgroundColor: 'rgba(16,185,129,0.12)', color: 'var(--positive-text)', border: 'none', cursor: 'pointer' }}>
-                              Settle
-                            </button>
-                            <button onClick={() => openAgreementEditor(ag)}
-                              style={{ padding: '0.35rem', color: 'var(--subtle)', background: 'none', border: 'none', cursor: 'pointer', borderRadius: '0.5rem' }}>
-                              <Pencil size={13} />
-                            </button>
-                            <button onClick={() => deleteAgreement(ag.id)}
-                              style={{ padding: '0.35rem', color: 'var(--danger)', background: 'none', border: 'none', cursor: 'pointer', borderRadius: '0.5rem' }}>
-                              <Trash2 size={13} />
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                      {settledAgreements.length > 0 && (
-                        <div style={{ padding: '0.625rem 1rem', backgroundColor: 'var(--surface2)' }}>
-                          <p style={{ fontSize: '0.75rem', color: 'var(--subtle)' }}>{settledAgreements.length} settled deal{settledAgreements.length !== 1 ? 's' : ''}</p>
-                        </div>
-                      )}
                     </div>
                   )}
                 </>
@@ -1206,43 +1097,6 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* Partner view */}
-        {sec('spendingByPerson') && (aaronSpent > 0 || cameronSpent > 0) && (
-          <div style={sectionWrap}>
-            <button onClick={() => toggleCollapsed('spendingByPerson')} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'none', border: 'none', cursor: 'pointer', width: '100%', textAlign: 'left', padding: '0 0 0.75rem 0' }}>
-              {isCollapsed('spendingByPerson') ? <ChevronDown size={14} style={{ color: 'var(--subtle)', flexShrink: 0 }} /> : <ChevronUp size={14} style={{ color: 'var(--subtle)', flexShrink: 0 }} />}
-              <Users size={13} style={{ color: 'var(--accent-text)' }} />
-              <span style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--subtle)' }}>Spending by Person — {monthLabel(mk)}</span>
-              {isCollapsed('spendingByPerson') && <span style={{ fontSize: '0.875rem', fontWeight: '700', color: 'var(--muted)' }}>{aaronLabel} {formatCurrency(aaronSpent)} · {partnerLabel} {formatCurrency(cameronSpent)}</span>}
-            </button>
-            {!isCollapsed('spendingByPerson') && (
-              <div style={{ backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '1rem', padding: '1rem' }}>
-                {[
-                  { label: aaronLabel, amt: aaronSpent, color: 'var(--accent)' },
-                  { label: partnerLabel, amt: cameronSpent, color: '#a78bfa' },
-                ].map(({ label, amt, color }) => {
-                  const pct = monthSpent > 0 ? (amt / monthSpent) * 100 : 0;
-                  return (
-                    <div key={label} style={{ marginBottom: '0.75rem' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.3rem' }}>
-                        <span style={{ fontSize: '0.9375rem', fontWeight: '700', color: 'var(--text)' }}>{label}</span>
-                        <span style={{ fontSize: '0.9375rem', fontWeight: '800', color: 'var(--text)' }}>{formatCurrency(amt)}</span>
-                      </div>
-                      <div style={{ height: '0.5rem', backgroundColor: 'var(--surface2)', borderRadius: '9999px', overflow: 'hidden' }}>
-                        <div style={{ height: '100%', backgroundColor: color, borderRadius: '9999px', width: `${pct}%`, transition: 'width 0.3s' }} />
-                      </div>
-                      <p style={{ fontSize: '0.75rem', color: 'var(--subtle)', marginTop: '0.2rem' }}>{pct.toFixed(0)}% of month total</p>
-                    </div>
-                  );
-                })}
-                <div style={{ borderTop: '1px solid var(--border)', paddingTop: '0.75rem', display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ fontSize: '0.8125rem', color: 'var(--muted)', fontWeight: '600' }}>Combined</span>
-                  <span style={{ fontSize: '0.9375rem', fontWeight: '800', color: 'var(--text)' }}>{formatCurrency(monthSpent)}</span>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
 
 
 
@@ -1261,12 +1115,12 @@ export default function Dashboard() {
       )}
       {showAddCommitment && (
         <Modal title="Add Commitment" onClose={() => setShowAddCommitment(false)}>
-          <CommitmentForm onSave={(d) => { addCommitment(d); setShowAddCommitment(false); }} onCancel={() => setShowAddCommitment(false)} spouseName={spouseName} />
+          <CommitmentForm onSave={(d) => { addCommitment(d); setShowAddCommitment(false); }} onCancel={() => setShowAddCommitment(false)} />
         </Modal>
       )}
       {editCommitment && (
         <Modal title="Edit Commitment" onClose={() => setEditCommitment(null)}>
-          <CommitmentForm initial={editCommitment} onSave={(d) => { updateCommitment(editCommitment.id, d); setEditCommitment(null); }} onCancel={() => setEditCommitment(null)} spouseName={spouseName} />
+          <CommitmentForm initial={editCommitment} onSave={(d) => { updateCommitment(editCommitment.id, d); setEditCommitment(null); }} onCancel={() => setEditCommitment(null)} />
         </Modal>
       )}
       {showAddPlanned && (
@@ -1326,49 +1180,6 @@ export default function Dashboard() {
         </Modal>
       )}
 
-      {/* Agreement modals */}
-      {(showAddAgreement || editAgreement) && (
-        <Modal title={editAgreement ? 'Edit Agreement' : 'New Agreement'} onClose={closeAgreementEditor}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
-            <div>
-              <p className="field-label">Description</p>
-              <input type="text" placeholder="e.g. Pay Cameron $200 for car repair" value={agDesc} onChange={(e) => setAgDesc(e.target.value)} className="app-input" />
-            </div>
-            <div>
-              <p className="field-label">Amount (optional)</p>
-              <input type="number" inputMode="decimal" placeholder="0.00" value={agAmount} onChange={(e) => setAgAmount(e.target.value)} className="app-input" />
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
-              <div>
-                <p className="field-label">Person</p>
-                <select value={agPerson} onChange={(e) => setAgPerson(e.target.value)} className="app-input">
-                  <option value="both">Both</option>
-                  <option value="me">{aaronLabel}</option>
-                  <option value="partner">{partnerLabel}</option>
-                </select>
-              </div>
-              <div>
-                <p className="field-label">Date</p>
-                <input type="date" value={agDate} onChange={(e) => setAgDate(e.target.value)} className="app-input" />
-              </div>
-            </div>
-            <div>
-              <p className="field-label">Notes (optional)</p>
-              <input type="text" placeholder="Any extra details…" value={agNotes} onChange={(e) => setAgNotes(e.target.value)} className="app-input" />
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginTop: '0.25rem' }}>
-              <button onClick={closeAgreementEditor} className="app-btn-secondary">Cancel</button>
-              <button onClick={() => {
-                if (!agDesc.trim()) return;
-                const data = { description: agDesc.trim(), amount: agAmount ? parseFloat(agAmount) : null, person: agPerson, date: agDate, notes: agNotes.trim() };
-                if (editAgreement) updateAgreement(editAgreement.id, data); else addAgreement(data);
-                closeAgreementEditor();
-              }} className="app-btn-primary" disabled={!agDesc.trim()}>Save</button>
-            </div>
-          </div>
-        </Modal>
-      )}
-
       {/* Export / Share summary modal */}
       {showExport && (() => {
         const lines = [
@@ -1382,14 +1193,13 @@ export default function Dashboard() {
           ...(unpaidBills.length > 0 ? ['⚠️ Unpaid Bills:', ...unpaidBills.map((b) => `   • ${b.name}: ${formatCurrency(b.amount)}`), ''] : []),
           ...(totalEnvelopeLimit > 0 ? [`🗂 Envelopes: ${formatCurrency(totalEnvelopeSpent)} spent / ${formatCurrency(totalEnvelopeLimit)} budgeted (${formatCurrency(totalEnvelopeRemaining)} left)`, ''] : []),
           ...(savings.length > 0 ? [`💾 Savings: ${formatCurrency(totalSavings)}`, ...savings.map((s) => `   • ${s.name}: ${formatCurrency(s.balance)}`), ''] : []),
-          ...(activeAgreements.length > 0 ? ['🤝 Open Deals:', ...activeAgreements.map((a) => `   • ${a.description}${a.amount ? ' — ' + formatCurrency(a.amount) : ''}`), ''] : []),
           `📅 Generated ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`,
         ].join('\n');
 
         return (
           <Modal title="Share Summary" onClose={() => setShowExport(false)}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
-              <p style={{ fontSize: '0.8125rem', color: 'var(--subtle)' }}>Month snapshot ready to copy and share with {partnerLabel}.</p>
+              <p style={{ fontSize: '0.8125rem', color: 'var(--subtle)' }}>Month snapshot ready to copy and share.</p>
               <textarea readOnly value={lines} rows={Math.min(18, lines.split('\n').length + 2)}
                 style={{ fontFamily: 'monospace', fontSize: '0.8125rem', backgroundColor: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '0.75rem', padding: '0.75rem', color: 'var(--text)', resize: 'none', lineHeight: '1.6' }} />
               <button onClick={() => { navigator.clipboard?.writeText(lines); }}
@@ -1412,7 +1222,7 @@ export default function Dashboard() {
               ['tasks',           'Tasks Due'],
               ['envelopes',       'Budget Envelopes'],
               ['savings',         'Savings'],
-              ['commitments',     'Commitments & Agreements'],
+              ['commitments',     'Commitments'],
               ['billsStatus',     'Bills Status'],
               ['spending',        'Spending This Month'],
               ['nextPaycheck',    'Next Paycheck Banner'],
@@ -1421,7 +1231,6 @@ export default function Dashboard() {
               ['netWorth',        'Net Worth'],
               ['spendingTrend',   'Spending Trend'],
               ['topCategories',   'Top Categories'],
-              ['spendingByPerson','Spending by Person'],
               ['pinnedNotes',     'Pinned Notes'],
             ].map(([key, label]) => {
               const on = sec(key);

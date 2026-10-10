@@ -3,7 +3,7 @@ import { Link, CalendarOff } from 'lucide-react';
 
 const CATEGORIES = ['Housing', 'Utilities', 'Insurance', 'Subscriptions', 'Auto', 'Medical', 'Food', 'Entertainment', 'Other'];
 
-export default function BillForm({ initial = {}, onSave, onCancel, myName, spouseName }) {
+export default function BillForm({ initial = {}, onSave, onCancel }) {
   const [form, setForm] = useState({
     name: '',
     amount: '',
@@ -17,7 +17,7 @@ export default function BillForm({ initial = {}, onSave, onCancel, myName, spous
     ...initial,
     amount: initial.amount != null ? String(initial.amount) : '',
     dueDay: initial.dueDay != null ? String(initial.dueDay) : '',
-    owner: initial.owner === 'mine' ? 'aaron' : initial.owner === 'partner' ? 'cameron' : (initial.owner || 'aaron'),
+    owner: initial.owner || 'aaron',
   });
 
   const set = (key, val) => setForm((f) => ({ ...f, [key]: val }));
@@ -32,14 +32,6 @@ export default function BillForm({ initial = {}, onSave, onCancel, myName, spous
       isRecurring: true,
     });
   };
-
-  const aaronLabel = myName || 'Primary User';
-  const cameronLabel = spouseName || 'Secondary User';
-  const ownerOptions = [
-    { val: 'aaron', label: aaronLabel },
-    { val: 'cameron', label: cameronLabel },
-    { val: 'joint', label: 'Joint' },
-  ];
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
@@ -92,23 +84,6 @@ export default function BillForm({ initial = {}, onSave, onCancel, myName, spous
         <select className="app-input" value={form.category} onChange={(e) => set('category', e.target.value)}>
           {CATEGORIES.map((c) => <option key={c}>{c}</option>)}
         </select>
-      </div>
-
-      <div>
-        <label className="app-label">Paid by</label>
-        <div className="flex gap-2">
-          {ownerOptions.map(({ val, label }) => (
-            <button key={val} type="button" onClick={() => set('owner', val)}
-              className="flex-1 py-2.5 rounded-xl text-sm font-medium transition-colors"
-              style={{
-                backgroundColor: form.owner === val ? 'var(--accent)' : 'var(--surface2)',
-                color: form.owner === val ? '#fff' : 'var(--muted)',
-                border: `1px solid ${form.owner === val ? 'var(--accent)' : 'var(--border)'}`,
-              }}>
-              {label}
-            </button>
-          ))}
-        </div>
       </div>
 
       <div>

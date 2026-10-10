@@ -69,6 +69,25 @@ test('a bill due today, tomorrow, or overdue each produce one message', () => {
   }
 });
 
+test('bills and commitments tagged to a partner produce no reminders', () => {
+  const msgs = collectDailyMessages({
+    bills: [
+      bill({ id: 'B1', name: 'Theirs', owner: 'cameron' }),
+      bill({ id: 'B2', name: 'Also theirs', owner: 'partner' }),
+      bill({ id: 'B3', name: 'Shared', owner: 'joint' }),
+      bill({ id: 'B4', name: 'Mine', owner: 'aaron' }),
+    ],
+    commitments: [
+      { id: 'C1', description: 'Their pledge', person: 'partner', endDate: TODAY },
+      { id: 'C2', description: 'My pledge', person: 'me', endDate: TODAY },
+    ],
+  }, TODAY);
+  const text = titles(msgs).join(' | ') + ' ' + msgs.map((m) => m.body).join(' | ');
+  assert.ok(!text.includes('Theirs') && !text.includes('Also theirs') && !text.includes('Their pledge'), text);
+  assert.ok(titles(msgs).includes('Bill Due Today: Shared'));
+  assert.ok(titles(msgs).includes('Bill Due Today: Mine'));
+});
+
 test('an unpaid bill whose day has passed stays overdue for the month', () => {
   // On the 31st, a bill due on the 1st is overdue for *this* month — the
   // month key decides which instance is being judged, not the calendar.

@@ -26,23 +26,6 @@ function monthOffset(mk, offset) {
   return monthKey(new Date(y, m - 1 + offset, 1));
 }
 
-function normalizeOwner(owner) {
-  if (owner === 'mine') return 'aaron';
-  if (owner === 'partner') return 'cameron';
-  return owner || 'aaron';
-}
-
-function OwnerBadge({ owner, myName, spouseName }) {
-  const n = normalizeOwner(owner);
-  const label = n === 'joint' ? 'Joint' : n === 'cameron' ? (spouseName || 'Secondary User') : (myName || 'Primary User');
-  const color = n === 'joint' ? 'var(--muted)' : n === 'cameron' ? '#a78bfa' : 'var(--accent-text)';
-  return (
-    <span style={{ fontSize: '0.6875rem', color, backgroundColor: 'var(--surface2)', border: '1px solid var(--border)', padding: '0.125rem 0.5rem', borderRadius: '0.375rem', fontWeight: 600 }}>
-      {label}
-    </span>
-  );
-}
-
 const STATUS_COLORS = { paid: 'var(--positive)', pending: 'var(--warn)', unpaid: 'var(--danger)' };
 
 function StatusControl({ status, onSet }) {
@@ -63,7 +46,7 @@ function StatusControl({ status, onSet }) {
   );
 }
 
-function BillCard({ bill, mk, onSetStatus, onEdit, onDelete, onAttach, myName, spouseName }) {
+function BillCard({ bill, mk, onSetStatus, onEdit, onDelete, onAttach }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPos, setMenuPos] = useState({ top: 0, right: 0 });
   const menuBtnRef = useRef(null);
@@ -84,7 +67,6 @@ function BillCard({ bill, mk, onSetStatus, onEdit, onDelete, onAttach, myName, s
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
               <p style={{ fontWeight: 700, fontSize: '1rem', color: isPaid ? 'var(--subtle)' : 'var(--text)', textDecoration: isPaid ? 'line-through' : 'none' }}>{bill.name}</p>
-              <OwnerBadge owner={bill.owner} myName={myName} spouseName={spouseName} />
               {isPermanent && (
                 <span style={{ fontSize: '0.6875rem', color: 'var(--subtle)', backgroundColor: 'var(--surface2)', border: '1px solid var(--border)', padding: '0.125rem 0.5rem', borderRadius: '0.375rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
                   <CalendarOff size={9} /> Permanent
@@ -168,7 +150,7 @@ function BillCard({ bill, mk, onSetStatus, onEdit, onDelete, onAttach, myName, s
   );
 }
 
-function DebtCard({ debt, month, onTogglePaid, onEdit, onDelete, myName, spouseName }) {
+function DebtCard({ debt, month, onTogglePaid, onEdit, onDelete }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPos, setMenuPos] = useState({ top: 0, right: 0 });
   const menuBtnRef = useRef(null);
@@ -183,7 +165,6 @@ function DebtCard({ debt, month, onTogglePaid, onEdit, onDelete, myName, spouseN
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.375rem' }}>
             <p style={{ fontWeight: 700, fontSize: '1rem', color: isPaid ? 'var(--subtle)' : 'var(--text)', textDecoration: isPaid ? 'line-through' : 'none' }}>{debt.name}</p>
-            <OwnerBadge owner={debt.owner} myName={myName} spouseName={spouseName} />
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
             <span style={{ fontSize: '0.875rem', color: 'var(--muted)' }}>Balance: <span style={{ color: 'var(--text)', fontWeight: 600 }}>{formatCurrency(debt.balance)}</span></span>
@@ -243,7 +224,7 @@ function buildCalGrid(year, month) {
   return days;
 }
 
-function BillCalendarView({ bills, income, mk, onSetStatus, myName, spouseName }) {
+function BillCalendarView({ bills, income, mk, onSetStatus }) {
   const [y, m] = mk.split('-').map(Number);
   const year = y;
   const month = m - 1;
@@ -666,7 +647,7 @@ export default function BillsDebts() {
     budget, setBudgetForMonth,
     budgetCategories, addBudgetCategory, updateBudgetCategory, deleteBudgetCategory, persistBudgetCategories,
     budgetSpends, addBudgetSpend, updateBudgetSpend, deleteBudgetSpend,
-    settings, income,
+    income,
     billStickyNotes, setBillStickyNote,
     selectedMonth: mk, setSelectedMonth: setMk,
   } = useApp();
@@ -677,7 +658,6 @@ export default function BillsDebts() {
   const [attachBillId, setAttachBillId] = useState(null);
   const [showAddDebt, setShowAddDebt] = useState(false);
   const [editDebt, setEditDebt] = useState(null);
-  const [ownerFilter, setOwnerFilter] = useState(null);
   const [calView, setCalView] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(null); // { message, onConfirm }
 
@@ -691,14 +671,8 @@ export default function BillsDebts() {
   const [editBudgetAmt, setEditBudgetAmt] = useState(false);
   const [budgetAmtInput, setBudgetAmtInput] = useState('');
 
-  const { myName, spouseName } = settings;
-  const aaronLabel = myName || 'Primary User';
-  const cameronLabel = spouseName || 'Secondary User';
-
   const monthBills = getBillsForMonth(bills, mk);
-  const ownerFiltered = ownerFilter ? monthBills.filter((b) => normalizeOwner(b.owner) === ownerFilter) : monthBills;
-  const filteredBills = ownerFiltered;
-  const sortedBills = [...filteredBills].sort((a, b) => {
+  const sortedBills = [...monthBills].sort((a, b) => {
     const order = { unpaid: 0, pending: 1, paid: 2 };
     const aS = getBillStatus(a, mk), bS = getBillStatus(b, mk);
     if (order[aS] !== order[bS]) return order[aS] - order[bS];
@@ -708,19 +682,10 @@ export default function BillsDebts() {
 
   const overdueCount = monthBills.filter((b) => isBillOverdueUnpaid(b, mk)).length;
 
-  const filteredDebts = ownerFilter ? debts.filter((d) => normalizeOwner(d.owner) === ownerFilter) : debts;
   const sortedDebts = [
-    ...filteredDebts.filter((d) => !(d.paidMonths || {})[mk]).sort((a, b) => b.balance - a.balance),
-    ...filteredDebts.filter((d) => (d.paidMonths || {})[mk]).sort((a, b) => b.balance - a.balance),
+    ...debts.filter((d) => !(d.paidMonths || {})[mk]).sort((a, b) => b.balance - a.balance),
+    ...debts.filter((d) => (d.paidMonths || {})[mk]).sort((a, b) => b.balance - a.balance),
   ];
-
-  const ownerGroups = ['aaron', 'cameron', 'joint'].map((o) => ({
-    key: o, label: o === 'aaron' ? aaronLabel : o === 'cameron' ? cameronLabel : 'Joint',
-    balance: debts.filter((d) => normalizeOwner(d.owner) === o).reduce((s, d) => s + d.balance, 0),
-    count: debts.filter((d) => normalizeOwner(d.owner) === o).length,
-  })).filter((g) => g.count > 0);
-
-  const toggleOwner = (val) => setOwnerFilter((cur) => cur === val ? null : val);
 
   const requestDeleteBill = (id) => {
     const bill = bills.find((b) => b.id === id);
@@ -813,20 +778,6 @@ export default function BillsDebts() {
       </div>
 
       <div style={{ padding: '0 1rem' }}>
-        {/* Owner filter */}
-        {(tab === 'bills' ? monthBills : debts).length > 0 && (
-          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
-            {[['aaron', aaronLabel, 'var(--accent)'], ['cameron', cameronLabel, '#a78bfa'], ['joint', 'Joint', '#10b981']].map(([val, label, activeColor]) => (
-              <button key={val} onClick={() => toggleOwner(val)}
-                style={{ flex: 1, padding: '0.5rem 0', borderRadius: '0.75rem', fontSize: '0.875rem', fontWeight: 700, border: 'none', cursor: 'pointer', transition: 'all 0.15s',
-                  backgroundColor: ownerFilter === val ? activeColor : 'var(--surface2)',
-                  color: ownerFilter === val ? '#fff' : 'var(--muted)' }}>
-                {label}
-              </button>
-            ))}
-          </div>
-        )}
-
         {/* ── Bills ── */}
         {tab === 'bills' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
@@ -845,8 +796,8 @@ export default function BillsDebts() {
 
             {calView ? (
               monthBills.length > 0 ? (
-                <BillCalendarView bills={ownerFiltered} income={income} mk={mk}
-                  onSetStatus={setBillStatusDirect} myName={myName} spouseName={spouseName} />
+                <BillCalendarView bills={monthBills} income={income} mk={mk}
+                  onSetStatus={setBillStatusDirect} />
               ) : (
                 <div style={{ textAlign: 'center', padding: '4rem 1rem' }}>
                   <Receipt size={48} style={{ margin: '0 auto 1rem', opacity: 0.2, color: 'var(--muted)', display: 'block' }} />
@@ -871,7 +822,7 @@ export default function BillsDebts() {
               <div style={{ textAlign: 'center', padding: '4rem 1rem' }}>
                 <Receipt size={48} style={{ margin: '0 auto 1rem', opacity: 0.2, color: 'var(--muted)', display: 'block' }} />
                 <p style={{ fontWeight: 700, color: 'var(--text)', fontSize: '1.125rem', marginBottom: '0.5rem' }}>
-                  {monthBills.length === 0 ? 'No bills yet' : 'No bills for this filter'}
+                  No bills yet
                 </p>
                 {monthBills.length === 0 && (
                   <>
@@ -884,8 +835,7 @@ export default function BillsDebts() {
               </div>
             ) : sortedBills.map((bill) => (
               <BillCard key={bill.id} bill={bill} mk={mk} onSetStatus={setBillStatusDirect}
-                onEdit={setEditBill} onDelete={requestDeleteBill} onAttach={(b) => setAttachBillId(b.id)}
-                myName={myName} spouseName={spouseName} />
+                onEdit={setEditBill} onDelete={requestDeleteBill} onAttach={(b) => setAttachBillId(b.id)} />
             ))}
             </>)}
           </div>
@@ -1085,21 +1035,11 @@ export default function BillsDebts() {
             {debts.length > 0 && (
               <>
                 <div style={{ backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '1.25rem', padding: '1.25rem', marginBottom: '0.25rem' }}>
-                  <p style={{ ...sectionLabel, marginBottom: '0.25rem' }}>Combined Debt</p>
+                  <p style={{ ...sectionLabel, marginBottom: '0.25rem' }}>Total Debt</p>
                   <p style={{ fontSize: '2.5rem', fontWeight: 900, color: 'var(--danger)' }}>{formatCurrency(debts.reduce((s, d) => s + d.balance, 0))}</p>
                   <p style={{ fontSize: '0.8125rem', color: 'var(--subtle)', marginTop: '0.25rem' }}>{debts.length} account{debts.length !== 1 ? 's' : ''} · mins: {formatCurrency(debts.reduce((s, d) => s + d.minPayment, 0))}/mo</p>
                 </div>
 
-                {ownerGroups.length > 1 && (
-                  <div style={{ display: 'grid', gridTemplateColumns: `repeat(${ownerGroups.length}, 1fr)`, gap: '0.5rem', marginBottom: '0.25rem' }}>
-                    {ownerGroups.map((g) => (
-                      <div key={g.key} style={{ backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '0.875rem', padding: '0.75rem', textAlign: 'center' }}>
-                        <p style={{ ...sectionLabel, marginBottom: '0.25rem' }}>{g.label}</p>
-                        <p style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--text)' }}>{formatCurrency(g.balance)}</p>
-                      </div>
-                    ))}
-                  </div>
-                )}
               </>
             )}
 
@@ -1107,7 +1047,7 @@ export default function BillsDebts() {
               <div style={{ textAlign: 'center', padding: '4rem 1rem' }}>
                 <CreditCard size={48} style={{ margin: '0 auto 1rem', opacity: 0.2, color: 'var(--muted)', display: 'block' }} />
                 <p style={{ fontWeight: 700, color: 'var(--text)', fontSize: '1.125rem', marginBottom: '0.5rem' }}>
-                  {debts.length === 0 ? 'No debts added' : 'No debts for this filter'}
+                  No debts added
                 </p>
                 {debts.length === 0 && (
                   <>
@@ -1122,7 +1062,7 @@ export default function BillsDebts() {
               <>
                 {sortedDebts.map((debt) => (
                   <DebtCard key={debt.id} debt={debt} month={mk} onTogglePaid={toggleDebtPaid}
-                    onEdit={setEditDebt} onDelete={requestDeleteDebt} myName={myName} spouseName={spouseName} />
+                    onEdit={setEditDebt} onDelete={requestDeleteDebt} />
                 ))}
 
                 {/* Debt payoff planner */}
@@ -1135,12 +1075,12 @@ export default function BillsDebts() {
 
       {showAddBill && (
         <Modal title="Add Bill" onClose={() => setShowAddBill(false)}>
-          <BillForm onSave={(data) => { addBill({ ...data, month: mk, startMonth: mk }); setShowAddBill(false); }} onCancel={() => setShowAddBill(false)} myName={myName} spouseName={spouseName} />
+          <BillForm onSave={(data) => { addBill({ ...data, month: mk, startMonth: mk }); setShowAddBill(false); }} onCancel={() => setShowAddBill(false)} />
         </Modal>
       )}
       {editBill && (
         <Modal title="Edit Bill" onClose={() => setEditBill(null)}>
-          <BillForm initial={editBill} onSave={(data) => { updateBill(editBill.id, data); setEditBill(null); }} onCancel={() => setEditBill(null)} myName={myName} spouseName={spouseName} />
+          <BillForm initial={editBill} onSave={(data) => { updateBill(editBill.id, data); setEditBill(null); }} onCancel={() => setEditBill(null)} />
         </Modal>
       )}
       {attachBillId && (() => {
@@ -1159,12 +1099,12 @@ export default function BillsDebts() {
       })()}
       {showAddDebt && (
         <Modal title="Add Debt" onClose={() => setShowAddDebt(false)}>
-          <DebtForm onSave={(data) => { addDebt(data); setShowAddDebt(false); }} onCancel={() => setShowAddDebt(false)} myName={myName} spouseName={spouseName} />
+          <DebtForm onSave={(data) => { addDebt(data); setShowAddDebt(false); }} onCancel={() => setShowAddDebt(false)} />
         </Modal>
       )}
       {editDebt && (
         <Modal title="Edit Debt" onClose={() => setEditDebt(null)}>
-          <DebtForm initial={editDebt} onSave={(data) => { updateDebt(editDebt.id, data); setEditDebt(null); }} onCancel={() => setEditDebt(null)} myName={myName} spouseName={spouseName} />
+          <DebtForm initial={editDebt} onSave={(data) => { updateDebt(editDebt.id, data); setEditDebt(null); }} onCancel={() => setEditDebt(null)} />
         </Modal>
       )}
 

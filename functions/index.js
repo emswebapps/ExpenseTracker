@@ -164,11 +164,20 @@ function tomorrowDayOfMonth(localDate) {
  *
  * @returns {Array<{title, body, tag, category, kind?}>}
  */
+// The app tracks one person's money now. Records saved back when it also
+// tracked a partner are tagged to them by `owner` or `person`; the app hides
+// those, so a reminder about one would be about something you can't see.
+// Mirrors isPartnerOnly in src/utils/helpers.js.
+const PARTNER_TAGS = new Set(['partner', 'cameron', 'spouse', 'secondary']);
+function isPartnerOnly(record) {
+  const tag = (v) => PARTNER_TAGS.has(String(v || '').toLowerCase());
+  return !!record && (tag(record.owner) || tag(record.person));
+}
+
 function collectDailyMessages(data, localDate) {
-  const {
-    bills = [], commitments = [], plannedExpenses = [], projects = [],
-    shoppingLists = [], shoppingItems = [], notifPrefs,
-  } = data;
+  const { plannedExpenses = [], projects = [], shoppingLists = [], shoppingItems = [], notifPrefs } = data;
+  const bills = (data.bills || []).filter((b) => !isPartnerOnly(b));
+  const commitments = (data.commitments || []).filter((c) => !isPartnerOnly(c));
   const daysBefore = notifPrefs?.commitments?.daysBefore ?? 3;
   const mk = localDate.slice(0, 7);
   const todayDay = Number(localDate.slice(8, 10));

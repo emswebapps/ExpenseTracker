@@ -1,6 +1,6 @@
 import { useState, useMemo, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { ShoppingBag, Pencil, Trash2, MoreVertical, ChevronLeft, ChevronRight, Plus, RefreshCw, ChevronDown, ChevronUp, ToggleLeft, ToggleRight, Calendar, Upload, X, AlertCircle, Download, Paperclip, CheckCircle2, Circle, Target, Folder, Handshake } from 'lucide-react';
+import { ShoppingBag, Pencil, Trash2, MoreVertical, ChevronLeft, ChevronRight, Plus, RefreshCw, ChevronDown, ChevronUp, ToggleLeft, ToggleRight, Calendar, Upload, X, AlertCircle, Download, Paperclip, CheckCircle2, Circle, Target, Folder } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
 import { formatCurrency, monthKey, monthLabel, exportMonthCSV, generateId } from '../utils/helpers';
@@ -18,11 +18,11 @@ const PURCHASE_CATEGORIES = [
   'Education', 'Other',
 ];
 
-function RecurringTemplateForm({ initial = {}, onSave, onCancel, myName, spouseName }) {
+function RecurringTemplateForm({ initial = {}, onSave, onCancel }) {
   const [merchant, setMerchant] = useState(initial.merchant || '');
   const [amount, setAmount] = useState(initial.amount != null ? String(initial.amount) : '');
   const [category, setCategory] = useState(initial.category || 'Subscriptions');
-  const [person, setPerson] = useState(initial.person || 'me');
+  const person = initial.person || 'me';
   const [dayOfMonth, setDayOfMonth] = useState(initial.dayOfMonth != null ? String(initial.dayOfMonth) : '1');
 
   const handleSubmit = (e) => {
@@ -58,16 +58,6 @@ function RecurringTemplateForm({ initial = {}, onSave, onCancel, myName, spouseN
         <select className="app-input" value={category} onChange={(e) => setCategory(e.target.value)}>
           {PURCHASE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
         </select>
-      </div>
-      <div>
-        <label className="app-label">Person</label>
-        <div style={{ display: 'flex', gap: '0.5rem' }}>
-          {[['me', myName || 'Me'], ['partner', spouseName || 'Partner']].map(([val, label]) => (
-            <button key={val} type="button" onClick={() => setPerson(val)} style={{ flex: 1, padding: '0.625rem', borderRadius: '0.75rem', border: `2px solid ${person === val ? 'var(--accent)' : 'var(--border)'}`, backgroundColor: person === val ? 'rgba(99,102,241,0.12)' : 'var(--surface2)', color: person === val ? 'var(--accent-text)' : 'var(--muted)', fontSize: '0.875rem', fontWeight: '600', cursor: 'pointer' }}>
-              {label}
-            </button>
-          ))}
-        </div>
       </div>
       <div style={{ display: 'flex', gap: '0.75rem', paddingTop: '0.25rem' }}>
         <button type="button" onClick={onCancel} className="app-btn-secondary" style={{ flex: 1 }}>Cancel</button>
@@ -160,8 +150,7 @@ function parsePurchaseText(text) {
   return results;
 }
 
-function ImportPurchasesModal({ onImport, onCancel, myName, spouseName, existingPurchases = [] }) {
-  const [person, setPerson] = useState('me');
+function ImportPurchasesModal({ onImport, onCancel, existingPurchases = [] }) {
   const [text, setText] = useState('');
   const [parsed, setParsed] = useState(null);
   const [error, setError] = useState('');
@@ -185,28 +174,13 @@ function ImportPurchasesModal({ onImport, onCancel, myName, spouseName, existing
 
   const handleImport = () => {
     if (!parsed?.length) return;
-    onImport(parsed.map((e) => ({ ...e, person, category: defaultCategory })));
+    onImport(parsed.map((e) => ({ ...e, person: 'me', category: defaultCategory })));
   };
-
-  const personLabels = [['me', myName || 'Me'], ['cameron', spouseName || 'Partner']];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       {!parsed ? (
         <>
-          {/* Person selector */}
-          <div>
-            <label className="app-label">Purchases are for</label>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              {personLabels.map(([val, label]) => (
-                <button key={val} type="button" onClick={() => setPerson(val)}
-                  style={{ flex: 1, padding: '0.625rem', borderRadius: '0.75rem', border: `2px solid ${person === val ? 'var(--accent)' : 'var(--border)'}`, backgroundColor: person === val ? 'rgba(99,102,241,0.12)' : 'var(--surface2)', color: person === val ? 'var(--accent-text)' : 'var(--muted)', fontSize: '0.875rem', fontWeight: '600', cursor: 'pointer' }}>
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-
           {/* Text area */}
           <div>
             <label className="app-label">Paste from Excel or type entries</label>
@@ -293,12 +267,10 @@ function monthOffset(mk, offset) {
   return monthKey(new Date(y, m - 1 + offset, 1));
 }
 
-function PurchaseRow({ purchase, onEdit, onDelete, onAttach, myName, spouseName }) {
+function PurchaseRow({ purchase, onEdit, onDelete, onAttach }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPos, setMenuPos] = useState({ top: 0, right: 0 });
   const menuBtnRef = useRef(null);
-  const isAaron = purchase.person === 'aaron' || purchase.person === 'me';
-  const personLabel = isAaron ? (myName || 'Primary User') : (spouseName || 'Secondary User');
   const dateLabel = new Date(purchase.date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   const attachCount = (purchase.attachments || []).length;
 
@@ -313,8 +285,6 @@ function PurchaseRow({ purchase, onEdit, onDelete, onAttach, myName, spouseName 
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.75rem', color: 'var(--subtle)' }}>
           <span>{dateLabel}</span>
-          <span>·</span>
-          <span style={{ color: 'var(--accent-text)' }}>{personLabel}</span>
           {purchase.notes && <span>· {purchase.notes}</span>}
         </div>
       </div>
@@ -363,69 +333,15 @@ function PurchaseRow({ purchase, onEdit, onDelete, onAttach, myName, spouseName 
 
 // ── Commitments Tab ──────────────────────────────────────────────────────────
 
-function AgreementForm({ initial = {}, onSave, onCancel, myName, spouseName }) {
-  const [form, setForm] = useState({ description: '', amount: '', person: 'me', date: new Date().toISOString().slice(0, 10), notes: '', ...initial, amount: initial.amount != null ? String(initial.amount) : '' });
-  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    if (!form.description.trim()) return;
-    onSave({ ...form, amount: form.amount ? parseFloat(form.amount) : null });
-  };
-  return (
-    <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-      <div>
-        <label className="app-label">Description *</label>
-        <input autoFocus className="app-input" placeholder="e.g. Aaron owes Cameron $50 for groceries" value={form.description} onChange={(e) => set('description', e.target.value)} required />
-      </div>
-      <div style={{ display: 'flex', gap: '0.75rem' }}>
-        <div style={{ flex: 1 }}>
-          <label className="app-label">Amount <span style={{ color: 'var(--subtle)', fontSize: '0.75rem' }}>(optional)</span></label>
-          <input type="number" min="0" step="0.01" className="app-input" placeholder="0.00" value={form.amount} onChange={(e) => set('amount', e.target.value)} />
-        </div>
-        <div style={{ flex: 1 }}>
-          <label className="app-label">Date</label>
-          <input type="date" className="app-input" value={form.date} onChange={(e) => set('date', e.target.value)} />
-        </div>
-      </div>
-      <div>
-        <label className="app-label">Who</label>
-        <div style={{ display: 'flex', gap: '0.5rem' }}>
-          {[['me', myName || 'Me'], ['partner', spouseName || 'Partner'], ['both', 'Both']].map(([val, label]) => (
-            <button key={val} type="button" onClick={() => set('person', val)}
-              style={{ flex: 1, padding: '0.625rem', borderRadius: '0.75rem', border: `2px solid ${form.person === val ? 'var(--accent)' : 'var(--border)'}`, backgroundColor: form.person === val ? 'rgba(99,102,241,0.12)' : 'var(--surface2)', color: form.person === val ? 'var(--accent-text)' : 'var(--muted)', fontSize: '0.8125rem', fontWeight: '600', cursor: 'pointer' }}>
-              {label}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div>
-        <label className="app-label">Notes <span style={{ color: 'var(--subtle)', fontSize: '0.75rem' }}>(optional)</span></label>
-        <textarea rows={2} className="app-input" style={{ resize: 'none' }} placeholder="Context, terms, etc." value={form.notes} onChange={(e) => set('notes', e.target.value)} />
-      </div>
-      <div style={{ display: 'flex', gap: '0.75rem' }}>
-        <button type="button" onClick={onCancel} className="app-btn-secondary" style={{ flex: 1 }}>Cancel</button>
-        <button type="submit" className="app-btn-primary" style={{ flex: 1 }}>Save Deal</button>
-      </div>
-    </form>
-  );
-}
-
-function CommitmentsTab({ commitments, addCommitment, updateCommitment, deleteCommitment, toggleCommitment, agreements, addAgreement, updateAgreement, deleteAgreement, myName, spouseName }) {
+function CommitmentsTab({ commitments, addCommitment, updateCommitment, deleteCommitment, toggleCommitment }) {
   const [showAddC, setShowAddC] = useState(false);
   const [editC, setEditC] = useState(null);
   const [showDone, setShowDone] = useState(false);
-  const [showAddDeal, setShowAddDeal] = useState(false);
-  const [editDeal, setEditDeal] = useState(null);
-  const [showSettled, setShowSettled] = useState(false);
 
   const open = commitments.filter((c) => !c.completed);
   const done = commitments.filter((c) => c.completed);
-  const active = agreements.filter((a) => a.status !== 'settled');
-  const settled = agreements.filter((a) => a.status === 'settled');
 
   const formatDate = (d) => d ? new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
-  const myLabel = myName || 'Me';
-  const partnerLabel = spouseName || 'Partner';
 
   return (
     <div style={{ padding: '0 1rem 2rem' }}>
@@ -457,7 +373,6 @@ function CommitmentsTab({ commitments, addCommitment, updateCommitment, deleteCo
                   <div style={{ display: 'flex', gap: '0.625rem', flexWrap: 'wrap', marginTop: '0.2rem' }}>
                     {c.amount != null && <span style={{ fontSize: '0.8125rem', color: 'var(--accent-text)', fontWeight: '700' }}>{formatCurrency(c.amount)}</span>}
                     {c.endDate && <span style={{ fontSize: '0.8125rem', color: 'var(--subtle)' }}>Due {formatDate(c.endDate)}</span>}
-                    <span style={{ fontSize: '0.8125rem', color: 'var(--subtle)' }}>{c.person === 'me' ? myLabel : c.person === 'partner' ? partnerLabel : 'Both'}</span>
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: '0.25rem', flexShrink: 0 }}>
@@ -484,69 +399,11 @@ function CommitmentsTab({ commitments, addCommitment, updateCommitment, deleteCo
         )}
       </div>
 
-      {/* Deals / Agreements */}
-      <div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
-          <p style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--subtle)', fontWeight: '700' }}>Financial Deals</p>
-          <button onClick={() => setShowAddDeal(true)} style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', fontSize: '0.875rem', color: 'var(--accent-text)', background: 'none', border: 'none', cursor: 'pointer', fontWeight: '700' }}>
-            <Plus size={15} /> Add
-          </button>
-        </div>
-        {agreements.length === 0 ? (
-          <div style={{ backgroundColor: 'var(--surface)', border: '1px dashed var(--border)', borderRadius: '1rem', padding: '2rem', textAlign: 'center' }}>
-            <Handshake size={32} style={{ margin: '0 auto 0.75rem', display: 'block', color: 'var(--subtle)' }} />
-            <p style={{ fontSize: '0.9375rem', color: 'var(--muted)', marginBottom: '1rem' }}>No deals recorded. Log who owes what between you and your partner.</p>
-            <button onClick={() => setShowAddDeal(true)} className="app-btn-primary" style={{ maxWidth: '12rem', margin: '0 auto', fontSize: '0.875rem' }}>
-              <Plus size={14} /> Log a Deal
-            </button>
-          </div>
-        ) : (
-          <div style={{ backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '1rem', overflow: 'hidden' }}>
-            {active.map((ag, i) => (
-              <div key={ag.id} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem', padding: '1rem', borderBottom: i < active.length - 1 || settled.length > 0 ? '1px solid var(--border)' : 'none' }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{ fontSize: '1rem', fontWeight: '600', color: 'var(--text)' }}>{ag.description}</p>
-                  <div style={{ display: 'flex', gap: '0.625rem', marginTop: '0.2rem', flexWrap: 'wrap' }}>
-                    {ag.amount != null && ag.amount > 0 && <span style={{ fontSize: '0.8125rem', color: 'var(--accent-text)', fontWeight: '700' }}>{formatCurrency(ag.amount)}</span>}
-                    <span style={{ fontSize: '0.8125rem', color: 'var(--subtle)' }}>{ag.person === 'me' ? myLabel : ag.person === 'partner' ? partnerLabel : 'Both'}{ag.date ? ` · ${formatDate(ag.date)}` : ''}</span>
-                  </div>
-                  {ag.notes && <p style={{ fontSize: '0.8125rem', color: 'var(--subtle)', marginTop: '0.25rem' }}>{ag.notes}</p>}
-                </div>
-                <div style={{ display: 'flex', gap: '0.25rem', flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                  <button onClick={() => updateAgreement(ag.id, { status: 'settled' })}
-                    style={{ fontSize: '0.75rem', fontWeight: '700', padding: '0.35rem 0.625rem', borderRadius: '0.5rem', backgroundColor: 'rgba(16,185,129,0.12)', color: 'var(--positive-text)', border: 'none', cursor: 'pointer' }}>
-                    Settle
-                  </button>
-                  <button onClick={() => setEditDeal(ag)} style={{ padding: '0.35rem', color: 'var(--subtle)', background: 'none', border: 'none', cursor: 'pointer', borderRadius: '0.5rem' }}><Pencil size={13} /></button>
-                  <button onClick={() => deleteAgreement(ag.id)} style={{ padding: '0.35rem', color: 'var(--danger)', background: 'none', border: 'none', cursor: 'pointer', borderRadius: '0.5rem' }}><Trash2 size={13} /></button>
-                </div>
-              </div>
-            ))}
-            {settled.length > 0 && (
-              <>
-                <button onClick={() => setShowSettled(!showSettled)} style={{ width: '100%', padding: '0.75rem 1rem', fontSize: '0.8125rem', color: 'var(--subtle)', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', borderTop: active.length > 0 ? '1px solid var(--border)' : 'none', borderBottom: showSettled ? '1px solid var(--border)' : 'none' }}>
-                  {showSettled ? '▾' : '▸'} {settled.length} settled
-                </button>
-                {showSettled && settled.map((ag, i) => (
-                  <div key={ag.id} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.75rem 1rem', borderBottom: i < settled.length - 1 ? '1px solid var(--border)' : 'none', opacity: 0.5 }}>
-                    <div style={{ flex: 1 }}>
-                      <p style={{ fontSize: '0.875rem', color: 'var(--muted)', textDecoration: 'line-through' }}>{ag.description}</p>
-                    </div>
-                    <button onClick={() => deleteAgreement(ag.id)} style={{ padding: '0.35rem', color: 'var(--danger)', background: 'none', border: 'none', cursor: 'pointer', borderRadius: '0.5rem' }}><Trash2 size={13} /></button>
-                  </div>
-                ))}
-              </>
-            )}
-          </div>
-        )}
-      </div>
-
       {showAddC && (
         <Modal title="Add Commitment" onClose={() => setShowAddC(false)}>
           <CommitmentForm
             onSave={(d) => { addCommitment(d); setShowAddC(false); }}
             onCancel={() => setShowAddC(false)}
-            spouseName={spouseName}
           />
         </Modal>
       )}
@@ -556,28 +413,6 @@ function CommitmentsTab({ commitments, addCommitment, updateCommitment, deleteCo
             initial={editC}
             onSave={(d) => { updateCommitment(editC.id, d); setEditC(null); }}
             onCancel={() => setEditC(null)}
-            spouseName={spouseName}
-          />
-        </Modal>
-      )}
-      {showAddDeal && (
-        <Modal title="Log a Deal" onClose={() => setShowAddDeal(false)}>
-          <AgreementForm
-            onSave={(d) => { addAgreement(d); setShowAddDeal(false); }}
-            onCancel={() => setShowAddDeal(false)}
-            myName={myName}
-            spouseName={spouseName}
-          />
-        </Modal>
-      )}
-      {editDeal && (
-        <Modal title="Edit Deal" onClose={() => setEditDeal(null)}>
-          <AgreementForm
-            initial={editDeal}
-            onSave={(d) => { updateAgreement(editDeal.id, d); setEditDeal(null); }}
-            onCancel={() => setEditDeal(null)}
-            myName={myName}
-            spouseName={spouseName}
           />
         </Modal>
       )}
@@ -812,14 +647,13 @@ function ProjectsTab({ projects, addProject, updateProject, deleteProject }) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function Purchases() {
-  const { purchases, addPurchase, bulkAddPurchases, updatePurchase, deletePurchase, settings, setSettings, bills, addBill, income, recurringTemplates, addRecurringTemplate, updateRecurringTemplate, deleteRecurringTemplate, commitments, addCommitment, updateCommitment, deleteCommitment, toggleCommitment, agreements, addAgreement, updateAgreement, deleteAgreement, plannedExpenses, addPlannedExpense, updatePlannedExpense, deletePlannedExpense, savings, projects, addProject, updateProject, deleteProject, selectedMonth: mk, setSelectedMonth: setMk } = useApp();
+  const { purchases, addPurchase, bulkAddPurchases, updatePurchase, deletePurchase, settings, setSettings, bills, addBill, income, recurringTemplates, addRecurringTemplate, updateRecurringTemplate, deleteRecurringTemplate, commitments, addCommitment, updateCommitment, deleteCommitment, toggleCommitment, plannedExpenses, addPlannedExpense, updatePlannedExpense, deletePlannedExpense, savings, projects, addProject, updateProject, deleteProject, selectedMonth: mk, setSelectedMonth: setMk } = useApp();
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const [planTab, setPlanTab] = useState('spending');
   const [showAdd, setShowAdd] = useState(() => searchParams.get('new') === '1');
   const [editItem, setEditItem] = useState(null);
   const [attachPurchaseId, setAttachPurchaseId] = useState(null);
-  const [personFilter, setPersonFilter] = useState('all');
   const [showRecurring, setShowRecurring] = useState(false);
   const [showTemplates, setShowTemplates] = useState(true);
   const [showAddTemplate, setShowAddTemplate] = useState(false);
@@ -829,23 +663,15 @@ export default function Purchases() {
   const [showLimitEdit, setShowLimitEdit] = useState(false);
   const [limitInput, setLimitInput] = useState('');
 
-  const { myName, spouseName, monthlySpendingBudget, purchasesInAvailable } = settings;
+  const { monthlySpendingBudget, purchasesInAvailable } = settings;
   const spendingLimit = monthlySpendingBudget || 0;
-  const aaronLabel = myName || 'Primary User';
-  const cameronLabel = spouseName || 'Secondary User';
 
   const monthPurchases = purchases.filter((p) => {
     if (!p.date) return false;
     return p.date.startsWith(mk);
   });
 
-  const normalPerson = (p) => (p.person === 'me' ? 'aaron' : p.person);
-
-  const filtered = personFilter === 'all'
-    ? monthPurchases
-    : monthPurchases.filter((p) => normalPerson(p) === personFilter);
-
-  const sorted = [...filtered].sort((a, b) => new Date(b.date) - new Date(a.date) || new Date(b.createdAt) - new Date(a.createdAt));
+  const sorted = [...monthPurchases].sort((a, b) => new Date(b.date) - new Date(a.date) || new Date(b.createdAt) - new Date(a.createdAt));
 
   const totalAll = monthPurchases.reduce((s, p) => s + p.amount, 0);
 
@@ -853,18 +679,14 @@ export default function Purchases() {
   const limitColor = limitPct >= 90 ? 'var(--danger)' : limitPct >= 70 ? 'var(--warn)' : 'var(--positive)';
   const limitBorderColor = limitPct >= 90 ? 'rgba(244,63,94,0.25)' : limitPct >= 70 ? 'rgba(245,158,11,0.25)' : 'rgba(16,185,129,0.25)';
   const limitBg = limitPct >= 90 ? 'rgba(244,63,94,0.06)' : limitPct >= 70 ? 'rgba(245,158,11,0.06)' : 'rgba(16,185,129,0.06)';
-  const totalAaron = monthPurchases.filter((p) => normalPerson(p) === 'aaron').reduce((s, p) => s + p.amount, 0);
-  const totalCameron = monthPurchases.filter((p) => normalPerson(p) === 'cameron').reduce((s, p) => s + p.amount, 0);
 
   const byCategory = {};
-  filtered.forEach((p) => {
+  monthPurchases.forEach((p) => {
     byCategory[p.category] = (byCategory[p.category] || 0) + p.amount;
   });
   const topCategories = Object.entries(byCategory)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 4);
-
-  const filteredTotal = filtered.reduce((s, p) => s + p.amount, 0);
 
   const recurringCandidates = useMemo(() => {
     const byMerchant = {};
@@ -940,8 +762,6 @@ export default function Purchases() {
 
       {planTab === 'commitments' && <CommitmentsTab
         commitments={commitments} addCommitment={addCommitment} updateCommitment={updateCommitment} deleteCommitment={deleteCommitment} toggleCommitment={toggleCommitment}
-        agreements={agreements} addAgreement={addAgreement} updateAgreement={updateAgreement} deleteAgreement={deleteAgreement}
-        myName={myName} spouseName={spouseName}
       />}
       {planTab === 'goals' && <GoalsTab
         plannedExpenses={plannedExpenses} addPlannedExpense={addPlannedExpense} updatePlannedExpense={updatePlannedExpense} deletePlannedExpense={deletePlannedExpense}
@@ -952,17 +772,6 @@ export default function Purchases() {
       />}
 
       {planTab === 'spending' && <div style={{ padding: '0 1rem' }}>
-        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
-          {[['all', 'All', 'var(--accent)'], ['aaron', aaronLabel, 'var(--accent)'], ['cameron', cameronLabel, '#a78bfa']].map(([val, label, activeColor]) => (
-            <button key={val} onClick={() => setPersonFilter(val)}
-              style={{ flex: 1, padding: '0.5rem 0', borderRadius: '0.75rem', fontSize: '0.875rem', fontWeight: 700, border: 'none', cursor: 'pointer', transition: 'all 0.15s',
-                backgroundColor: personFilter === val ? activeColor : 'var(--surface2)',
-                color: personFilter === val ? '#fff' : 'var(--muted)' }}>
-              {label}
-            </button>
-          ))}
-        </div>
-
         <div style={{ backgroundColor: spendingLimit > 0 ? limitBg : 'var(--surface)', border: `1px solid ${spendingLimit > 0 ? limitBorderColor : 'var(--border)'}`, borderRadius: '1rem', padding: '1rem', marginBottom: '1rem' }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
             <div>
@@ -974,17 +783,6 @@ export default function Purchases() {
                 of {formatCurrency(spendingLimit)}
               </p>
             )}
-          </div>
-          <div style={{ display: 'flex', gap: '1rem', marginBottom: spendingLimit > 0 ? '0.875rem' : 0 }}>
-            <div>
-              <p style={{ fontSize: '0.6875rem', color: 'var(--subtle)', fontWeight: '600', marginBottom: '0.125rem' }}>{aaronLabel}</p>
-              <p style={{ fontSize: '0.9375rem', fontWeight: '800', color: 'var(--text)' }}>{formatCurrency(totalAaron)}</p>
-            </div>
-            <div style={{ width: '1px', backgroundColor: 'var(--border)', alignSelf: 'stretch' }} />
-            <div>
-              <p style={{ fontSize: '0.6875rem', color: 'var(--subtle)', fontWeight: '600', marginBottom: '0.125rem' }}>{cameronLabel}</p>
-              <p style={{ fontSize: '0.9375rem', fontWeight: '800', color: 'var(--text)' }}>{formatCurrency(totalCameron)}</p>
-            </div>
           </div>
           {spendingLimit > 0 ? (
             <>
@@ -1033,7 +831,7 @@ export default function Purchases() {
           <div style={{ textAlign: 'center', padding: '4rem 1rem' }}>
             <ShoppingBag size={48} style={{ margin: '0 auto 1rem', opacity: 0.2, color: 'var(--muted)', display: 'block' }} />
             <p style={{ fontWeight: '700', color: 'var(--text)', fontSize: '1.125rem', marginBottom: '0.5rem' }}>
-              {monthPurchases.length === 0 ? 'No purchases yet' : 'No purchases for this filter'}
+              No purchases yet
             </p>
             {monthPurchases.length === 0 && (
               <p style={{ fontSize: '0.9375rem', color: 'var(--muted)', marginBottom: '1.5rem' }}>Tap Add to log day-to-day spending.</p>
@@ -1049,18 +847,9 @@ export default function Purchases() {
             {sorted.map((p, i) => (
               <div key={p.id} style={i === sorted.length - 1 ? { borderBottom: 'none' } : {}}>
                 <PurchaseRow purchase={p} onEdit={setEditItem} onDelete={deletePurchase}
-                  onAttach={(p) => setAttachPurchaseId(p.id)}
-                  myName={myName} spouseName={spouseName} />
+                  onAttach={(p) => setAttachPurchaseId(p.id)} />
               </div>
             ))}
-            {personFilter !== 'all' && (
-              <div style={{ padding: '0.75rem 1rem', backgroundColor: 'var(--surface2)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: '0.75rem', color: 'var(--muted)', fontWeight: '600' }}>
-                  Total ({personFilter === 'aaron' ? aaronLabel : cameronLabel})
-                </span>
-                <span style={{ fontSize: '0.875rem', fontWeight: '700', color: 'var(--text)' }}>{formatCurrency(filteredTotal)}</span>
-              </div>
-            )}
           </div>
         )}
       </div>}
@@ -1162,8 +951,6 @@ export default function Purchases() {
               }
             }}
             onCancel={() => setShowAdd(false)}
-            myName={myName}
-            spouseName={spouseName}
           />
         </Modal>
       )}
@@ -1173,8 +960,6 @@ export default function Purchases() {
             initial={editItem}
             onSave={(data) => { updatePurchase(editItem.id, data); setEditItem(null); }}
             onCancel={() => setEditItem(null)}
-            myName={myName}
-            spouseName={spouseName}
           />
         </Modal>
       )}
@@ -1183,8 +968,6 @@ export default function Purchases() {
           <RecurringTemplateForm
             onSave={(data) => { addRecurringTemplate(data); setShowAddTemplate(false); }}
             onCancel={() => setShowAddTemplate(false)}
-            myName={myName}
-            spouseName={spouseName}
           />
         </Modal>
       )}
@@ -1194,8 +977,6 @@ export default function Purchases() {
             initial={editTemplate}
             onSave={(data) => { updateRecurringTemplate(editTemplate.id, data); setEditTemplate(null); }}
             onCancel={() => setEditTemplate(null)}
-            myName={myName}
-            spouseName={spouseName}
           />
         </Modal>
       )}
@@ -1205,8 +986,6 @@ export default function Purchases() {
             initial={{ name: addRecurringBill.name, amount: addRecurringBill.amount, isRecurring: true }}
             onSave={(data) => { addBill({ ...data, month: mk, startMonth: mk }); setAddRecurringBill(null); }}
             onCancel={() => setAddRecurringBill(null)}
-            myName={myName}
-            spouseName={spouseName}
           />
         </Modal>
       )}
@@ -1219,8 +998,6 @@ export default function Purchases() {
             }}
             onCancel={() => setShowImport(false)}
             existingPurchases={purchases}
-            myName={myName}
-            spouseName={spouseName}
           />
         </Modal>
       )}

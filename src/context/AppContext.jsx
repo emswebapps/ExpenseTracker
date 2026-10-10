@@ -1,10 +1,10 @@
-import { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
+import { createContext, useContext, useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { storage } from '../utils/storage';
 import {
   saveUserData, loadUserData, saveSharedView, saveFCMToken,
   saveListShare, setListShareRevoked, deleteListShare, subscribeListShare,
 } from '../utils/firestoreSync';
-import { generateId, currentMonthKey, getBillStatus, nextBillStatus, isTaskList } from '../utils/helpers';
+import { generateId, currentMonthKey, getBillStatus, nextBillStatus, isTaskList, isPartnerOnly, withoutPartner } from '../utils/helpers';
 import { notificationPermission, requestNotificationPermission, sendNotification, computeDueAt, todoReminderAt, localTodayISO, registerFCMToken, onForegroundMessage, scheduleShiftNotification, cancelShiftNotification } from '../utils/notifications';
 import { planWeeks, weeklyConfig, refileByDate } from '../pages/lists/weeks.js';
 
@@ -680,6 +680,8 @@ export function AppProvider({ children, uid }) {
 
     const toLog = recurringTemplates.filter((t) => {
       if (!t.active) return false;
+      // A partner's subscription would only log a purchase nobody sees.
+      if (isPartnerOnly(t)) return false;
       if (t.lastLoggedMonth === currentMk) return false;
       if (t.dayOfMonth && t.dayOfMonth > todayDay) return false;
       return true;
@@ -787,14 +789,14 @@ export function AppProvider({ children, uid }) {
     const threeMonthsAgo = new Date(today.getFullYear(), today.getMonth() - 2, 1);
     const oldestMk = `${threeMonthsAgo.getFullYear()}-${String(threeMonthsAgo.getMonth() + 1).padStart(2, '0')}`;
     return {
-      settings: { myName: settings.myName, spouseName: settings.spouseName, spouseEnabled: settings.spouseEnabled },
+      settings: { myName: settings.myName },
       sharePin: settings.sharePin || '3419',
-      bills,
-      income,
-      purchases: purchases.filter((p) => p.date && p.date >= oldestMk),
-      debts,
-      savings,
-      commitments: commitments.filter((c) => !c.completed),
+      bills: withoutPartner(bills),
+      income: withoutPartner(income),
+      purchases: withoutPartner(purchases).filter((p) => p.date && p.date >= oldestMk),
+      debts: withoutPartner(debts),
+      savings: withoutPartner(savings),
+      commitments: withoutPartner(commitments).filter((c) => !c.completed),
       shoppingLists,
       shoppingItems,
     };
@@ -1455,31 +1457,47 @@ export function AppProvider({ children, uid }) {
     };
   }, [shifts, jobs]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // What the pages see: everything except records tagged to a partner (see
+  // `isPartnerOnly`). The mutators above keep working on the full arrays, so
+  // editing or deleting a visible record never drops a hidden one.
+  const visible = useMemo(() => ({
+    bills: withoutPartner(bills),
+    income: withoutPartner(income),
+    debts: withoutPartner(debts),
+    savings: withoutPartner(savings),
+    commitments: withoutPartner(commitments),
+    purchases: withoutPartner(purchases),
+    plannedExpenses: withoutPartner(plannedExpenses),
+    budgetSpends: withoutPartner(budgetSpends),
+    agreements: withoutPartner(agreements),
+    recurringTemplates: withoutPartner(recurringTemplates),
+  }), [bills, income, debts, savings, commitments, purchases, plannedExpenses, budgetSpends, agreements, recurringTemplates]);
+
   return (
     <AppContext.Provider value={{
       cloudLoaded,
       selectedMonth, setSelectedMonth,
-      bills, addBill, updateBill, deleteBill, toggleBillPaid, setBillStatusDirect,
-      income, addIncome, updateIncome, deleteIncome,
+      bills: visible.bills, addBill, updateBill, deleteBill, toggleBillPaid, setBillStatusDirect,
+      income: visible.income, addIncome, updateIncome, deleteIncome,
       budget, setBudgetForMonth,
       notes, addNote, updateNote, deleteNote, toggleNotePin, toggleNoteDashboardPin,
-      debts, addDebt, updateDebt, deleteDebt, toggleDebtPaid,
-      savings, addSaving, updateSaving, deleteSaving,
-      commitments, addCommitment, updateCommitment, deleteCommitment, toggleCommitment,
-      purchases, addPurchase, bulkAddPurchases, updatePurchase, deletePurchase,
-      plannedExpenses, addPlannedExpense, updatePlannedExpense, deletePlannedExpense,
+      debts: visible.debts, addDebt, updateDebt, deleteDebt, toggleDebtPaid,
+      savings: visible.savings, addSaving, updateSaving, deleteSaving,
+      commitments: visible.commitments, addCommitment, updateCommitment, deleteCommitment, toggleCommitment,
+      purchases: visible.purchases, addPurchase, bulkAddPurchases, updatePurchase, deletePurchase,
+      plannedExpenses: visible.plannedExpenses, addPlannedExpense, updatePlannedExpense, deletePlannedExpense,
       jobs, addJob, updateJob, deleteJob,
       shifts, addShift, updateShift, deleteShift, bulkSaveShifts,
       budgetCategories, addBudgetCategory, updateBudgetCategory, deleteBudgetCategory, persistBudgetCategories,
-      budgetSpends, addBudgetSpend, updateBudgetSpend, deleteBudgetSpend,
-      agreements, addAgreement, updateAgreement, deleteAgreement,
+      budgetSpends: visible.budgetSpends, addBudgetSpend, updateBudgetSpend, deleteBudgetSpend,
+      agreements: visible.agreements, addAgreement, updateAgreement, deleteAgreement,
       shoppingLists, addShoppingList, updateShoppingList, deleteShoppingList,
       shoppingItems, addShoppingItem, addShoppingItems, updateShoppingItem, updateShoppingItems,
       deleteShoppingItem, deleteShoppingItems, toggleShoppingItem, importList,
       completeAndRepeatShoppingItem,
       shareList, revokeListShare, deleteListShareLink,
       planningSettings, updatePlanningSettings,
-      recurringTemplates, addRecurringTemplate, updateRecurringTemplate, deleteRecurringTemplate,
+      recurringTemplates: visible.recurringTemplates, addRecurringTemplate, updateRecurringTemplate, deleteRecurringTemplate,
       paycheckActuals, addPaycheckActual, updatePaycheckActual, deletePaycheckActual,
       settings, setSettings: persistSettings,
       generateShareLink, revokeShareLink, refreshShareLink,

@@ -2,7 +2,7 @@ import { useState } from 'react';
 
 const FREQUENCIES = ['monthly', 'biweekly', 'weekly', 'semimonthly'];
 
-export default function IncomeForm({ initial = {}, onSave, onCancel, spouseEnabled, spouseName, jobs = [] }) {
+export default function IncomeForm({ initial = {}, onSave, onCancel, jobs = [] }) {
   const [form, setForm] = useState({
     source: '',
     amount: '',
@@ -112,25 +112,6 @@ export default function IncomeForm({ initial = {}, onSave, onCancel, spouseEnabl
             <span className="ml-1 text-xs" style={{ color: 'var(--subtle)' }}>(used to calculate schedule)</span>
           </label>
           <input type="date" className="app-input" value={form.startDate} onChange={(e) => set('startDate', e.target.value)} />
-        </div>
-      )}
-
-      {spouseEnabled && (
-        <div>
-          <label className="app-label">Person</label>
-          <div className="flex gap-2">
-            {['me', 'spouse'].map((p) => (
-              <button key={p} type="button" onClick={() => set('person', p)}
-                className="flex-1 py-2.5 rounded-xl text-sm font-medium transition-colors"
-                style={{
-                  backgroundColor: form.person === p ? 'var(--accent)' : 'var(--surface2)',
-                  color: form.person === p ? '#fff' : 'var(--muted)',
-                  border: `1px solid ${form.person === p ? 'var(--accent)' : 'var(--border)'}`,
-                }}>
-                {p === 'me' ? 'Me' : (spouseName || 'Spouse')}
-              </button>
-            ))}
-          </div>
         </div>
       )}
 

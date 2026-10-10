@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-export default function DebtForm({ initial = {}, onSave, onCancel, myName, spouseName }) {
+export default function DebtForm({ initial = {}, onSave, onCancel }) {
   const [form, setForm] = useState({
     name: '',
     balance: '',
@@ -12,7 +12,7 @@ export default function DebtForm({ initial = {}, onSave, onCancel, myName, spous
     balance: initial.balance != null ? String(initial.balance) : '',
     minPayment: initial.minPayment != null ? String(initial.minPayment) : '',
     interestRate: initial.interestRate != null ? String(initial.interestRate) : '',
-    owner: initial.owner === 'mine' ? 'aaron' : initial.owner === 'partner' ? 'cameron' : (initial.owner || 'aaron'),
+    owner: initial.owner || 'aaron',
   });
 
   const set = (key, val) => setForm((f) => ({ ...f, [key]: val }));
@@ -27,12 +27,6 @@ export default function DebtForm({ initial = {}, onSave, onCancel, myName, spous
       interestRate: form.interestRate ? parseFloat(form.interestRate) : null,
     });
   };
-
-  const ownerOptions = [
-    { val: 'aaron', label: myName || 'Primary User' },
-    { val: 'cameron', label: spouseName || 'Secondary User' },
-    { val: 'joint', label: 'Joint' },
-  ];
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
@@ -59,23 +53,6 @@ export default function DebtForm({ initial = {}, onSave, onCancel, myName, spous
         <label className="app-label">Interest Rate % <span style={{ color: 'var(--subtle)', fontSize: '0.75rem' }}>(optional)</span></label>
         <input type="number" min="0" max="100" step="0.01" className="app-input" placeholder="e.g. 24.99"
           value={form.interestRate} onChange={(e) => set('interestRate', e.target.value)} />
-      </div>
-
-      <div>
-        <label className="app-label">Belongs to</label>
-        <div className="flex gap-2">
-          {ownerOptions.map(({ val, label }) => (
-            <button key={val} type="button" onClick={() => set('owner', val)}
-              className="flex-1 py-2.5 rounded-xl text-sm font-medium"
-              style={{
-                backgroundColor: form.owner === val ? 'var(--accent)' : 'var(--surface2)',
-                color: form.owner === val ? '#fff' : 'var(--muted)',
-                border: `1px solid ${form.owner === val ? 'var(--accent)' : 'var(--border)'}`,
-              }}>
-              {label}
-            </button>
-          ))}
-        </div>
       </div>
 
       <div>

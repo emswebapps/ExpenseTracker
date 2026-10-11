@@ -17,6 +17,7 @@ import {
   isReminderOverdue, isReminderSoon, formatDate, getSpendingHistory, getCategoryTotals,
 } from '../utils/helpers';
 import { collectAgenda } from './lists/agenda';
+import { getWorkIncomeForMonth, withWorkIncome } from '../utils/workIncome';
 import { formatDueBadge } from '../utils/dueDates';
 import Modal from '../components/Modal';
 import SavingsForm from '../components/SavingsForm';
@@ -243,6 +244,7 @@ export default function Dashboard() {
     budgetCategories, budgetSpends, addBudgetSpend,
     setBillStatusDirect, 
     shoppingLists, shoppingItems,
+    jobs, shifts, paycheckActuals,
     selectedMonth: mk, setSelectedMonth: setMk,
   } = useApp();
 
@@ -286,7 +288,8 @@ export default function Dashboard() {
   const { monthlySpendingBudget, monthlySavingsTarget, purchasesInAvailable } = settings;
 
   const monthBills = getBillsForMonth(bills, mk);
-  const monthIncome = getIncomeForMonth(income, mk);
+  const workIncome = getWorkIncomeForMonth({ jobs, shifts, paycheckActuals }, mk);
+  const monthIncome = withWorkIncome(getIncomeForMonth(income, mk), workIncome);
 
   const viewIncome = monthIncome.filter((i) => i.includeInAvailability !== false);
 
@@ -329,6 +332,10 @@ export default function Dashboard() {
   const payDates = monthIncome
     .filter((i) => i.startDate && i.frequency !== 'monthly')
     .flatMap((i) => getPayDatesForMonth(i, mk).map((d) => ({ date: d, source: i.source, amount: i.amount, past: d < today })))
+    .concat(workIncome.map((p) => {
+      const date = new Date(p.payDate + 'T00:00:00');
+      return { date, source: p.source, amount: p.amount, past: date < today };
+    }))
     .sort((a, b) => a.date - b.date);
 
   const nextPaychecks = isCurrentMonth

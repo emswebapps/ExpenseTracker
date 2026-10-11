@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { Pencil, Trash2, MoreVertical, TrendingUp, RefreshCw, ChevronLeft, ChevronRight, Plus, Paperclip } from 'lucide-react';
+import { Pencil, Trash2, MoreVertical, TrendingUp, RefreshCw, ChevronLeft, ChevronRight, Plus, Paperclip, Clock } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
 import { formatCurrency, monthKey, monthLabel, getIncomeForMonth } from '../utils/helpers';
+import { getWorkIncomeForMonth, withWorkIncome } from '../utils/workIncome';
 import Modal from '../components/Modal';
 import FileUpload from '../components/FileUpload';
 import IncomeForm from '../components/IncomeForm';
@@ -80,15 +81,60 @@ function IncomeCard({ item, onEdit, onDelete, onAttach }) {
   );
 }
 
+function shortDate(iso) {
+  return new Date(iso + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+// A paycheck worked out from logged hours. It follows the shifts, so there's
+// nothing to edit or delete here — tapping it opens Work Time instead.
+function WorkPaycheckCard({ item, onOpen }) {
+  const hours = item.regularHours + item.overtimeHours;
+  const isActual = item.actualNet != null;
+  return (
+    <button onClick={onOpen}
+      style={{ width: '100%', textAlign: 'left', cursor: 'pointer', backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '1rem', padding: '1rem', color: 'inherit', font: 'inherit' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '0.5rem' }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <p style={{ fontWeight: '700', fontSize: '1rem', color: 'var(--text)' }}>{item.source}</p>
+            <Clock size={13} style={{ color: 'var(--subtle)', flexShrink: 0 }} />
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.25rem', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '0.75rem', backgroundColor: 'var(--surface2)', color: 'var(--muted)', border: '1px solid var(--border)', padding: '0.25rem 0.625rem', borderRadius: '0.5rem' }}>
+              Payday {shortDate(item.payDate)}
+            </span>
+            <span style={{ fontSize: '0.75rem', color: 'var(--subtle)' }}>
+              {shortDate(item.payPeriodStart)} – {shortDate(item.payPeriodEnd)} · {hours} hrs{item.overtimeHours > 0 ? ` (${item.overtimeHours} OT)` : ''}
+            </span>
+          </div>
+        </div>
+        <div style={{ textAlign: 'right', flexShrink: 0 }}>
+          <p style={{ fontSize: '1.25rem', fontWeight: '900', color: 'var(--positive-text)' }}>{formatCurrency(item.amount)}</p>
+          <p style={{ fontSize: '0.75rem', color: 'var(--subtle)' }}>{isActual ? 'deposited' : 'est. net'}</p>
+        </div>
+      </div>
+      <p style={{ fontSize: '0.75rem', color: 'var(--subtle)', marginTop: '0.5rem' }}>
+        {formatCurrency(item.grossAmount)} gross{item.includeInAvailability ? '' : ' · not in availability'}
+      </p>
+    </button>
+  );
+}
+
 export default function Income() {
-  const { income, addIncome, updateIncome, deleteIncome, selectedMonth: mk, setSelectedMonth: setMk } = useApp();
+  const { income, addIncome, updateIncome, deleteIncome, jobs, shifts, paycheckActuals, selectedMonth: mk, setSelectedMonth: setMk } = useApp();
   const { user } = useAuth();
   const [showAdd, setShowAdd] = useState(false);
   const [editItem, setEditItem] = useState(null);
   const [attachItemId, setAttachItemId] = useState(null);
   const [viewMode, setViewMode] = useState('income');
 
-  const monthIncome = getIncomeForMonth(income, mk);
+  // Hours logged in Work Time turn into a paycheck per pay period, filed under
+  // the month its payday falls in.
+  const workIncome = getWorkIncomeForMonth({ jobs, shifts, paycheckActuals }, mk);
+  const monthIncome = withWorkIncome(getIncomeForMonth(income, mk), workIncome);
+  const manualIncome = monthIncome.filter((i) => !i.isWorkTimeAuto);
+  // Jobs with hours logged but no pay period set can't be split into paychecks.
+  const unscheduledJobs = jobs.filter((j) => !j.payPeriodStartDate && shifts.some((s) => s.jobId === j.id));
   const totalMonthly = monthIncome.reduce((s, i) => s + monthlyAmount(i), 0);
 
   return (
@@ -156,12 +202,29 @@ export default function Income() {
                 </button>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                {monthIncome.map((item) => (
+                {manualIncome.map((item) => (
                   <IncomeCard key={item.id} item={item} onEdit={setEditItem} onDelete={deleteIncome}
                     onAttach={(i) => setAttachItemId(i.id)} />
                 ))}
               </div>
+              {workIncome.length > 0 && (
+                <>
+                  <p style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--subtle)', margin: manualIncome.length ? '1.25rem 0 0.625rem' : '0 0 0.625rem' }}>
+                    From Work Time
+                  </p>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                    {workIncome.map((item) => (
+                      <WorkPaycheckCard key={item.id} item={item} onOpen={() => setViewMode('worktime')} />
+                    ))}
+                  </div>
+                </>
+              )}
             </>
+          )}
+          {unscheduledJobs.length > 0 && (
+            <p style={{ fontSize: '0.75rem', color: 'var(--subtle)', textAlign: 'center', marginTop: '1rem' }}>
+              Set a pay period start date on {unscheduledJobs.map((j) => j.name).join(', ')} to turn its hours into paychecks here.
+            </p>
           )}
         </div>
       ) : (

@@ -1837,6 +1837,8 @@ function EstimateTab({ jobs, shifts, addIncome }) {
     return calcPaycheck({ job, regularHours, overtimeHours });
   }, [job, regularHours, overtimeHours]);
 
+  const autoIncome = !!job?.payPeriodStartDate;
+
   function handlePreset(key) {
     setPreset(key);
     setSaved(false);
@@ -2039,8 +2041,15 @@ function EstimateTab({ jobs, shifts, addIncome }) {
             </p>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: saved ? '1fr' : '1fr auto', gap: '0.5rem', marginTop: '0' }}>
-            {saved ? (
+          <div style={{ display: 'grid', gridTemplateColumns: saved && !autoIncome ? '1fr' : '1fr auto', gap: '0.5rem', marginTop: '0' }}>
+            {/* With a pay schedule, every period's hours already land on the
+                Income tab — saving a copy by hand would count it twice. */}
+            {autoIncome ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem 0.875rem', borderRadius: '0.875rem', backgroundColor: 'var(--surface2)', color: 'var(--muted)', fontSize: '0.8125rem' }}>
+                <Check size={16} style={{ color: 'var(--positive-text)', flexShrink: 0 }} />
+                Pay periods with logged hours show up on the Income tab automatically.
+              </div>
+            ) : saved ? (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', padding: '0.875rem', borderRadius: '0.875rem', backgroundColor: 'var(--positive-soft)', color: 'var(--positive-text)', fontWeight: '700' }}>
                 <Check size={16} /> Saved to Income
               </div>

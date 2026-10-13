@@ -4,7 +4,7 @@ import {
   saveUserData, loadUserData, saveSharedView, saveFCMToken,
   saveListShare, setListShareRevoked, deleteListShare, subscribeListShare,
 } from '../utils/firestoreSync';
-import { generateId, currentMonthKey, getBillStatus, nextBillStatus, isTaskList, isPartnerOnly, withoutPartner } from '../utils/helpers';
+import { generateId, currentMonthKey, getBillStatus, getBillsForMonth, nextBillStatus, isTaskList, isPartnerOnly, withoutPartner } from '../utils/helpers';
 import { notificationPermission, requestNotificationPermission, sendNotification, computeDueAt, todoReminderAt, localTodayISO, registerFCMToken, onForegroundMessage, scheduleShiftNotification, cancelShiftNotification } from '../utils/notifications';
 import { planWeeks, weeklyConfig, refileByDate } from '../pages/lists/weeks.js';
 
@@ -1317,7 +1317,7 @@ export function AppProvider({ children, uid }) {
     const now = new Date();
     const todayDay = now.getDate();
     const mk = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-    bills.forEach((bill) => {
+    getBillsForMonth(bills, mk).forEach((bill) => {
       if (!bill.dueDay || bill.isPermanent) return;
       const status = getBillStatus(bill, mk);
       if (status === 'paid') return;

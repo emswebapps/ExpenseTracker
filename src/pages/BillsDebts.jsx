@@ -10,7 +10,7 @@ import {
 import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
 import {
-  formatCurrency, monthKey, monthLabel, getDueDateLabel,
+  formatCurrency, monthKey, monthLabel, getBillDueLabel,
   getBillsForMonth, getBillStatus, isBillOverdueUnpaid,
   calcDebtPayoff, getPayDatesForMonth,
 } from '../utils/helpers';
@@ -54,7 +54,7 @@ function BillCard({ bill, mk, onSetStatus, onEdit, onDelete, onAttach }) {
   const attachCount = (bill.attachments || []).length;
   const status = getBillStatus(bill, mk);
   const isPermanent = bill.isPermanent || (!bill.dueDay && bill.isRecurring);
-  const dueDateLabel = !isPermanent && bill.dueDay ? getDueDateLabel(bill.dueDay) : null;
+  const dueDateLabel = !isPermanent && bill.dueDay ? getBillDueLabel(bill) : null;
   const isPaid = status === 'paid';
   const overdue = isBillOverdueUnpaid(bill, mk);
   const accentColor = isPaid ? 'var(--positive)' : overdue ? 'var(--danger)' : status === 'pending' ? 'var(--warn)' : 'var(--border2)';
@@ -71,6 +71,9 @@ function BillCard({ bill, mk, onSetStatus, onEdit, onDelete, onAttach }) {
                 <span style={{ fontSize: '0.6875rem', color: 'var(--subtle)', backgroundColor: 'var(--surface2)', border: '1px solid var(--border)', padding: '0.125rem 0.5rem', borderRadius: '0.375rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
                   <CalendarOff size={9} /> Permanent
                 </span>
+              )}
+              {!bill.isRecurring && (
+                <span style={{ fontSize: '0.6875rem', color: 'var(--subtle)', backgroundColor: 'var(--surface2)', border: '1px solid var(--border)', padding: '0.125rem 0.5rem', borderRadius: '0.375rem' }}>One-time</span>
               )}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.25rem' }}>
@@ -1075,7 +1078,7 @@ export default function BillsDebts() {
 
       {showAddBill && (
         <Modal title="Add Bill" onClose={() => setShowAddBill(false)}>
-          <BillForm onSave={(data) => { addBill({ ...data, month: mk, startMonth: mk }); setShowAddBill(false); }} onCancel={() => setShowAddBill(false)} />
+          <BillForm onSave={(data) => { addBill({ month: mk, startMonth: mk, ...data }); setShowAddBill(false); }} onCancel={() => setShowAddBill(false)} />
         </Modal>
       )}
       {editBill && (

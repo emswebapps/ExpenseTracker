@@ -247,6 +247,8 @@ function collectDailyMessages(data, localDate) {
   // ── Bills ──
   for (const bill of bills) {
     if (!bill.dueDay || bill.isPermanent) continue;
+    // A one-time bill belongs to its own month only.
+    if (bill.isRecurring === false && bill.month !== mk) continue;
     const status = (bill.statusMonths?.[mk]) || (bill.paidMonths?.[mk] ? 'paid' : 'unpaid');
     if (status === 'paid') continue;
 

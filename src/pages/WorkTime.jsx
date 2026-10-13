@@ -4,8 +4,8 @@ import {
   MoreVertical, Check, Calculator, Save, Info, Share2, Copy,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { formatCurrency, monthKey } from '../utils/helpers';
-import { calcPaycheck, calcHoursFromShifts, getPayPeriodBounds, getPayPeriodAtOffset } from '../utils/taxCalc';
+import { formatCurrency, monthLabel } from '../utils/helpers';
+import { calcPaycheck, calcHoursFromShifts, getPayPeriodBounds, getPayPeriodAtOffset, getPaydayForPeriod } from '../utils/taxCalc';
 import Modal from '../components/Modal';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -1849,15 +1849,19 @@ function EstimateTab({ jobs, shifts, addIncome }) {
     setPeriodOffset(0);
   }
 
+  // Pay is counted in the month the money arrives. Without a payday on the
+  // job, the period's last day is the best guess.
+  const payday = getPaydayForPeriod(job, range.end);
+  const incomeMonth = (payday || range.end).slice(0, 7);
+
   function handleSave() {
     if (!result || !job) return;
-    const mk = monthKey(new Date(range.end + 'T12:00:00'));
     addIncome({
       source: `${job.name} — Paycheck Est.`,
       amount: result.netPay,
       frequency: 'monthly',
       isRecurring: false,
-      month: mk,
+      month: incomeMonth,
       person: 'me',
       notes: `${periodLabel(range.start, range.end)} · Gross ${formatCurrency(result.grossPay)}`,
       isWorkTimeEntry: true,
@@ -1865,6 +1869,7 @@ function EstimateTab({ jobs, shifts, addIncome }) {
       grossPay: result.grossPay,
       payPeriodStart: range.start,
       payPeriodEnd: range.end,
+      payday,
       includeInAvailability: job.includeInAvailability !== false,
     });
     setSaved(true);
@@ -2042,12 +2047,12 @@ function EstimateTab({ jobs, shifts, addIncome }) {
           <div style={{ display: 'grid', gridTemplateColumns: saved ? '1fr' : '1fr auto', gap: '0.5rem', marginTop: '0' }}>
             {saved ? (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', padding: '0.875rem', borderRadius: '0.875rem', backgroundColor: 'var(--positive-soft)', color: 'var(--positive-text)', fontWeight: '700' }}>
-                <Check size={16} /> Saved to Income
+                <Check size={16} /> Saved to {monthLabel(incomeMonth)} Income
               </div>
             ) : (
               <button onClick={handleSave} className="app-btn-primary"
                 style={{ backgroundColor: 'var(--positive)', marginTop: '0' }}>
-                <Save size={18} /> Save to Income
+                <Save size={18} /> Save to {monthLabel(incomeMonth)} Income
               </button>
             )}
             <button onClick={handleShare}

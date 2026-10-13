@@ -154,6 +154,18 @@ export function getPayPeriodBounds(job) {
   };
 }
 
+// The payday that pays out a period: the first one on or after the period's
+// last day, counted from the job's Payday Date. Null when the job has no
+// payday set. Day arithmetic is done in UTC so clock changes can't shift it.
+export function getPaydayForPeriod(job, periodEnd) {
+  if (!job?.payDate || !periodEnd) return null;
+  const cycle = job.payFrequency === 'weekly' ? 7 : 14;
+  const dayNum = (s) => Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10)) / 86400000;
+  const ref = dayNum(job.payDate);
+  const steps = Math.ceil((dayNum(periodEnd) - ref) / cycle);
+  return new Date((ref + steps * cycle) * 86400000).toISOString().slice(0, 10);
+}
+
 // Return the pay period { start, end } at a given offset from the current period.
 // offset=0: current period, offset=-1: previous period, offset=-2: two periods back, etc.
 export function getPayPeriodAtOffset(job, offset) {

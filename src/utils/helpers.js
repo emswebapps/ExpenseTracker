@@ -126,6 +126,15 @@ export function getDueDateLabel(dayOfMonth) {
   return `Due in ${diff}d`;
 }
 
+// The due label on a bill card. A one-time bill names its actual date, since
+// a day of the month alone doesn't say which month it lands in.
+export function getBillDueLabel(bill) {
+  if (bill.isRecurring || !bill.month || !bill.dueDay) return getDueDateLabel(bill.dueDay);
+  const [y, m] = bill.month.split('-').map(Number);
+  const date = new Date(y, m - 1, bill.dueDay).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  return bill.month === monthKey() ? `${getDueDateLabel(bill.dueDay)} · ${date}` : `Due ${date}`;
+}
+
 export function getDueDateColor(dayOfMonth, isPaid) {
   if (isPaid) return 'text-emerald-400';
   const today = new Date().getDate();

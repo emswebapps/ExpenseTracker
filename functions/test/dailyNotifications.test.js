@@ -113,6 +113,16 @@ test('paid and permanent bills are skipped', () => {
   }
 });
 
+test('a one-time bill reminds only in its own month', () => {
+  const oneTime = (month) => bill({ isRecurring: false, month });
+  const inMonth = collectDailyMessages({ bills: [oneTime('2026-07')] }, TODAY)
+    .filter((m) => m.category === 'bills');
+  const otherMonth = collectDailyMessages({ bills: [oneTime('2026-08')] }, TODAY)
+    .filter((m) => m.category === 'bills');
+  assert.deepStrictEqual(titles(inMonth), ['Bill Due Today: Rent']);
+  assert.deepStrictEqual(otherMonth, []);
+});
+
 // ── Commitments, goals, projects ──
 
 test('commitments fire inside their configured window only', () => {

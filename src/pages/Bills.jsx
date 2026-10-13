@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import {
-  formatCurrency, monthKey, monthLabel, getDueDateLabel,
+  formatCurrency, monthKey, monthLabel, getBillDueLabel,
   getBillsForMonth, getBillStatus, getBillStatusColor, isBillOverdueUnpaid,
 } from '../utils/helpers';
 import Modal from '../components/Modal';
@@ -43,7 +43,7 @@ function BillCard({ bill, mk, onSetStatus, onEdit, onDelete, myName, spouseName 
   const status = getBillStatus(bill, mk);
   const statusColor = getBillStatusColor(status, bill.dueDay);
   const isPermanent = bill.isPermanent || (!bill.dueDay && bill.isRecurring);
-  const dueDateLabel = !isPermanent && bill.dueDay ? getDueDateLabel(bill.dueDay) : null;
+  const dueDateLabel = !isPermanent && bill.dueDay ? getBillDueLabel(bill) : null;
   const isPaid = status === 'paid';
   const overdue = isBillOverdueUnpaid(bill, mk);
 
@@ -62,6 +62,9 @@ function BillCard({ bill, mk, onSetStatus, onEdit, onDelete, myName, spouseName 
                 <span style={{ fontSize: '0.625rem', backgroundColor: 'var(--surface2)', color: 'var(--subtle)', border: '1px solid var(--border)', padding: '0.125rem 0.375rem', borderRadius: '0.375rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
                   <CalendarOff size={9} /> Permanent
                 </span>
+              )}
+              {!bill.isRecurring && (
+                <span style={{ fontSize: '0.625rem', backgroundColor: 'var(--surface2)', color: 'var(--subtle)', border: '1px solid var(--border)', padding: '0.125rem 0.375rem', borderRadius: '0.375rem' }}>One-time</span>
               )}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.125rem' }}>
@@ -275,7 +278,7 @@ export default function Bills() {
       {showAdd && (
         <Modal title="Add Bill" onClose={() => setShowAdd(false)}>
           <BillForm
-            onSave={(data) => { addBill({ ...data, month: mk, startMonth: mk }); setShowAdd(false); }}
+            onSave={(data) => { addBill({ month: mk, startMonth: mk, ...data }); setShowAdd(false); }}
             onCancel={() => setShowAdd(false)}
             myName={myName}
             spouseName={spouseName}

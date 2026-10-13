@@ -364,7 +364,7 @@ export default function Dashboard() {
     const lastCheck = localStorage.getItem('lastBillReminderCheck');
     const today = new Date().toDateString();
     if (lastCheck === today) return;
-    const dueSoon = bills.filter((b) => {
+    const dueSoon = getBillsForMonth(bills, monthKey()).filter((b) => {
       if (!b.dueDay || getBillStatus(b, monthKey()) !== 'unpaid') return false;
       const diff = b.dueDay - new Date().getDate();
       return diff >= 0 && diff <= 3;

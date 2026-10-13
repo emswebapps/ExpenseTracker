@@ -984,7 +984,7 @@ export default function Purchases() {
         <Modal title="Add as Bill" onClose={() => setAddRecurringBill(null)}>
           <BillForm
             initial={{ name: addRecurringBill.name, amount: addRecurringBill.amount, isRecurring: true }}
-            onSave={(data) => { addBill({ ...data, month: mk, startMonth: mk }); setAddRecurringBill(null); }}
+            onSave={(data) => { addBill({ month: mk, startMonth: mk, ...data }); setAddRecurringBill(null); }}
             onCancel={() => setAddRecurringBill(null)}
           />
         </Modal>

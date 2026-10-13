@@ -9,7 +9,6 @@ export default function BillForm({ initial = {}, onSave, onCancel }) {
     amount: '',
     dueDay: '',
     category: 'Other',
-    isRecurring: true,
     isPermanent: false,
     paymentUrl: '',
     notes: '',
@@ -17,6 +16,13 @@ export default function BillForm({ initial = {}, onSave, onCancel }) {
     ...initial,
     amount: initial.amount != null ? String(initial.amount) : '',
     dueDay: initial.dueDay != null ? String(initial.dueDay) : '',
+    // A one-time bill carries its full date; older ones only had a month and
+    // a day, so rebuild the date from those.
+    isRecurring: initial.isRecurring !== false,
+    dueDate: initial.dueDate
+      || (initial.isRecurring === false && initial.month && initial.dueDay
+        ? `${initial.month}-${String(initial.dueDay).padStart(2, '0')}`
+        : ''),
     owner: initial.owner || 'aaron',
   });
 
@@ -25,10 +31,27 @@ export default function BillForm({ initial = {}, onSave, onCancel }) {
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!form.name || !form.amount) return;
+    if (!form.isRecurring) {
+      if (!form.dueDate) return;
+      // Pinned to the month of its date, so it shows up there and nowhere
+      // else. dueDay is kept so everything that reads the day still works.
+      const month = form.dueDate.slice(0, 7);
+      onSave({
+        ...form,
+        amount: parseFloat(form.amount),
+        dueDay: parseInt(form.dueDate.slice(8, 10)),
+        isRecurring: false,
+        isPermanent: false,
+        month,
+        startMonth: month,
+      });
+      return;
+    }
     onSave({
       ...form,
       amount: parseFloat(form.amount),
       dueDay: form.dueDay ? parseInt(form.dueDay) : null,
+      dueDate: null,
       isRecurring: true,
     });
   };
@@ -41,43 +64,68 @@ export default function BillForm({ initial = {}, onSave, onCancel }) {
           value={form.name} onChange={(e) => set('name', e.target.value)} required />
       </div>
 
+      <div style={{ display: 'flex', gap: '0.25rem', backgroundColor: 'var(--surface2)', borderRadius: '0.75rem', padding: '0.25rem' }}>
+        {[[true, 'Monthly'], [false, 'One-time']].map(([val, label]) => (
+          <button key={label} type="button" onClick={() => set('isRecurring', val)}
+            style={{
+              flex: 1, padding: '0.5rem 0', borderRadius: '0.5rem', fontSize: '0.8125rem', fontWeight: 700,
+              border: 'none', cursor: 'pointer', transition: 'all 0.15s',
+              backgroundColor: form.isRecurring === val ? 'var(--accent)' : 'transparent',
+              color: form.isRecurring === val ? '#fff' : 'var(--subtle)',
+            }}>
+            {label}
+          </button>
+        ))}
+      </div>
+
       <div className="grid grid-cols-2 gap-3">
         <div>
           <label className="app-label">Amount *</label>
           <input type="number" min="0" step="0.01" className="app-input" placeholder="0.00"
             value={form.amount} onChange={(e) => set('amount', e.target.value)} required />
         </div>
-        <div>
-          <label className="app-label">Due day</label>
-          <input type="number" min="1" max="31" className="app-input"
-            placeholder="e.g. 15"
-            value={form.dueDay}
-            onChange={(e) => set('dueDay', e.target.value)} />
-        </div>
+        {form.isRecurring ? (
+          <div>
+            <label className="app-label">Due day</label>
+            <input type="number" min="1" max="31" className="app-input"
+              placeholder="e.g. 15"
+              value={form.dueDay}
+              onChange={(e) => set('dueDay', e.target.value)} />
+          </div>
+        ) : (
+          <div>
+            <label className="app-label">Due date *</label>
+            <input type="date" className="app-input"
+              value={form.dueDate}
+              onChange={(e) => set('dueDate', e.target.value)} required />
+          </div>
+        )}
       </div>
 
-      <label className="flex items-center gap-3 cursor-pointer rounded-xl px-4 py-3" style={{ backgroundColor: 'var(--surface2)', border: '1px solid var(--border)' }}>
-        <div
-          onClick={() => set('isPermanent', !form.isPermanent)}
-          style={{
-            width: '2.75rem', height: '1.5rem', borderRadius: '9999px',
-            backgroundColor: form.isPermanent ? 'var(--accent)' : 'var(--surface)',
-            border: '1px solid var(--border)', position: 'relative', flexShrink: 0, cursor: 'pointer', transition: 'background-color 0.2s',
-          }}
-        >
-          <div style={{
-            position: 'absolute', top: '2px', width: '1.125rem', height: '1.125rem',
-            backgroundColor: '#fff', borderRadius: '9999px', boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
-            transition: 'left 0.2s', left: form.isPermanent ? 'calc(100% - 1.25rem)' : '2px',
-          }} />
-        </div>
-        <div>
-          <p className="text-sm font-medium flex items-center gap-1.5" style={{ color: 'var(--text)' }}>
-            <CalendarOff size={14} /> Permanent bill
-          </p>
-          <p className="text-xs" style={{ color: 'var(--subtle)' }}>No specific due date — always recurring</p>
-        </div>
-      </label>
+      {form.isRecurring && (
+        <label className="flex items-center gap-3 cursor-pointer rounded-xl px-4 py-3" style={{ backgroundColor: 'var(--surface2)', border: '1px solid var(--border)' }}>
+          <div
+            onClick={() => set('isPermanent', !form.isPermanent)}
+            style={{
+              width: '2.75rem', height: '1.5rem', borderRadius: '9999px',
+              backgroundColor: form.isPermanent ? 'var(--accent)' : 'var(--surface)',
+              border: '1px solid var(--border)', position: 'relative', flexShrink: 0, cursor: 'pointer', transition: 'background-color 0.2s',
+            }}
+          >
+            <div style={{
+              position: 'absolute', top: '2px', width: '1.125rem', height: '1.125rem',
+              backgroundColor: '#fff', borderRadius: '9999px', boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+              transition: 'left 0.2s', left: form.isPermanent ? 'calc(100% - 1.25rem)' : '2px',
+            }} />
+          </div>
+          <div>
+            <p className="text-sm font-medium flex items-center gap-1.5" style={{ color: 'var(--text)' }}>
+              <CalendarOff size={14} /> Permanent bill
+            </p>
+            <p className="text-xs" style={{ color: 'var(--subtle)' }}>No specific due date — always recurring</p>
+          </div>
+        </label>
+      )}
 
       <div>
         <label className="app-label">Category</label>

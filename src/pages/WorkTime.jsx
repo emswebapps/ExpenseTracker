@@ -1,12 +1,13 @@
 import { useState, useMemo, useEffect } from 'react';
 import {
   Briefcase, Clock, ChevronLeft, ChevronRight, Plus, Pencil, Trash2,
-  MoreVertical, Check, Calculator, Save, Info, Share2, Copy,
+  MoreVertical, Check, Calculator, Save, Info, Share2, Copy, CalendarPlus,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { formatCurrency, monthLabel } from '../utils/helpers';
 import { calcPaycheck, calcHoursFromShifts, getPayPeriodBounds, getPayPeriodAtOffset, getPaydayForPeriod } from '../utils/taxCalc';
 import Modal from '../components/Modal';
+import { buildShiftsIcs } from '../utils/shiftCalendar';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -1421,6 +1422,102 @@ function ActualPayPrompt({ jobId, periodStart, periodEnd, onSave }) {
   );
 }
 
+// ── Export to Calendar ────────────────────────────────────────────────────────
+// Writes the chosen shifts to an .ics file. On an iPhone, opening that file
+// offers "Add All" straight into Apple Calendar, and from there it flows to
+// whatever syncs with it (TimeTree included).
+
+const ICS_FILENAME = 'work-shifts.ics';
+
+function ExportCalendarForm({ jobs, shifts, onDone }) {
+  const [from, setFrom] = useState(today());
+  const [to, setTo] = useState('');
+  const [jobId, setJobId] = useState('all');
+  const [status, setStatus] = useState('');
+
+  const picked = useMemo(() => shifts.filter((s) =>
+    (jobId === 'all' || s.jobId === jobId) &&
+    (!from || s.date >= from) &&
+    (!to || s.date <= to)
+  ), [shifts, jobId, from, to]);
+
+  const ics = () => buildShiftsIcs(picked, jobs);
+  const canShareFile = typeof navigator !== 'undefined' && !!navigator.canShare &&
+    (() => { try { return navigator.canShare({ files: [new File([''], ICS_FILENAME, { type: 'text/calendar' })] }); } catch { return false; } })();
+
+  function handleDownload() {
+    const blob = new Blob([ics()], { type: 'text/calendar;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = ICS_FILENAME;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    setStatus(`Exported ${picked.length} shift${picked.length === 1 ? '' : 's'}.`);
+  }
+
+  async function handleShare() {
+    const file = new File([ics()], ICS_FILENAME, { type: 'text/calendar' });
+    try {
+      await navigator.share({ files: [file], title: 'Work Shifts' });
+      setStatus(`Shared ${picked.length} shift${picked.length === 1 ? '' : 's'}.`);
+    } catch {
+      // Cancelled — nothing to do.
+    }
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+        <div style={{ minWidth: 0 }}>
+          <Label>From</Label>
+          <Input type="date" value={from} style={{ minWidth: 0 }} onChange={(e) => { setFrom(e.target.value); setStatus(''); }} />
+        </div>
+        <div style={{ minWidth: 0 }}>
+          <Label>To (optional)</Label>
+          <Input type="date" value={to} style={{ minWidth: 0 }} min={from || undefined} onChange={(e) => { setTo(e.target.value); setStatus(''); }} />
+        </div>
+      </div>
+
+      {jobs.length > 1 && (
+        <div>
+          <Label>Job</Label>
+          <Select value={jobId} onChange={(e) => { setJobId(e.target.value); setStatus(''); }}>
+            <option value="all">All jobs</option>
+            {jobs.map((j) => <option key={j.id} value={j.id}>{j.name}</option>)}
+          </Select>
+        </div>
+      )}
+
+      <p style={{ fontSize: '0.875rem', color: 'var(--text)', fontWeight: 600 }}>
+        {picked.length === 0 ? 'No shifts in that range.' : `${picked.length} shift${picked.length === 1 ? '' : 's'} will be exported`}
+      </p>
+
+      <div style={{ fontSize: '0.75rem', color: 'var(--subtle)', lineHeight: 1.5, backgroundColor: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '0.75rem', padding: '0.625rem 0.75rem' }}>
+        <Info size={11} style={{ display: 'inline', marginRight: '0.25rem', verticalAlign: 'middle', opacity: 0.6 }} />
+        On iPhone, tap <b>Add to Calendar</b>, then <b>Add All</b> and pick the calendar TimeTree syncs with.
+        Importing the same shifts twice can add them twice, so export just the new ones (set From to the first new day).
+      </div>
+
+      {status && <p style={{ fontSize: '0.8125rem', color: 'var(--accent-text)', fontWeight: 600 }}>{status}</p>}
+
+      <div style={{ display: 'grid', gridTemplateColumns: canShareFile ? '1fr 1fr' : '1fr', gap: '0.75rem' }}>
+        <button type="button" onClick={handleDownload} disabled={picked.length === 0} className="app-btn-primary">
+          <CalendarPlus size={16} /> Add to Calendar
+        </button>
+        {canShareFile && (
+          <button type="button" onClick={handleShare} disabled={picked.length === 0} className="app-btn-secondary">
+            <Share2 size={16} /> Share File
+          </button>
+        )}
+      </div>
+      <button type="button" onClick={onDone} className="app-btn-secondary">Done</button>
+    </div>
+  );
+}
+
 // ── Hours Tab ─────────────────────────────────────────────────────────────────
 
 function HoursTab({ jobs, shifts, addShift, updateShift, deleteShift, bulkSaveShifts, paycheckActuals, addPaycheckActual }) {
@@ -1431,6 +1528,7 @@ function HoursTab({ jobs, shifts, addShift, updateShift, deleteShift, bulkSaveSh
   const [editShift, setEditShift] = useState(null);
   const [repeatShift, setRepeatShift] = useState(null);
   const [calView, setCalView] = useState(true);
+  const [showExport, setShowExport] = useState(false);
   const [periodOffset, setPeriodOffset] = useState(0);
   const previousLocations = useMemo(() => {
     const seen = new Set();
@@ -1470,7 +1568,13 @@ function HoursTab({ jobs, shifts, addShift, updateShift, deleteShift, bulkSaveSh
 
   return (
     <div style={{ padding: '0 1rem' }}>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '0.75rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+        <button onClick={() => setShowExport(true)} disabled={shifts.length === 0}
+          title="Export shifts to Apple Calendar"
+          style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.375rem 0.75rem', borderRadius: '0.625rem', border: '1px solid var(--border)', backgroundColor: 'transparent', fontSize: '0.75rem', fontWeight: 700,
+            color: shifts.length === 0 ? 'var(--subtle)' : 'var(--muted)', cursor: shifts.length === 0 ? 'not-allowed' : 'pointer', opacity: shifts.length === 0 ? 0.5 : 1 }}>
+          <CalendarPlus size={14} /> Export
+        </button>
         <div style={{ display: 'flex', backgroundColor: 'var(--surface2)', borderRadius: '0.625rem', padding: '0.1875rem', gap: '0.125rem' }}>
           {[['Calendar', true], ['List', false]].map(([lbl, v]) => (
             <button key={lbl} onClick={() => setCalView(v)}
@@ -1762,6 +1866,11 @@ function HoursTab({ jobs, shifts, addShift, updateShift, deleteShift, bulkSaveSh
           <ShiftForm initial={editShift} jobs={jobs} previousLocations={previousLocations}
             onSave={(d) => { updateShift(editShift.id, d); setEditShift(null); }}
             onCancel={() => setEditShift(null)} />
+        </Modal>
+      )}
+      {showExport && (
+        <Modal title="Export to Calendar" onClose={() => setShowExport(false)}>
+          <ExportCalendarForm jobs={jobs} shifts={shifts} onDone={() => setShowExport(false)} />
         </Modal>
       )}
       {repeatShift && (

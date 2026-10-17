@@ -2,63 +2,12 @@
 // Google Calendar and Outlook can all import. Apple Calendar then carries the
 // events to anything synced to it (TimeTree, a watch, a shared calendar).
 //
-// Times are written "floating" — no time zone — so a 7:00 shift lands at 7:00
-// on whatever device opens the file, which is how the shift was entered.
 // Every event's UID is the shift's id, so re-importing the same shift is
 // recognised as the same event rather than a brand new one.
 
-const CRLF = '\r\n';
-
-function escapeText(s) {
-  return String(s)
-    .replace(/\\/g, '\\\\')
-    .replace(/;/g, '\\;')
-    .replace(/,/g, '\\,')
-    .replace(/\r?\n/g, '\\n');
-}
-
-// RFC 5545 caps a line at 75 octets; longer ones continue on the next line
-// after a single leading space. Split on characters, counting UTF-8 bytes, so
-// an emoji or accented letter is never cut in half.
-function foldLine(line) {
-  const enc = new TextEncoder();
-  if (enc.encode(line).length <= 75) return line;
-  const out = [];
-  let cur = '';
-  let curBytes = 0;
-  for (const ch of line) {
-    const b = enc.encode(ch).length;
-    const limit = out.length === 0 ? 75 : 74; // continuation lines start with a space
-    if (curBytes + b > limit) {
-      out.push(cur);
-      cur = '';
-      curBytes = 0;
-    }
-    cur += ch;
-    curBytes += b;
-  }
-  out.push(cur);
-  return out.join(CRLF + ' ');
-}
-
-function ymd(dateStr) {
-  return dateStr.replace(/-/g, '');
-}
-
-function nextDay(dateStr) {
-  const d = new Date(dateStr + 'T12:00:00Z');
-  d.setUTCDate(d.getUTCDate() + 1);
-  return d.toISOString().slice(0, 10);
-}
-
-function localStamp(dateStr, time) {
-  const [h, m] = time.split(':');
-  return `${ymd(dateStr)}T${h.padStart(2, '0')}${(m || '00').padStart(2, '0')}00`;
-}
-
-function utcStamp(date) {
-  return date.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
-}
+import {
+  escapeText, ymd, nextDay, localStamp, utcStamp, isISODate, alarmLines, buildCalendar,
+} from './ics.js';
 
 function formatHours(h) {
   const n = Number(h);
@@ -97,13 +46,7 @@ function shiftEvent(shift, job, dtstamp) {
 
   if (shift.notificationEnabled && shift.startTime) {
     const mins = parseInt(shift.notificationOffsetMinutes, 10) || 30;
-    lines.push(
-      'BEGIN:VALARM',
-      'ACTION:DISPLAY',
-      `DESCRIPTION:${escapeText(title)}`,
-      `TRIGGER:-PT${mins}M`,
-      'END:VALARM',
-    );
+    lines.push(...alarmLines(title, `-PT${mins}M`));
   }
 
   lines.push('END:VEVENT');
@@ -118,18 +61,11 @@ export function buildShiftsIcs(shifts, jobs, { calendarName = 'Work Shifts', now
   const jobById = new Map((jobs || []).map((j) => [j.id, j]));
   const dtstamp = utcStamp(now);
   const sorted = [...(shifts || [])]
-    .filter((s) => s && s.id && /^\d{4}-\d{2}-\d{2}$/.test(s.date || ''))
+    .filter((s) => s && s.id && isISODate(s.date))
     .sort((a, b) => (a.date + (a.startTime || '')).localeCompare(b.date + (b.startTime || '')));
 
-  const lines = [
-    'BEGIN:VCALENDAR',
-    'VERSION:2.0',
-    'PRODID:-//ExpenseTracker//Work Time//EN',
-    'CALSCALE:GREGORIAN',
-    'METHOD:PUBLISH',
-    `X-WR-CALNAME:${escapeText(calendarName)}`,
-    ...sorted.flatMap((s) => shiftEvent(s, jobById.get(s.jobId), dtstamp)),
-    'END:VCALENDAR',
-  ];
-  return lines.map(foldLine).join(CRLF) + CRLF;
+  return buildCalendar(
+    sorted.flatMap((s) => shiftEvent(s, jobById.get(s.jobId), dtstamp)),
+    { calendarName, product: 'Work Time' },
+  );
 }

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
   ShoppingCart, Plus, MoreVertical, Pencil, Trash2, Archive, ArchiveRestore,
-  MessageSquare, Store, CheckCircle2, Circle, Calendar,
+  MessageSquare, Store, CheckCircle2, Circle, Calendar, ListChecks,
 } from 'lucide-react';
 import { ListDueBadge, fmtDate, MENU_BTN } from './listMeta';
 import { pasteAsItems } from './pasteImport';
@@ -10,7 +10,7 @@ import { pasteAsItems } from './pasteImport';
 export function GroceryListCard({
   list, listItems,
   onEditList, onDeleteList, onArchiveList,
-  onAddItem, onAddItems, onDeleteItem, onToggleItem, onEditItem, onExport,
+  onAddItem, onAddItems, onDeleteItem, onToggleItem, onEditItem, onExport, onSendToApps,
   defaultExpanded = false,
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
@@ -119,6 +119,7 @@ export function GroceryListCard({
           <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => setMenuOpen(false)} />
           <div style={{ position: 'absolute', right: '0.75rem', top: '3rem', zIndex: 50, backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '0.75rem', overflow: 'hidden', minWidth: '11rem', boxShadow: '0 8px 32px rgba(0,0,0,0.3)' }}>
             <button onClick={() => { onExport(list); setMenuOpen(false); }} style={MENU_BTN}><MessageSquare size={14} /> Share as text</button>
+            <button onClick={() => { onSendToApps?.(list); setMenuOpen(false); }} style={MENU_BTN}><ListChecks size={14} /> Send to Reminders</button>
             <button onClick={() => { onEditList(list); setMenuOpen(false); }} style={MENU_BTN}><Pencil size={14} /> Edit list</button>
             <button onClick={() => { onArchiveList(list.id); setMenuOpen(false); }} style={MENU_BTN}>
               {list.archived ? <ArchiveRestore size={14} /> : <Archive size={14} />}

@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import {
   Plus, MoreVertical, Pencil, Trash2, Archive, ArchiveRestore, MessageSquare,
-  Calendar, CalendarClock, Columns3, Rows3, CalendarPlus, Users,
+  Calendar, CalendarClock, Columns3, Rows3, CalendarPlus, Users, ListChecks,
 } from 'lucide-react';
 import { getDueDateMs, localTodayISO, notificationPermission } from '../../utils/notifications';
 import { listTypeMeta, ListDueBadge, fmtDate, MENU_BTN, useTicker, useNow } from './listMeta';
@@ -28,7 +28,7 @@ const GROUP_COLOR = {
 export function TaskListCard({
   list, listItems,
   onEditList, onDeleteList, onArchiveList,
-  onAddTodoItem, onAddTodoItems, onDeleteItem, onUpdateItem, onEditItem, onExport,
+  onAddTodoItem, onAddTodoItems, onDeleteItem, onUpdateItem, onEditItem, onExport, onSendToApps,
   onOpenAttachment, onToggleStatus, onSetBlocked, onAddTaskDetailed, onAddSubtask,
   onRenameSection, onDeleteSection, onAddWeek, onSetViewMode, onShareList,
   defaultExpanded = false,
@@ -337,6 +337,7 @@ export function TaskListCard({
               {list.share?.token ? 'Shared link…' : 'Share with someone…'}
             </button>
             <button onClick={() => { onExport(list); setMenuOpen(false); }} style={MENU_BTN}><MessageSquare size={14} /> Share as text</button>
+            <button onClick={() => { onSendToApps?.(list); setMenuOpen(false); }} style={MENU_BTN}><ListChecks size={14} /> Send to Reminders / Calendar</button>
             <button onClick={() => { onAddTaskDetailed(list, activeSectionId); setMenuOpen(false); }} style={MENU_BTN}><Plus size={14} /> Add task with details</button>
             {list.weekly?.enabled && (
               <button onClick={() => { onAddWeek?.(list); setMenuOpen(false); }} style={MENU_BTN}>

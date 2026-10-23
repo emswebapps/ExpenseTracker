@@ -8,6 +8,7 @@ import { formatCurrency, monthLabel } from '../utils/helpers';
 import { calcPaycheck, calcHoursFromShifts, getPayPeriodBounds, getPayPeriodAtOffset, getPaydayForPeriod } from '../utils/taxCalc';
 import Modal from '../components/Modal';
 import { buildShiftsIcs } from '../utils/shiftCalendar';
+import { canShareIcs, downloadIcs, shareIcs } from '../utils/icsFile';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -1442,29 +1443,16 @@ function ExportCalendarForm({ jobs, shifts, onDone }) {
   ), [shifts, jobId, from, to]);
 
   const ics = () => buildShiftsIcs(picked, jobs);
-  const canShareFile = typeof navigator !== 'undefined' && !!navigator.canShare &&
-    (() => { try { return navigator.canShare({ files: [new File([''], ICS_FILENAME, { type: 'text/calendar' })] }); } catch { return false; } })();
+  const canShareFile = canShareIcs(ICS_FILENAME);
 
   function handleDownload() {
-    const blob = new Blob([ics()], { type: 'text/calendar;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = ICS_FILENAME;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    downloadIcs(ics(), ICS_FILENAME);
     setStatus(`Exported ${picked.length} shift${picked.length === 1 ? '' : 's'}.`);
   }
 
   async function handleShare() {
-    const file = new File([ics()], ICS_FILENAME, { type: 'text/calendar' });
-    try {
-      await navigator.share({ files: [file], title: 'Work Shifts' });
+    if (await shareIcs(ics(), ICS_FILENAME, 'Work Shifts')) {
       setStatus(`Shared ${picked.length} shift${picked.length === 1 ? '' : 's'}.`);
-    } catch {
-      // Cancelled — nothing to do.
     }
   }
 

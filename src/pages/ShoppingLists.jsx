@@ -17,6 +17,7 @@ import {
   dayHeadingName, dayHeadingId, weeklyConfig,
 } from './lists/weeks.js';
 import { ExportModal } from './lists/shareText';
+import { SendToAppsModal } from './lists/SendToAppsModal';
 import { ShareListModal } from './lists/ShareListModal';
 import { PasteImportModal } from './lists/pasteImport';
 import { GroceryListCard } from './lists/GroceryListCard';
@@ -58,6 +59,7 @@ export default function ShoppingLists() {
   // gathered so far so they can be cleaned up if the form is abandoned.
   const [addTask, setAddTask] = useState(null); // { list, draftId, attachments }
   const [exportList, setExportList] = useState(null);
+  const [sendList, setSendList] = useState(null);
   const [shareListFor, setShareListFor] = useState(null); // list id being shared
   const [showArchived, setShowArchived] = useState(false);
   const [viewer, setViewer] = useState(null); // { itemId | draft, attId }
@@ -300,6 +302,7 @@ export default function ShoppingLists() {
     onAddItems: addShoppingItems,
     onToggleItem: toggleShoppingItem,
     onExport: setExportList,
+    onSendToApps: setSendList,
   });
 
   const taskCardProps = (list) => ({
@@ -307,6 +310,7 @@ export default function ShoppingLists() {
     onAddTodoItem: addShoppingItem,
     onAddTodoItems: addShoppingItems,
     onExport: setExportList,
+    onSendToApps: setSendList,
     onUpdateItem: updateShoppingItem,
     onOpenAttachment: (item, att) => setViewer({ itemId: item.id, attId: att.id }),
     onToggleStatus: handleToggleStatus,
@@ -345,6 +349,7 @@ export default function ShoppingLists() {
   };
 
   const exportItems = exportList ? shoppingItems.filter((i) => i.listId === exportList.id) : [];
+  const sendItems = sendList ? shoppingItems.filter((i) => i.listId === sendList.id) : [];
 
   return (
     <div className="app-page">
@@ -547,6 +552,11 @@ export default function ShoppingLists() {
       {exportList && (
         <Modal title="Share List" onClose={() => setExportList(null)}>
           <ExportModal list={exportList} items={exportItems} onClose={() => setExportList(null)} />
+        </Modal>
+      )}
+      {sendList && (
+        <Modal title={isTaskList(sendList.type) ? 'Send to Reminders or Calendar' : 'Send to Reminders'} onClose={() => setSendList(null)}>
+          <SendToAppsModal list={sendList} items={sendItems} onClose={() => setSendList(null)} />
         </Modal>
       )}
       {viewer && (() => {

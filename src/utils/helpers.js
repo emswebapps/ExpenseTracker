@@ -116,23 +116,28 @@ export function getMonthBounds(date = new Date()) {
   };
 }
 
-export function getDueDateLabel(dayOfMonth) {
-  if (!dayOfMonth) return '';
-  const today = new Date().getDate();
-  const diff = dayOfMonth - today;
-  if (diff === 0) return 'Due today';
-  if (diff === 1) return 'Due tomorrow';
-  if (diff < 0) return `${Math.abs(diff)}d overdue`;
-  return `Due in ${diff}d`;
-}
-
-// The due label on a bill card. A one-time bill names its actual date, since
-// a day of the month alone doesn't say which month it lands in.
-export function getBillDueLabel(bill) {
-  if (bill.isRecurring || !bill.month || !bill.dueDay) return getDueDateLabel(bill.dueDay);
-  const [y, m] = bill.month.split('-').map(Number);
-  const date = new Date(y, m - 1, bill.dueDay).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-  return bill.month === monthKey() ? `${getDueDateLabel(bill.dueDay)} · ${date}` : `Due ${date}`;
+// The due label on a bill card: how many days away it is and the date itself,
+// e.g. "Due in 21 days · November 23". `mk` is the month being viewed, so a
+// recurring bill counts down to its date in that month; a one-time bill always
+// uses its own month. Past dates only read as overdue in the current month —
+// a bill from an earlier month just names its date.
+export function getBillDueLabel(bill, mk = monthKey(), now = new Date()) {
+  if (!bill.dueDay) return '';
+  const [y, m] = (bill.isRecurring || !bill.month ? mk : bill.month).split('-').map(Number);
+  const day = Math.min(bill.dueDay, new Date(y, m, 0).getDate());
+  const due = new Date(y, m - 1, day);
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const diff = Math.round((due - today) / 86400000);
+  const date = due.toLocaleDateString('en-US', {
+    month: 'long', day: 'numeric',
+    ...(y !== now.getFullYear() && { year: 'numeric' }),
+  });
+  const plural = (n) => `${n} day${n === 1 ? '' : 's'}`;
+  if (diff === 0) return `Due today · ${date}`;
+  if (diff === 1) return `Due tomorrow · ${date}`;
+  if (diff > 1) return `Due in ${plural(diff)} · ${date}`;
+  if (monthKey(due) === monthKey(now)) return `${plural(-diff)} overdue · ${date}`;
+  return `Due ${date}`;
 }
 
 export function getDueDateColor(dayOfMonth, isPaid) {

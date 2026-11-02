@@ -54,7 +54,7 @@ function BillCard({ bill, mk, onSetStatus, onEdit, onDelete, onAttach }) {
   const attachCount = (bill.attachments || []).length;
   const status = getBillStatus(bill, mk);
   const isPermanent = bill.isPermanent || (!bill.dueDay && bill.isRecurring);
-  const dueDateLabel = !isPermanent && bill.dueDay ? getBillDueLabel(bill) : null;
+  const dueDateLabel = !isPermanent && bill.dueDay ? getBillDueLabel(bill, mk) : null;
   const isPaid = status === 'paid';
   const overdue = isBillOverdueUnpaid(bill, mk);
   const accentColor = isPaid ? 'var(--positive)' : overdue ? 'var(--danger)' : status === 'pending' ? 'var(--warn)' : 'var(--border2)';

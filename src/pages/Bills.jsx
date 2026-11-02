@@ -43,7 +43,7 @@ function BillCard({ bill, mk, onSetStatus, onEdit, onDelete, myName, spouseName 
   const status = getBillStatus(bill, mk);
   const statusColor = getBillStatusColor(status, bill.dueDay);
   const isPermanent = bill.isPermanent || (!bill.dueDay && bill.isRecurring);
-  const dueDateLabel = !isPermanent && bill.dueDay ? getBillDueLabel(bill) : null;
+  const dueDateLabel = !isPermanent && bill.dueDay ? getBillDueLabel(bill, mk) : null;
   const isPaid = status === 'paid';
   const overdue = isBillOverdueUnpaid(bill, mk);
 

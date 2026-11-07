@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
+import { AUTH_ERROR_MESSAGES } from '../utils/accounts';
 import { auth } from '../firebase';
 import { ArrowRight, Mail, Lock, UserPlus } from 'lucide-react';
 
@@ -11,6 +12,7 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [notice, setNotice] = useState('');
 
   async function handleSubmit() {
     if (!email || !password) { setError('Enter your email and password.'); return; }
@@ -24,17 +26,23 @@ export default function Login() {
         await createUserWithEmailAndPassword(auth, email, password);
       }
     } catch (err) {
-      const msg = {
-        'auth/user-not-found': 'No account found. Create one below.',
-        'auth/wrong-password': 'Incorrect password.',
-        'auth/invalid-email': 'Invalid email address.',
-        'auth/email-already-in-use': 'An account with this email already exists.',
-        'auth/invalid-credential': 'Incorrect email or password.',
-        'auth/too-many-requests': 'Too many attempts. Try again later.',
-      }[err.code] || 'Something went wrong. Try again.';
+      const msg = AUTH_ERROR_MESSAGES[err.code] || 'Something went wrong. Try again.';
       setError(msg);
     }
     setLoading(false);
+  }
+
+  // For an account someone else set up with a temporary password, as much as
+  // for a forgotten one: the email lets its owner pick their own.
+  async function handleReset() {
+    setError(''); setNotice('');
+    if (!email) { setError('Enter your email above, then tap Forgot password.'); return; }
+    try {
+      await sendPasswordResetEmail(auth, email.trim());
+      setNotice(`If ${email.trim()} has an account, a link to set a new password is on its way.`);
+    } catch (err) {
+      setError(AUTH_ERROR_MESSAGES[err.code] || 'Could not send the email. Try again.');
+    }
   }
 
   return (
@@ -100,6 +108,9 @@ export default function Login() {
           {error && (
             <p style={{ color: 'var(--danger)', fontSize: '0.875rem', marginBottom: '0.75rem' }}>{error}</p>
           )}
+          {notice && (
+            <p style={{ color: 'var(--positive)', fontSize: '0.875rem', marginBottom: '0.75rem' }}>{notice}</p>
+          )}
 
           <button
             onClick={handleSubmit}
@@ -112,13 +123,22 @@ export default function Login() {
               {mode === 'signin' ? 'Sign In' : 'Create Account'}</>
             )}
           </button>
+
+          {mode === 'signin' && (
+            <button
+              onClick={handleReset}
+              style={{ display: 'block', margin: '0.875rem auto 0', color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.85rem' }}
+            >
+              Forgot password?
+            </button>
+          )}
         </div>
 
         {/* Toggle mode */}
         <p style={{ textAlign: 'center', marginTop: '1.25rem', fontSize: '0.9rem', color: 'var(--muted)' }}>
           {mode === 'signin' ? "Don't have an account? " : 'Already have an account? '}
           <button
-            onClick={() => { setMode(mode === 'signin' ? 'signup' : 'signin'); setError(''); }}
+            onClick={() => { setMode(mode === 'signin' ? 'signup' : 'signin'); setError(''); setNotice(''); }}
             style={{ color: 'var(--accent-text)', fontWeight: '700', background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.9rem' }}
           >
             {mode === 'signin' ? 'Create one' : 'Sign in'}

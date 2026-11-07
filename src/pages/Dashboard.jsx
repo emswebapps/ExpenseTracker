@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, AreaChart, Area } from 'recharts';
-import { storage } from '../utils/storage';
+import { storage, getAccountItem, setAccountItem } from '../utils/storage';
 import { useApp } from '../context/AppContext';
 import {
   formatCurrency, monthKey, monthLabel, getBillsForMonth, getIncomeForMonth,
@@ -361,7 +361,7 @@ export default function Dashboard() {
   // Bill reminders — request notification permission and alert on due-soon bills
   useEffect(() => {
     if (!('Notification' in window)) return;
-    const lastCheck = localStorage.getItem('lastBillReminderCheck');
+    const lastCheck = getAccountItem('lastBillReminderCheck');
     const today = new Date().toDateString();
     if (lastCheck === today) return;
     const dueSoon = getBillsForMonth(bills, monthKey()).filter((b) => {
@@ -371,7 +371,7 @@ export default function Dashboard() {
     });
     if (dueSoon.length === 0) return;
     const show = () => {
-      localStorage.setItem('lastBillReminderCheck', today);
+      setAccountItem('lastBillReminderCheck', today);
       dueSoon.forEach((b) => {
         const diff = b.dueDay - new Date().getDate();
         new Notification('Bill Due Soon', {

@@ -26,9 +26,64 @@ const KEYS = {
   BILL_STICKY_NOTES: 'bt_bill_sticky_notes',
 };
 
-function get(key) {
+// ── Per-account namespacing ──────────────────────────────────────────────
+// This is the on-device cache of the cloud document, and it used to be one
+// shared set of keys for the whole browser. That was harmless while only one
+// person ever signed in, but a second account on the same phone would have
+// started from the first person's cached bills and income — and, finding no
+// cloud document of its own, uploaded them as its starting data.
+//
+// Every key now lives under the signed-in account's uid. Keys outside the
+// list below (dashboard collapse state, the Work Time tab) are display
+// preferences for the device, not anyone's data, and stay shared.
+//
+// The cache from before this change belongs to whoever was already signed in,
+// so the first account to load afterwards adopts it, once, and the device
+// records that it has been handed out. Any account after that starts empty.
+const ACCOUNT_KEYS = [...Object.values(KEYS), 'bt_fcm_token', 'lastBillReminderCheck'];
+const LEGACY_OWNER_KEY = 'bt_legacy_owner';
+
+let prefix = null;
+
+function accountPrefix(uid) { return `u:${uid}:`; }
+
+/**
+ * Point the cache at one account. Call before anything reads from storage for
+ * that account — the auth listener does it ahead of mounting the app.
+ * Passing null (signed out) makes every read come back empty and every write
+ * a no-op, so nothing can land in a key nobody owns.
+ */
+export function setStorageAccount(uid) {
+  prefix = uid ? accountPrefix(uid) : null;
+  if (!uid) return;
   try {
-    const val = localStorage.getItem(key);
+    if (localStorage.getItem(LEGACY_OWNER_KEY)) return;
+    for (const key of ACCOUNT_KEYS) {
+      const val = localStorage.getItem(key);
+      if (val === null) continue;
+      if (localStorage.getItem(prefix + key) === null) localStorage.setItem(prefix + key, val);
+      localStorage.removeItem(key);
+    }
+    localStorage.setItem(LEGACY_OWNER_KEY, uid);
+  } catch {
+    // Storage unavailable or full: the cloud copy is still the source of truth.
+  }
+}
+
+/** Raw string read/write for the signed-in account (no JSON). */
+export function getAccountItem(key) {
+  if (prefix === null) return null;
+  try { return localStorage.getItem(prefix + key); } catch { return null; }
+}
+export function setAccountItem(key, value) {
+  if (prefix === null) return;
+  try { localStorage.setItem(prefix + key, value); } catch { /* best effort */ }
+}
+
+function get(key) {
+  if (prefix === null) return null;
+  try {
+    const val = localStorage.getItem(prefix + key);
     return val ? JSON.parse(val) : null;
   } catch {
     return null;
@@ -36,7 +91,8 @@ function get(key) {
 }
 
 function set(key, value) {
-  localStorage.setItem(key, JSON.stringify(value));
+  if (prefix === null) return;
+  localStorage.setItem(prefix + key, JSON.stringify(value));
 }
 
 const DEFAULT_SETTINGS = {

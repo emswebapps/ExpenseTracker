@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { User, Trash2, AlertTriangle, Wallet, PiggyBank, DollarSign, Sun, Moon, LogOut, Mail, Download, Share2, RefreshCw, Copy, Check, X, Bell, BellOff, Lock, FolderOpen, ChevronRight, FlaskConical, Database } from 'lucide-react';
+import { User, Trash2, AlertTriangle, Wallet, PiggyBank, DollarSign, Sun, Moon, LogOut, Mail, Download, Share2, RefreshCw, Copy, Check, X, Bell, BellOff, Lock, FolderOpen, ChevronRight, FlaskConical, Database, UserPlus } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
 import Modal from '../components/Modal';
@@ -8,6 +8,7 @@ import { formatCurrency, exportAllData, exportAsHTML, exportJobScheduleHTML, get
 import { notificationPermission, sendNotification, pushKeyConfigured, REMINDER_LEAD_OPTIONS } from '../utils/notifications';
 import { httpsCallable } from 'firebase/functions';
 import { functions } from '../firebase';
+import { createAccountForSomeone, AUTH_ERROR_MESSAGES } from '../utils/accounts';
 
 const ALL_EXPORT_CATS = [
   { key: 'bills', label: 'Bills' },
@@ -150,6 +151,73 @@ function TestEmailButton() {
   );
 }
 
+/**
+ * Sets up a login for another person. They get their own, empty account —
+ * nothing of yours is copied or visible to them — and you stay signed in.
+ */
+function AddAccountModal({ onClose }) {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [created, setCreated] = useState(null);
+
+  const submit = async () => {
+    if (!email.trim() || !password) { setError('Enter their email and a password.'); return; }
+    if (password.length < 6) { setError('Password must be at least 6 characters.'); return; }
+    setBusy(true); setError('');
+    try {
+      setCreated(await createAccountForSomeone(email, password));
+    } catch (err) {
+      setError(AUTH_ERROR_MESSAGES[err.code] || 'Could not create the account. Try again.');
+    }
+    setBusy(false);
+  };
+
+  if (created) {
+    return (
+      <Modal title="Account created" onClose={onClose}
+        footer={<button onClick={onClose} className="app-btn-primary">Done</button>}>
+        <p className="text-sm mb-3" style={{ color: 'var(--text)' }}>
+          <strong>{created.email}</strong> can now sign in to this app with the password you chose.
+        </p>
+        <p className="text-sm" style={{ color: 'var(--muted)' }}>
+          Their account starts empty and is completely separate from yours — they can't see your
+          data and you can't see theirs. They can change the password with <em>Forgot password?</em> on
+          the sign-in screen.
+        </p>
+      </Modal>
+    );
+  }
+
+  return (
+    <Modal title="Add an account" onClose={onClose}
+      footer={
+        <button onClick={submit} disabled={busy} className="app-btn-primary" style={{ opacity: busy ? 0.7 : 1 }}>
+          {busy ? 'Creating…' : <><UserPlus size={18} /> Create Account</>}
+        </button>
+      }>
+      <p className="text-sm mb-4" style={{ color: 'var(--muted)' }}>
+        Create a login for someone else. They get their own separate, empty account; your data
+        stays private and you stay signed in.
+      </p>
+      <div className="mb-3">
+        <label className="app-label">Their email</label>
+        <input className="app-input" type="email" inputMode="email" autoComplete="off"
+          placeholder="them@example.com" value={email} onChange={(e) => setEmail(e.target.value)} autoFocus />
+      </div>
+      <div className="mb-3">
+        <label className="app-label">Temporary password</label>
+        <input className="app-input" type="text" autoComplete="new-password"
+          placeholder="At least 6 characters" value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && submit()} />
+      </div>
+      {error && <p className="text-sm" style={{ color: 'var(--danger)' }}>{error}</p>}
+    </Modal>
+  );
+}
+
 function NotifRow({ label, sublabel, checked, onChange }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.5rem 0', borderBottom: '1px solid var(--border)' }}>
@@ -170,6 +238,7 @@ export default function Settings() {
   const navigate = useNavigate();
   const [form, setForm] = useState({ ...settings });
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [showAddAccount, setShowAddAccount] = useState(false);
   const [saved, setSaved] = useState(false);
   const [exportCats, setExportCats] = useState(() => ALL_EXPORT_CATS.map((c) => c.key));
   const [exportStartDate, setExportStartDate] = useState(() => getMonthBounds().start);
@@ -364,7 +433,13 @@ export default function Settings() {
             style={{ color: 'var(--muted)', border: '1px solid var(--border)', padding: '0.625rem 1rem', borderRadius: '0.75rem', backgroundColor: 'transparent', cursor: 'pointer', width: '100%', justifyContent: 'center' }}>
             <LogOut size={15} /> Sign Out
           </button>
+          <button onClick={() => setShowAddAccount(true)}
+            className="flex items-center gap-2 text-sm font-semibold mt-2"
+            style={{ color: 'var(--accent-text)', border: '1px solid var(--border)', padding: '0.625rem 1rem', borderRadius: '0.75rem', backgroundColor: 'transparent', cursor: 'pointer', width: '100%', justifyContent: 'center' }}>
+            <UserPlus size={15} /> Add an Account for Someone
+          </button>
         </section>
+        {showAddAccount && <AddAccountModal onClose={() => setShowAddAccount(false)} />}
 
         {/* Share Link */}
         <section className="mb-4" style={cardStyle}>

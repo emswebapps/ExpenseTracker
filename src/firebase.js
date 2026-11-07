@@ -5,7 +5,7 @@ import { getStorage } from 'firebase/storage';
 import { getMessaging, isSupported } from 'firebase/messaging';
 import { getFunctions } from 'firebase/functions';
 
-const firebaseConfig = {
+export const firebaseConfig = {
   apiKey: 'AIzaSyA2oIL-WXWvzt1Ct256JF0_590CUpdXd_o',
   authDomain: 'billtracker-256ef.firebaseapp.com',
   projectId: 'billtracker-256ef',

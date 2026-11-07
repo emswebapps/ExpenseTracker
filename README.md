@@ -14,6 +14,21 @@ Mobile-first bill and budget tracking app built with React + Vite + Tailwind CSS
 - Mobile-first dark UI, works great on phone, iPad, and desktop
 - Add to Home Screen on iOS/Android for an app-like experience
 
+## Accounts for other people
+
+Each account's data is its own: it lives under `users/{uid}` in Firestore and
+the rules let only that account read or write it.
+
+- **Add an account for someone** — *Settings → Account → Add an Account for
+  Someone*. Enter their email and a temporary password; you stay signed in.
+  Their account starts empty. They can pick their own password with
+  *Forgot password?* on the sign-in screen.
+- They can also just tap *Create one* on the sign-in screen themselves.
+- **Sharing a device** — the on-device cache is kept per account, so signing
+  someone else in on your phone never shows them your data or copies it into
+  their account. Signing out also takes the device off your push
+  notifications.
+
 ## To-do timers & due dates
 
 To-do items support a due date/time and a countdown timer, both of which push a

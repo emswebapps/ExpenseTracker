@@ -14,8 +14,15 @@
     <meta name="theme-color" content="#0f172a" />
     <title>Finance Manager</title>
     <script>
+      // Restores the deep link 404.html bounced through here. A path without
+      // the /ExpenseTracker prefix would sit outside the router and draw a
+      // blank page, so one is never restored as-is.
       var redirect = sessionStorage.getItem('spa_redirect');
-      if (redirect) { sessionStorage.removeItem('spa_redirect'); history.replaceState(null, '', redirect); }
+      if (redirect) {
+        sessionStorage.removeItem('spa_redirect');
+        if (redirect.indexOf('/ExpenseTracker') !== 0) redirect = '/ExpenseTracker' + (redirect.charAt(0) === '/' ? '' : '/') + redirect;
+        history.replaceState(null, '', redirect);
+      }
     </script>
   </head>
   <body>

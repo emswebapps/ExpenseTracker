@@ -3,8 +3,14 @@
 <head>
   <meta charset="utf-8" />
   <script>
-    var path = window.location.pathname.replace('/ExpenseTracker', '') || '/';
-    sessionStorage.setItem('spa_redirect', path + window.location.search + window.location.hash);
+    // GitHub Pages has no SPA fallback, so a direct load of a deep link
+    // (/ExpenseTracker/settings, a share link, or any reload once the service
+    // worker is gone — which is exactly what Settings → Update App does) lands
+    // here. Hand the full path to index.html, which restores it.
+    //
+    // Keep the /ExpenseTracker prefix. Stripping it sent the app to /settings,
+    // outside the router's basename, where it renders nothing at all.
+    sessionStorage.setItem('spa_redirect', window.location.pathname + window.location.search + window.location.hash);
     window.location.replace('/ExpenseTracker/');
   </script>
 </head>

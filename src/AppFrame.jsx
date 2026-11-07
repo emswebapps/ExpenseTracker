@@ -76,7 +76,9 @@ export function AuthGate({ children }) {
   if (!user) return <Login />;
 
   return (
-    <AppProvider uid={user.uid}>
+    // Keyed by uid so switching accounts starts a fresh provider: its state is
+    // seeded from the cache once, at mount, and must not carry over.
+    <AppProvider key={user.uid} uid={user.uid}>
       <ThemeSync />
       <TestModeBanner />
       {children}

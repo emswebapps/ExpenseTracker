@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef, useMemo } from 'react';
-import { storage } from '../utils/storage';
+import { storage, getAccountItem, setAccountItem } from '../utils/storage';
 import {
   saveUserData, loadUserData, saveSharedView, saveFCMToken,
   saveListShare, setListShareRevoked, deleteListShare, subscribeListShare,
@@ -76,7 +76,7 @@ export function AppProvider({ children, uid }) {
   const [recurringTemplates, setRecurringTemplatesState] = useState(() => storage.getRecurringTemplates());
   const [paycheckActuals, setPaycheckActualsState] = useState(() => storage.getPaycheckActuals());
   const [notifPrefs, setNotifPrefsState] = useState(() => storage.getNotifPrefs());
-  const [fcmToken, setFcmToken] = useState(() => localStorage.getItem('bt_fcm_token') || null);
+  const [fcmToken, setFcmToken] = useState(() => getAccountItem('bt_fcm_token') || null);
   const [projects, setProjectsState] = useState(() => storage.getProjects());
   const [vaultDocuments, setVaultDocumentsState] = useState(() => storage.getVaultDocuments());
   const [billStickyNotes, setBillStickyNotesState] = useState(() => storage.getBillStickyNotes());
@@ -129,12 +129,14 @@ export function AppProvider({ children, uid }) {
         if (data.recurringTemplates) { setRecurringTemplatesState(data.recurringTemplates); storage.setRecurringTemplates(data.recurringTemplates); }
         if (data.paycheckActuals) { setPaycheckActualsState(data.paycheckActuals); storage.setPaycheckActuals(data.paycheckActuals); }
         if (data.notifPrefs) { setNotifPrefsState({ ...storage.getNotifPrefs(), ...data.notifPrefs, bills: { ...storage.getNotifPrefs().bills, ...(data.notifPrefs.bills || {}) }, commitments: { ...storage.getNotifPrefs().commitments, ...(data.notifPrefs.commitments || {}) }, todos: { ...storage.getNotifPrefs().todos, ...(data.notifPrefs.todos || {}) }, shifts: { ...storage.getNotifPrefs().shifts, ...(data.notifPrefs.shifts || {}) }, email: { ...storage.getNotifPrefs().email, ...(data.notifPrefs.email || {}) } }); storage.setNotifPrefs(data.notifPrefs); }
-        if (data.fcmToken && !fcmToken) { setFcmToken(data.fcmToken); localStorage.setItem('bt_fcm_token', data.fcmToken); }
+        if (data.fcmToken && !fcmToken) { setFcmToken(data.fcmToken); setAccountItem('bt_fcm_token', data.fcmToken); }
         if (data.projects) { setProjectsState(data.projects); storage.setProjects(data.projects); }
         if (data.vaultDocuments) { setVaultDocumentsState(data.vaultDocuments); storage.setVaultDocuments(data.vaultDocuments); }
         if (data.billStickyNotes) { setBillStickyNotesState(data.billStickyNotes); storage.setBillStickyNotes(data.billStickyNotes); }
       } else {
-        // First login — upload existing localStorage data to Firestore
+        // No cloud document yet — upload what's in this account's cache. For an
+        // account that has never been used on this device that's just the
+        // defaults: the cache is per account, so nobody else's data is in it.
         saveUserData(uid, stateRef.current);
       }
       setCloudLoaded(true);
@@ -291,7 +293,7 @@ export function AppProvider({ children, uid }) {
     const token = await registerFCMToken();
     if (token) {
       setFcmToken(token);
-      localStorage.setItem('bt_fcm_token', token);
+      setAccountItem('bt_fcm_token', token);
       if (uid) saveUserData(uid, { fcmToken: token });
     }
     return { ok: true, hasPush: !!token };
@@ -716,10 +718,15 @@ export function AppProvider({ children, uid }) {
     debouncedSync({ purchases: nextPurchases, recurringTemplates: updatedTemplates });
   }, [cloudLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Seed permanent budget categories after cloud data is ready
+  // Seed permanent budget categories after cloud data is ready.
+  //
+  // Only for an account that already carries them. These are one person's own
+  // envelopes and amounts; the job here is to put one back if it goes missing,
+  // not to hand the same set to every account that signs up.
   useEffect(() => {
     if (!cloudLoaded) return;
     const current = stateRef.current.budgetCategories;
+    if (!current.some((c) => c.isPermanent)) return;
     const next = [...current];
     let changed = false;
     PERMANENT_BUDGET_CATEGORIES.forEach((p) => {

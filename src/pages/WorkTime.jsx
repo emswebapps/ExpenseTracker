@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import {
   Briefcase, Clock, ChevronLeft, ChevronRight, Plus, Pencil, Trash2,
-  MoreVertical, Check, Calculator, Save, Info, Share2, Copy, CalendarPlus,
+  MoreVertical, Check, Calculator, Info, Share2, Copy, CalendarPlus,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { formatCurrency, monthLabel } from '../utils/helpers';
@@ -1878,11 +1878,10 @@ function HoursTab({ jobs, shifts, addShift, updateShift, deleteShift, bulkSaveSh
 
 // ── Estimate Tab ──────────────────────────────────────────────────────────────
 
-function EstimateTab({ jobs, shifts, addIncome }) {
+function EstimateTab({ jobs, shifts }) {
   const [selectedJobId, setSelectedJobId] = useState(jobs[0]?.id || '');
   const [preset, setPreset] = useState('current');
   const [range, setRange] = useState(() => getLastNDaysEnd(14));
-  const [saved, setSaved] = useState(false);
   const [copied, setCopied] = useState(false);
   const [periodOffset, setPeriodOffset] = useState(0);
   const [autoAdvance, setAutoAdvance] = useState(false);
@@ -1936,41 +1935,21 @@ function EstimateTab({ jobs, shifts, addIncome }) {
 
   function handlePreset(key) {
     setPreset(key);
-    setSaved(false);
   }
 
   function handleJobChange(id) {
     setSelectedJobId(id);
-    setSaved(false);
     setPreset('current');
     setPeriodOffset(0);
   }
 
   // Pay is counted in the month the money arrives. Without a payday on the
-  // job, the period's last day is the best guess.
+  // job, the period's last day is the best guess. The Income tab works its
+  // paychecks out from the logged hours on its own (see utils/workIncome), so
+  // there's nothing to save from here — this only says where the pay lands.
   const payday = getPaydayForPeriod(job, range.end);
   const incomeMonth = (payday || range.end).slice(0, 7);
-
-  function handleSave() {
-    if (!result || !job) return;
-    addIncome({
-      source: `${job.name} — Paycheck Est.`,
-      amount: result.netPay,
-      frequency: 'monthly',
-      isRecurring: false,
-      month: incomeMonth,
-      person: 'me',
-      notes: `${periodLabel(range.start, range.end)} · Gross ${formatCurrency(result.grossPay)}`,
-      isWorkTimeEntry: true,
-      jobId: job.id,
-      grossPay: result.grossPay,
-      payPeriodStart: range.start,
-      payPeriodEnd: range.end,
-      payday,
-      includeInAvailability: job.includeInAvailability !== false,
-    });
-    setSaved(true);
-  }
+  const isPayPeriodView = !!payPeriods && preset === 'current';
 
   function buildExportText() {
     if (!result || !job) return '';
@@ -2049,18 +2028,18 @@ function EstimateTab({ jobs, shifts, addIncome }) {
         <p style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--subtle)', marginBottom: '0.5rem' }}>Pay Period</p>
         {payPeriods && preset === 'current' && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-            <button type="button" onClick={() => { setPeriodOffset((o) => o - 1); setSaved(false); }}
+            <button type="button" onClick={() => setPeriodOffset((o) => o - 1)}
               style={{ padding: '0.375rem', borderRadius: '0.625rem', color: 'var(--muted)', background: 'none', border: '1px solid var(--border)', cursor: 'pointer' }}>
               <ChevronLeft size={16} />
             </button>
-            <button type="button" onClick={() => { setPeriodOffset(0); setSaved(false); }} disabled={periodOffset === 0}
+            <button type="button" onClick={() => setPeriodOffset(0)} disabled={periodOffset === 0}
               title={periodOffset === 0 ? undefined : 'Back to the current pay period'}
               style={{ flex: 1, fontSize: '0.75rem', fontWeight: '600', textAlign: 'center', background: 'none', border: 'none', padding: '0.25rem',
                 color: periodOffset === 0 ? 'var(--positive-text)' : 'var(--accent-text)',
                 cursor: periodOffset === 0 ? 'default' : 'pointer' }}>
               {periodOffsetLabel(periodOffset)}
             </button>
-            <button type="button" onClick={() => { setPeriodOffset((o) => o + 1); setSaved(false); }}
+            <button type="button" onClick={() => setPeriodOffset((o) => o + 1)}
               style={{ padding: '0.375rem', borderRadius: '0.625rem', color: 'var(--muted)', background: 'none', border: '1px solid var(--border)', cursor: 'pointer' }}>
               <ChevronRight size={16} />
             </button>
@@ -2096,11 +2075,11 @@ function EstimateTab({ jobs, shifts, addIncome }) {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.5rem' }}>
             <div>
               <Label>Start</Label>
-              <Input type="date" value={range.start} onChange={(e) => { setRange((r) => ({ ...r, start: e.target.value })); setSaved(false); }} />
+              <Input type="date" value={range.start} onChange={(e) => setRange((r) => ({ ...r, start: e.target.value }))} />
             </div>
             <div>
               <Label>End</Label>
-              <Input type="date" value={range.end} onChange={(e) => { setRange((r) => ({ ...r, end: e.target.value })); setSaved(false); }} />
+              <Input type="date" value={range.end} onChange={(e) => setRange((r) => ({ ...r, end: e.target.value }))} />
             </div>
           </div>
         )}
@@ -2141,17 +2120,13 @@ function EstimateTab({ jobs, shifts, addIncome }) {
             </p>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: saved ? '1fr' : '1fr auto', gap: '0.5rem', marginTop: '0' }}>
-            {saved ? (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', padding: '0.875rem', borderRadius: '0.875rem', backgroundColor: 'var(--positive-soft)', color: 'var(--positive-text)', fontWeight: '700' }}>
-                <Check size={16} /> Saved to {monthLabel(incomeMonth)} Income
-              </div>
-            ) : (
-              <button onClick={handleSave} className="app-btn-primary"
-                style={{ backgroundColor: 'var(--positive)', marginTop: '0' }}>
-                <Save size={18} /> Save to {monthLabel(incomeMonth)} Income
-              </button>
-            )}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '0.5rem', marginTop: '0' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', padding: '0.75rem', borderRadius: '0.875rem', backgroundColor: 'var(--positive-soft)', color: 'var(--positive-text)', fontWeight: '700', fontSize: '0.8125rem', textAlign: 'center', lineHeight: 1.3 }}>
+              <Check size={16} style={{ flexShrink: 0 }} />
+              {isPayPeriodView || !payPeriods
+                ? `In ${monthLabel(incomeMonth)} Income automatically`
+                : 'Income tab counts each pay period automatically'}
+            </div>
             <button onClick={handleShare}
               style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.875rem 1rem', borderRadius: '0.875rem', border: '1px solid var(--border)', backgroundColor: 'var(--surface2)', color: copied ? 'var(--positive-text)' : 'var(--muted)', fontWeight: '700', fontSize: '0.875rem', cursor: 'pointer', whiteSpace: 'nowrap' }}>
               {copied ? <><Check size={16} /> Copied!</> : <><Share2 size={16} /> Share</>}
@@ -2287,7 +2262,7 @@ function SegmentedControl({ value, onChange, options }) {
 // ── Page Content (also exported for embedding) ────────────────────────────────
 
 export function WorkTimeContent() {
-  const { jobs, addJob, updateJob, deleteJob, shifts, addShift, updateShift, deleteShift, bulkSaveShifts, addIncome, paycheckActuals, addPaycheckActual } = useApp();
+  const { jobs, addJob, updateJob, deleteJob, shifts, addShift, updateShift, deleteShift, bulkSaveShifts, paycheckActuals, addPaycheckActual } = useApp();
   const [tab, setTab] = useState(() => {
     const s = localStorage.getItem('workTimeTab');
     return TABS.includes(s) ? s : 'jobs';
@@ -2343,7 +2318,7 @@ export function WorkTimeContent() {
         )}
 
         {tab === 'estimate' && (
-          <EstimateTab jobs={jobs} shifts={shifts} addIncome={addIncome} />
+          <EstimateTab jobs={jobs} shifts={shifts} />
         )}
 
         {tab === 'quick' && (

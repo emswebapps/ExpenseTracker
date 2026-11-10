@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Pencil, Trash2, MoreVertical, TrendingUp, RefreshCw, ChevronLeft, ChevronRight, Plus, Paperclip } from 'lucide-react';
+import { Pencil, Trash2, MoreVertical, TrendingUp, RefreshCw, ChevronLeft, ChevronRight, Plus, Paperclip, Clock } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
 import { formatCurrency, monthKey, monthLabel, getIncomeForMonth } from '../utils/helpers';
@@ -80,6 +80,50 @@ function IncomeCard({ item, onEdit, onDelete, onAttach }) {
   );
 }
 
+// A paycheck worked out from logged hours. It follows the shifts on its own,
+// so there's nothing to edit or delete here — change the hours instead.
+function WorkIncomeCard({ item, onOpenHours }) {
+  return (
+    <div style={{ backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '1rem', padding: '1rem' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '0.5rem' }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <p style={{ fontWeight: '700', fontSize: '1rem', color: 'var(--text)' }}>{item.source}</p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.25rem', flexWrap: 'wrap' }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.75rem', backgroundColor: 'var(--accent-soft)', color: 'var(--accent-text)', padding: '0.25rem 0.625rem', borderRadius: '0.5rem', fontWeight: 600 }}>
+              <Clock size={11} /> {item.hours}h logged
+            </span>
+            {!item.isEstimate && (
+              <span style={{ fontSize: '0.75rem', backgroundColor: 'var(--positive-soft)', color: 'var(--positive-text)', padding: '0.25rem 0.625rem', borderRadius: '0.5rem', fontWeight: 600 }}>
+                Actual
+              </span>
+            )}
+          </div>
+          {item.notes && <p style={{ fontSize: '0.75rem', color: 'var(--subtle)', marginTop: '0.375rem' }}>{item.notes}</p>}
+        </div>
+        <div style={{ textAlign: 'right', flexShrink: 0 }}>
+          <p style={{ fontSize: '1.25rem', fontWeight: '900', color: 'var(--positive-text)' }}>{formatCurrency(item.amount)}</p>
+          <p style={{ fontSize: '0.75rem', color: 'var(--subtle)' }}>{item.isEstimate ? 'est. net' : 'net'}</p>
+        </div>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.5rem', gap: '0.5rem' }}>
+        <p style={{ fontSize: '0.75rem', color: 'var(--subtle)' }}>
+          {item.includeInAvailability ? 'Updates as you log hours' : 'Updates as you log hours · not in availability'}
+        </p>
+        <button onClick={onOpenHours}
+          style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--accent-text)', background: 'none', border: 'none', cursor: 'pointer', padding: '0.25rem 0', flexShrink: 0 }}>
+          View hours
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function SectionLabel({ children }) {
+  return (
+    <p style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--subtle)', margin: '0.25rem 0.125rem 0' }}>{children}</p>
+  );
+}
+
 export default function Income() {
   const { income, addIncome, updateIncome, deleteIncome, selectedMonth: mk, setSelectedMonth: setMk } = useApp();
   const { user } = useAuth();
@@ -90,6 +134,13 @@ export default function Income() {
 
   const monthIncome = getIncomeForMonth(income, mk);
   const totalMonthly = monthIncome.reduce((s, i) => s + monthlyAmount(i), 0);
+  const manualIncome = monthIncome.filter((i) => !i.isAutoWorkIncome);
+  const workIncome = monthIncome.filter((i) => i.isAutoWorkIncome);
+
+  const openHours = () => {
+    try { localStorage.setItem('workTimeTab', 'hours'); } catch { /* storage unavailable */ }
+    setViewMode('worktime');
+  };
 
   return (
     <div className="app-page">
@@ -142,7 +193,7 @@ export default function Income() {
             <div style={{ textAlign: 'center', padding: '3rem 1rem' }}>
               <TrendingUp size={48} style={{ margin: '0 auto 1rem', opacity: 0.2, color: 'var(--muted)', display: 'block' }} />
               <p style={{ fontWeight: '700', color: 'var(--text)', fontSize: '1.125rem', marginBottom: '0.5rem' }}>No income yet</p>
-              <p style={{ fontSize: '0.9375rem', color: 'var(--muted)', marginBottom: '1.5rem' }}>Add your income sources to get started.</p>
+              <p style={{ fontSize: '0.9375rem', color: 'var(--muted)', marginBottom: '1.5rem' }}>Add your income sources, or log hours in Work Time — your paychecks show up here on their own.</p>
               <button onClick={() => setShowAdd(true)} className="app-btn-primary" style={{ maxWidth: '14rem', margin: '0 auto' }}>
                 <Plus size={18} /> Add Income
               </button>
@@ -156,9 +207,14 @@ export default function Income() {
                 </button>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                {monthIncome.map((item) => (
+                {workIncome.length > 0 && manualIncome.length > 0 && <SectionLabel>Other income</SectionLabel>}
+                {manualIncome.map((item) => (
                   <IncomeCard key={item.id} item={item} onEdit={setEditItem} onDelete={deleteIncome}
                     onAttach={(i) => setAttachItemId(i.id)} />
+                ))}
+                {workIncome.length > 0 && <SectionLabel>From your work hours</SectionLabel>}
+                {workIncome.map((item) => (
+                  <WorkIncomeCard key={item.id} item={item} onOpenHours={openHours} />
                 ))}
               </div>
             </>

@@ -5,6 +5,7 @@ import {
   saveListShare, setListShareRevoked, deleteListShare, subscribeListShare,
 } from '../utils/firestoreSync';
 import { generateId, currentMonthKey, getBillStatus, getBillsForMonth, nextBillStatus, isTaskList, isPartnerOnly, withoutPartner } from '../utils/helpers';
+import { deriveWorkIncome, mergeWorkIncome } from '../utils/workIncome';
 import { notificationPermission, requestNotificationPermission, sendNotification, computeDueAt, todoReminderAt, localTodayISO, registerFCMToken, onForegroundMessage, scheduleShiftNotification, cancelShiftNotification } from '../utils/notifications';
 import { planWeeks, weeklyConfig, refileByDate } from '../pages/lists/weeks.js';
 
@@ -1464,12 +1465,19 @@ export function AppProvider({ children, uid }) {
     };
   }, [shifts, jobs]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Paychecks worked out from logged hours. Rebuilt whenever a shift, job or
+  // recorded actual changes, so the Income tab follows the hours on its own.
+  const workIncome = useMemo(
+    () => deriveWorkIncome(jobs, shifts, paycheckActuals),
+    [jobs, shifts, paycheckActuals],
+  );
+
   // What the pages see: everything except records tagged to a partner (see
   // `isPartnerOnly`). The mutators above keep working on the full arrays, so
   // editing or deleting a visible record never drops a hidden one.
   const visible = useMemo(() => ({
     bills: withoutPartner(bills),
-    income: withoutPartner(income),
+    income: mergeWorkIncome(withoutPartner(income), jobs, workIncome),
     debts: withoutPartner(debts),
     savings: withoutPartner(savings),
     commitments: withoutPartner(commitments),
@@ -1478,7 +1486,7 @@ export function AppProvider({ children, uid }) {
     budgetSpends: withoutPartner(budgetSpends),
     agreements: withoutPartner(agreements),
     recurringTemplates: withoutPartner(recurringTemplates),
-  }), [bills, income, debts, savings, commitments, purchases, plannedExpenses, budgetSpends, agreements, recurringTemplates]);
+  }), [bills, income, jobs, workIncome, debts, savings, commitments, purchases, plannedExpenses, budgetSpends, agreements, recurringTemplates]);
 
   return (
     <AppContext.Provider value={{

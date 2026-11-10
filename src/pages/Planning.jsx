@@ -3,6 +3,7 @@ import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianG
 import { ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Check, Wallet } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { formatCurrency, getPayDatesForMonth, getBillsForMonth, getBillStatus, monthKey, monthLabel } from '../utils/helpers';
+import { annualizeWorkIncome } from '../utils/workIncome';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -53,9 +54,11 @@ const DEDUCTION_TYPES = [
   { type: 'other', label: 'Other / Custom' },
 ];
 
-// Uses grossAmount from income records when available, falls back to amount
+// Uses grossAmount from income records when available, falls back to amount.
+// Paychecks worked out from logged hours are annualized from their average
+// paycheck instead — one entry per pay period, each ×12, would overcount.
 function annualFromRecords(income, useGross = true) {
-  return income.reduce((s, i) => {
+  return annualizeWorkIncome(income, useGross) + income.filter((i) => !i.isAutoWorkIncome).reduce((s, i) => {
     const mult = i.frequency === 'weekly' ? 52 : i.frequency === 'biweekly' ? 26 : i.frequency === 'semimonthly' ? 24 : 12;
     const amt = useGross
       ? (parseFloat(i.grossAmount) || parseFloat(i.amount) || 0)
@@ -880,7 +883,11 @@ function CashFlowContent() {
     const [y, m] = mk.split('-').map(Number);
     const events = [];
     income.filter((i) => i.isRecurring || i.month === mk).forEach((item) => {
-      if (!item.startDate || item.frequency === 'monthly') {
+      if (item.isAutoWorkIncome) {
+        // Paychecks from logged hours land on their payday (or the period's end).
+        const d = item.payday || item.payPeriodEnd;
+        events.push({ date: new Date(+d.slice(0, 4), +d.slice(5, 7) - 1, +d.slice(8, 10)), amount: item.amount, source: item.source });
+      } else if (!item.startDate || item.frequency === 'monthly') {
         events.push({ date: new Date(y, m - 1, 1), amount: item.amount, source: item.source || 'Income' });
       } else {
         getPayDatesForMonth(item, mk).forEach((d) =>

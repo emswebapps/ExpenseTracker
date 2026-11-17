@@ -1,5 +1,8 @@
 import { useState } from 'react';
-import { Link, CalendarOff } from 'lucide-react';
+import { Link, CalendarOff, Wallet } from 'lucide-react';
+
+// Which paycheck of the month a bill is paid from. '' means not set.
+const PAYCHECK_OPTIONS = [['', 'Not set'], ['first', '1st paycheck'], ['second', '2nd paycheck']];
 
 const CATEGORIES = ['Housing', 'Utilities', 'Insurance', 'Subscriptions', 'Auto', 'Medical', 'Food', 'Entertainment', 'Other'];
 
@@ -10,6 +13,7 @@ export default function BillForm({ initial = {}, onSave, onCancel }) {
     dueDay: '',
     category: 'Other',
     isPermanent: false,
+    paycheck: '',
     paymentUrl: '',
     notes: '',
     owner: 'aaron',
@@ -24,6 +28,7 @@ export default function BillForm({ initial = {}, onSave, onCancel }) {
         ? `${initial.month}-${String(initial.dueDay).padStart(2, '0')}`
         : ''),
     owner: initial.owner || 'aaron',
+    paycheck: initial.paycheck || '',
   });
 
   const set = (key, val) => setForm((f) => ({ ...f, [key]: val }));
@@ -122,10 +127,29 @@ export default function BillForm({ initial = {}, onSave, onCancel }) {
             <p className="text-sm font-medium flex items-center gap-1.5" style={{ color: 'var(--text)' }}>
               <CalendarOff size={14} /> Permanent bill
             </p>
-            <p className="text-xs" style={{ color: 'var(--subtle)' }}>No specific due date — always recurring</p>
+            <p className="text-xs" style={{ color: 'var(--subtle)' }}>Always recurring — the due day above still shows on the bill</p>
           </div>
         </label>
       )}
+
+      <div>
+        <label className="app-label flex items-center gap-1.5">
+          <Wallet size={14} /> Comes out of
+        </label>
+        <div style={{ display: 'flex', gap: '0.25rem', backgroundColor: 'var(--surface2)', borderRadius: '0.75rem', padding: '0.25rem' }}>
+          {PAYCHECK_OPTIONS.map(([val, label]) => (
+            <button key={label} type="button" onClick={() => set('paycheck', val)}
+              style={{
+                flex: 1, padding: '0.5rem 0', borderRadius: '0.5rem', fontSize: '0.8125rem', fontWeight: 700,
+                border: 'none', cursor: 'pointer', transition: 'all 0.15s',
+                backgroundColor: form.paycheck === val ? 'var(--accent)' : 'transparent',
+                color: form.paycheck === val ? '#fff' : 'var(--subtle)',
+              }}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
 
       <div>
         <label className="app-label">Category</label>

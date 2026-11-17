@@ -10,7 +10,7 @@ import {
 import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
 import {
-  formatCurrency, monthKey, monthLabel, getBillDueLabel,
+  formatCurrency, monthKey, monthLabel, getBillDueLabel, paycheckLabel,
   getBillsForMonth, getBillStatus, isBillOverdueUnpaid,
   calcDebtPayoff, getPayDatesForMonth,
 } from '../utils/helpers';
@@ -54,7 +54,8 @@ function BillCard({ bill, mk, onSetStatus, onEdit, onDelete, onAttach }) {
   const attachCount = (bill.attachments || []).length;
   const status = getBillStatus(bill, mk);
   const isPermanent = bill.isPermanent || (!bill.dueDay && bill.isRecurring);
-  const dueDateLabel = !isPermanent && bill.dueDay ? getBillDueLabel(bill, mk) : null;
+  const dueDateLabel = bill.dueDay ? getBillDueLabel(bill, mk) : null;
+  const paycheck = paycheckLabel(bill.paycheck);
   const isPaid = status === 'paid';
   const overdue = isBillOverdueUnpaid(bill, mk);
   const accentColor = isPaid ? 'var(--positive)' : overdue ? 'var(--danger)' : status === 'pending' ? 'var(--warn)' : 'var(--border2)';
@@ -76,10 +77,15 @@ function BillCard({ bill, mk, onSetStatus, onEdit, onDelete, onAttach }) {
                 <span style={{ fontSize: '0.6875rem', color: 'var(--subtle)', backgroundColor: 'var(--surface2)', border: '1px solid var(--border)', padding: '0.125rem 0.5rem', borderRadius: '0.375rem' }}>One-time</span>
               )}
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.25rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.25rem', flexWrap: 'wrap' }}>
               <span style={{ fontSize: '0.75rem', color: 'var(--subtle)' }}>{bill.category}</span>
               {dueDateLabel && <span style={{ fontSize: '0.75rem', fontWeight: 600, color: overdue ? 'var(--danger)' : 'var(--muted)' }}>· {dueDateLabel}</span>}
             </div>
+            {paycheck && (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', marginTop: '0.375rem', fontSize: '0.6875rem', fontWeight: 700, color: 'var(--accent-text)', backgroundColor: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.3)', padding: '0.125rem 0.5rem', borderRadius: '0.375rem' }}>
+                <Wallet size={10} /> From {paycheck}
+              </span>
+            )}
           </div>
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.375rem', flexShrink: 0 }}>
             <p style={{ fontSize: '1.25rem', fontWeight: 800, color: isPaid ? 'var(--positive-text)' : status === 'pending' ? 'var(--warn)' : 'var(--text)' }}>
@@ -253,12 +259,8 @@ function BillCalendarView({ bills, income, mk, onSetStatus }) {
     return nums;
   }, [income, mk]);
 
-  const noDueDateBills = useMemo(() =>
-    bills.filter((b) => !b.dueDay && !(b.isPermanent || (!b.dueDay && b.isRecurring))),
-    [bills]);
-  const permanentBills = useMemo(() =>
-    bills.filter((b) => b.isPermanent || (!b.dueDay && b.isRecurring)),
-    [bills]);
+  // Bills with a due day sit on the calendar, permanent ones included.
+  const noDueDateBills = useMemo(() => bills.filter((b) => !b.dueDay), [bills]);
 
   const todayStr = new Date().toISOString().slice(0, 10);
   const STATUS_CYCLE_MAP = { paid: 'unpaid', unpaid: 'pending', pending: 'paid' };
@@ -327,10 +329,10 @@ function BillCalendarView({ bills, income, mk, onSetStatus }) {
       </div>
       <p style={{ fontSize: '0.6875rem', color: 'var(--subtle)', marginTop: '0.375rem' }}>Tap a bill chip to cycle its status</p>
 
-      {(permanentBills.length > 0 || noDueDateBills.length > 0) && (
+      {noDueDateBills.length > 0 && (
         <div style={{ marginTop: '1rem' }}>
           <p style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--subtle)', marginBottom: '0.5rem' }}>No specific due date</p>
-          {[...permanentBills, ...noDueDateBills].map((b) => {
+          {noDueDateBills.map((b) => {
             const status = getBillStatus(b, mk);
             return (
               <div key={b.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem 0', borderBottom: '1px solid var(--border)' }}>
@@ -685,6 +687,13 @@ export default function BillsDebts() {
 
   const overdueCount = monthBills.filter((b) => isBillOverdueUnpaid(b, mk)).length;
 
+  // What each paycheck has to cover this month, for bills assigned to one.
+  const paycheckTotals = ['first', 'second'].map((p) => {
+    const list = monthBills.filter((b) => b.paycheck === p);
+    return { p, count: list.length, total: list.reduce((sum, b) => sum + (Number(b.amount) || 0), 0) };
+  });
+  const showPaycheckTotals = paycheckTotals.some((t) => t.count > 0);
+
   const sortedDebts = [
     ...debts.filter((d) => !(d.paidMonths || {})[mk]).sort((a, b) => b.balance - a.balance),
     ...debts.filter((d) => (d.paidMonths || {})[mk]).sort((a, b) => b.balance - a.balance),
@@ -818,6 +827,20 @@ export default function BillsDebts() {
                 <p style={{ fontSize: '0.875rem', color: 'var(--danger)', fontWeight: 600 }}>
                   {overdueCount} bill{overdueCount > 1 ? 's are' : ' is'} overdue
                 </p>
+              </div>
+            )}
+
+            {showPaycheckTotals && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                {paycheckTotals.map(({ p, count, total }) => (
+                  <div key={p} style={{ backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '0.875rem', padding: '0.625rem 0.875rem' }}>
+                    <p style={{ fontSize: '0.6875rem', fontWeight: 700, color: 'var(--subtle)', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                      <Wallet size={11} /> {paycheckLabel(p)}
+                    </p>
+                    <p style={{ fontSize: '1.0625rem', fontWeight: 800, color: 'var(--text)', marginTop: '0.125rem' }}>{formatCurrency(total)}</p>
+                    <p style={{ fontSize: '0.6875rem', color: 'var(--subtle)' }}>{count} bill{count === 1 ? '' : 's'}</p>
+                  </div>
+                ))}
               </div>
             )}
 

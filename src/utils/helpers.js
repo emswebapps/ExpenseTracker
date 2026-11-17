@@ -140,6 +140,13 @@ export function getBillDueLabel(bill, mk = monthKey(), now = new Date()) {
   return `Due ${date}`;
 }
 
+// The label for the paycheck a bill comes out of ('first' / 'second').
+export function paycheckLabel(paycheck) {
+  if (paycheck === 'first') return '1st paycheck';
+  if (paycheck === 'second') return '2nd paycheck';
+  return '';
+}
+
 export function getDueDateColor(dayOfMonth, isPaid) {
   if (isPaid) return 'text-emerald-400';
   const today = new Date().getDate();
